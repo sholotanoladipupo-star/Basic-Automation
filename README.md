@@ -47,7 +47,45 @@ Access at: `http://localhost:3001`
 
 ---
 
+### 3. **Valentine App** 💝 *(NEW)*
+A beautiful, interactive Valentine's Day surprise app to make the day unforgettable!
+
+**Key Features:**
+- 📸 Interactive Photo Gallery (Upload & Browse Memories)
+- ❓ Fun Questions About You (Food, Personality, Date Preference, Outfit)
+- 💍 Beautiful Proposal Screen
+- 🎉 Celebration & Sharing
+- ✨ Romantic Animations & Effects
+- 📱 Fully Responsive Design
+- 🌐 Shareable Link
+
+**Getting Started:**
+```bash
+cd Valentine-App
+npm install
+npm run dev
+```
+Access at: `http://localhost:3002`
+
+**How It Works:**
+1. Upload photos from your memories
+2. Answer fun questions about yourself
+3. Experience a beautiful proposal
+4. Celebrate with confetti
+5. Share the link with your loved one
+
+👉 **See [VALENTINE_APP_GUIDE.md](./VALENTINE_APP_GUIDE.md) for detailed guide!**
+
+---
+
 ## 🚀 Quick Setup
+
+### All Apps Together
+
+```bash
+# Install all dependencies at once
+./install-all.sh
+```
 
 ### Individual Setup
 
@@ -61,6 +99,13 @@ npm run dev
 **Business App:**
 ```bash
 cd Business-App
+npm install
+npm run dev
+```
+
+**Valentine App:**
+```bash
+cd Valentine-App
 npm install
 npm run dev
 ```
@@ -91,12 +136,46 @@ npm run dev
    - CV: `http://YOUR_IP:3000`
    - Business App: `http://YOUR_IP:3001`
 
+### Local Network Sharing
+
+1. **Find Your IP:**
+   ```bash
+   # macOS/Linux
+   ifconfig | grep "inet " | grep -v 127.0.0.1
+   ```
+
+2. **Share URLs:**
+   - CV Generator: `http://YOUR_IP:3000`
+   - Business App: `http://YOUR_IP:3001`
+   - Valentine App: `http://YOUR_IP:3002`
+
 ### Public URL (Ngrok)
 
 ```bash
 ngrok http 3000  # CV Generator
 ngrok http 3001  # Business App
+ngrok http 3002  # Valentine App
 ```
+
+---
+
+## 📚 Documentation
+
+- [VALENTINE_APP_GUIDE.md](./VALENTINE_APP_GUIDE.md) - Complete Valentine app guide
+- [CV-Generator/README.md](./CV-Generator/README.md) - CV app documentation
+- [Business-App/README.md](./Business-App/README.md) - Business app documentation
+- [SETUP_GUIDE.md](./SETUP_GUIDE.md) - Detailed setup instructions
+- [CUSTOMIZATION_GUIDE.md](./CUSTOMIZATION_GUIDE.md) - How to customize all apps
+
+---
+
+## 🎯 Project Ports
+
+| App | Port | Access |
+|-----|------|--------|
+| CV Generator | 3000 | http://localhost:3000 |
+| Business App | 3001 | http://localhost:3001 |
+| Valentine App | 3002 | http://localhost:3002 |
 
 ---
 

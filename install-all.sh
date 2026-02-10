@@ -41,6 +41,18 @@ cd ..
 echo "✅ Business App installed"
 echo ""
 
+# Install Valentine App
+echo "📦 Installing Valentine App..."
+cd Valentine-App
+npm install
+if [ $? -ne 0 ]; then
+    echo "❌ Failed to install Valentine App"
+    exit 1
+fi
+cd ..
+echo "✅ Valentine App installed"
+echo ""
+
 echo "🎉 Installation complete!"
 echo ""
 echo "To start the applications:"
@@ -52,5 +64,9 @@ echo ""
 echo "  Business App:"
 echo "    cd Business-App && npm run dev"
 echo "    Access at http://localhost:3001"
+echo ""
+echo "  Valentine App (Special Surprise):"
+echo "    cd Valentine-App && npm run dev"
+echo "    Access at http://localhost:3002"
 echo ""
 echo "Or use: npm run dev in each directory"
