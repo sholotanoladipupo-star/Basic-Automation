@@ -1,8 +1,0 @@
-{
-  "dependencies": {
-    "dotenv": "^17.2.3",
-    "kafkajs": "^2.2.4",
-    "pg": "^8.18.0",
-    "prom-client": "^15.1.3"
-  }
-}
