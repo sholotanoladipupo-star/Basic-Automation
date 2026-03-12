@@ -494,7 +494,7 @@ function GanttView({ items, lookups, jiraBase, onEdit }) {
 function BulkBar({ count, statuses, onApply, onClear }) {
   const [pick,setPick]=useState("");
   return (
-    <div style={{position:"sticky",top:64,zIndex:90,background:"#1d4ed8",color:"white",padding:"10px 20px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",boxShadow:"0 4px 16px #1d4ed840",borderRadius:10,margin:"0 0 12px 0"}}>
+    <div style={{position:"sticky",top:108,zIndex:90,background:"#1d4ed8",color:"white",padding:"10px 20px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",boxShadow:"0 4px 16px #1d4ed840",borderRadius:10,margin:"0 0 12px 0"}}>
       <span style={{fontSize:13,fontWeight:700}}>✓ {count} selected</span>
       <span style={{fontSize:12,opacity:0.8}}>Bulk update status:</span>
       <select value={pick} onChange={e=>setPick(e.target.value)} style={{border:"none",borderRadius:7,padding:"6px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",color:"#111827",background:"white",outline:"none",cursor:"pointer"}}>
@@ -643,7 +643,7 @@ export default function AutomationTracker() {
       {jiraModal&&<JiraModal url={jiraBase} onSave={persistJira} onClose={()=>setJiraModal(false)}/>}
 
       {/* TOP BAR */}
-      <div style={{background:"white",borderBottom:"1px solid #e5e7eb",padding:"15px 28px",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
+      <div style={{background:"white",borderBottom:"1px solid #e5e7eb",padding:"15px 28px",position:"sticky",top:44,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
         <div style={{maxWidth:1440,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
           <div>
             <div style={{fontSize:10,color:"#9ca3af",fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",marginBottom:2}}>SRE · Engineering</div>
