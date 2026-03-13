@@ -6,9 +6,8 @@ export default function Nav() {
   const pathname = usePathname();
 
   const links = [
-    { href: "/",                 label: "⊞ Automation Initiatives" },
-    { href: "/manual-tasks",     label: "📋 Manual Tasks Register" },
-    { href: "/sre-skill-matrix", label: "◈ SRE Skill Matrix" },
+    { href: "/",             label: "⊞ Automation Initiatives" },
+    { href: "/manual-tasks", label: "📋 Manual Tasks Register" },
   ];
 
   return (
