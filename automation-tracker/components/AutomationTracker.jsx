@@ -576,9 +576,12 @@ export default function AutomationTracker() {
       setSaveMsg("⚠ Save failed");
     }
   };
-  const persistLookups = async next => {
-    setLookups(next);
-    try { await apiSet("auto-lookups", next); } catch {}
+  const persistLookups = async nextOrUpdater => {
+    setLookups(prev => {
+      const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(prev) : nextOrUpdater;
+      apiSet("auto-lookups", next).catch(() => {});
+      return next;
+    });
   };
   const persistJira = async url => {
     setJiraBase(url);
@@ -710,7 +713,7 @@ export default function AutomationTracker() {
 
         {activeView==="table"&&(
           <div style={{background:"white",border:"1.5px solid #e5e7eb",borderRadius:12,overflow:"hidden",boxShadow:"0 1px 8px rgba(0,0,0,0.04)"}}>
-            <div style={{display:"grid",gridTemplateColumns:"36px 88px 1fr 160px 120px 115px 80px 90px 72px",background:"#f8fafc",borderBottom:"2px solid #e5e7eb",padding:"10px 18px",alignItems:"center"}}>
+            <div style={{display:"grid",gridTemplateColumns:"36px 88px 1fr 190px 120px 115px 130px 90px 72px",background:"#f8fafc",borderBottom:"2px solid #e5e7eb",padding:"10px 18px",alignItems:"center"}}>
               <div style={{paddingLeft:2}}>
                 <input type="checkbox" checked={allFilteredSelected} onChange={e=>toggleSelectAll(e.target.checked)} style={{cursor:"pointer",width:14,height:14,accentColor:"#1d4ed8"}}/>
               </div>
@@ -732,7 +735,7 @@ export default function AutomationTracker() {
                 return (
                   <div key={item.id} style={{borderBottom:idx<filtered.length-1?"1px solid #f1f5f9":"none",background:isSel?"#eff6ff":"white"}}>
                     <div className="trow" onClick={()=>setExpanded(isExp?null:item.id)}
-                      style={{display:"grid",gridTemplateColumns:"36px 88px 1fr 160px 120px 115px 80px 90px 72px",padding:"11px 18px",alignItems:"center",cursor:"pointer",userSelect:"none",background:isSel?"#eff6ff":undefined}}>
+                      style={{display:"grid",gridTemplateColumns:"36px 88px 1fr 190px 120px 115px 130px 90px 72px",padding:"11px 18px",alignItems:"center",cursor:"pointer",userSelect:"none",background:isSel?"#eff6ff":undefined}}>
                       <div onClick={e=>toggleSelect(item.id,e)} style={{paddingLeft:2}}>
                         <input type="checkbox" checked={isSel} onChange={()=>{}} style={{cursor:"pointer",width:14,height:14,accentColor:"#1d4ed8"}} onClick={e=>e.stopPropagation()}/>
                       </div>
