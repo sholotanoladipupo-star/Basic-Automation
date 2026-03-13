@@ -21,8 +21,8 @@ const SOURCE_COLOR = {
 };
 
 // ── DB HELPERS ────────────────────────────────────────────────────────────────
-const apiGet = async key => { try { const r=await fetch(`/api/data/${key}`); if(!r.ok) return null; const d=await r.json(); return d.value??null; } catch { return null; } };
-const apiSet = async (key,val) => { try { await fetch(`/api/data/${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({value:val})}); } catch {} };
+const apiGet = async key => { try { const r=await fetch(`/api/data/${key}`); if(!r.ok) return null; return r.json(); } catch { return null; } };
+const apiSet = async (key,val) => { try { await fetch(`/api/data/${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(val)}); } catch {} };
 
 // ── DERIVE monitoring_observability LEVEL FROM AUTOMATION INITIATIVES ─────────
 function deriveAutoLevel(initiatives) {

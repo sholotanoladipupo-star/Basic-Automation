@@ -184,6 +184,26 @@ const SEED_TASKS = [
   },
 ];
 
+// ── AUTO-STATUS SYNC FROM AUTOMATION INITIATIVES ─────────────────────────────
+const STATUS_ORDER = { "Fully Manual":0, "Partially Automated":1, "Automated":2, "Retired":3 };
+function deriveTaskStatus(task, initMap) {
+  const linked = task.linkedAutomations || [];
+  if (!linked.length) return task.status;
+  const matches = linked.map(id => initMap[id]).filter(Boolean);
+  if (!matches.length) return task.status;
+  const doneCount   = matches.filter(i => i.status === "Done").length;
+  const activeCount = matches.filter(i =>
+    i.status === "In Progress" || i.status === "On Demo (Dev)" || i.status === "Finalizing for Dev"
+  ).length;
+  if (task.status === "Retired") return task.status;
+  let proposed = task.status;
+  if (doneCount === matches.length)      proposed = "Automated";
+  else if (doneCount > 0 || activeCount > 0) proposed = "Partially Automated";
+  const cur = STATUS_ORDER[task.status] ?? 0;
+  const prp = STATUS_ORDER[proposed] ?? 0;
+  return prp > cur ? proposed : task.status;
+}
+
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 const uid     = () => Math.random().toString(36).slice(2,8);
 const newMTId = () => "MT-" + String(Math.floor(Math.random()*900)+100);
@@ -415,14 +435,26 @@ export default function ManualTasksTracker() {
   useEffect(()=>{
     (async()=>{
       try {
-        const [lk, it, jb] = await Promise.all([
+        const [lk, it, jb, initiatives] = await Promise.all([
           apiGet("mt-lookups"),
           apiGet("mt-items-v1"),
           apiGet("auto-jira"),
+          apiGet("auto-v5"),
         ]);
         if(lk) setLookups(lk);
-        if(it) setItems(it);
-        else setItems(SEED_TASKS);
+        let tasks = it || SEED_TASKS;
+        // Auto-upgrade task statuses based on linked initiative progress
+        if (Array.isArray(initiatives) && initiatives.length) {
+          const initMap = Object.fromEntries(initiatives.map(i=>[i.id, i]));
+          const synced  = tasks.map(t => ({ ...t, status: deriveTaskStatus(t, initMap) }));
+          const changed = synced.some((u, i) => u.status !== tasks[i]?.status);
+          tasks = synced;
+          // Persist silently if anything changed (only when loaded from DB)
+          if (changed && it) {
+            try { await apiSet("mt-items-v1", tasks); } catch {}
+          }
+        }
+        setItems(tasks);
         if(jb) setJiraBase(jb);
       } catch { setItems(SEED_TASKS); }
       setLoaded(true);
