@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 
 // ── LOOKUP DEFAULTS ──────────────────────────────────────────────────────────
 const DEFAULT_TYPES = [
@@ -356,21 +356,22 @@ function ManageModal({ onClose, lookups, setLookups }) {
   );
 }
 
-// ── EDIT FIELD ────────────────────────────────────────────────────────────────
-function EditField({ label, value, onChange, type="input", opts }) {
-  const base={border:"1.5px solid #e5e7eb",borderRadius:8,padding:"9px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#111827",outline:"none"};
+// ── EDIT FIELD (uncontrolled — uses defaultValue so React never resets the DOM
+//   value on re-render, which eliminates the focus-loss-after-one-char bug) ───
+function EditField({ label, name, defaultValue, onChange, type="input", opts }) {
+  const base={border:"1.5px solid #e5e7eb",borderRadius:8,padding:"9px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#111827",outline:"none",width:"100%",boxSizing:"border-box"};
   const fo=e=>e.target.style.borderColor="#3b82f6";
   const bl=e=>e.target.style.borderColor="#e5e7eb";
   return (
     <div style={{display:"flex",flexDirection:"column",gap:5}}>
       <label style={{fontSize:11,fontWeight:700,color:"#374151"}}>{label}</label>
       {type==="textarea"
-        ?<textarea value={value||""} onChange={e=>onChange(e.target.value)} rows={3} style={{...base,resize:"vertical",lineHeight:1.55}} onFocus={fo} onBlur={bl}/>
+        ?<textarea name={name} defaultValue={defaultValue||""} onChange={onChange} rows={3} style={{...base,resize:"vertical",lineHeight:1.55}} onFocus={fo} onBlur={bl}/>
         :type==="select"
-        ?<select value={value||""} onChange={e=>onChange(e.target.value)} style={{...base,background:"white",cursor:"pointer"}}>{opts.map(o=><option key={o}>{o}</option>)}</select>
+        ?<select name={name} defaultValue={defaultValue||""} onChange={onChange} style={{...base,background:"white",cursor:"pointer"}}>{opts.map(o=><option key={o}>{o}</option>)}</select>
         :type==="date"
-        ?<input type="date" value={value||""} onChange={e=>onChange(e.target.value)} style={base} onFocus={fo} onBlur={bl}/>
-        :<input value={value||""} onChange={e=>onChange(e.target.value)} style={base} onFocus={fo} onBlur={bl}/>
+        ?<input name={name} type="date" defaultValue={defaultValue||""} onChange={onChange} style={base} onFocus={fo} onBlur={bl}/>
+        :<input name={name} defaultValue={defaultValue||""} onChange={onChange} style={base} onFocus={fo} onBlur={bl}/>
       }
     </div>
   );
@@ -378,44 +379,54 @@ function EditField({ label, value, onChange, type="input", opts }) {
 
 // ── EDIT MODAL ────────────────────────────────────────────────────────────────
 function EditModal({ item, onSave, onClose, lookups }) {
-  const blank={id:newId(),initiative:"",team:lookups.teams[0]?.name||"",status:lookups.statuses[0]?.name||"",impact:lookups.impacts[0]?.name||"",type:lookups.types[0]?.name||"",assignee:"",description:"",problem:"",solution:"",scoreNotes:"",scores:DEFAULT_CRITERIA.map(c=>({...c,score:0})),scoreHistory:[],startDate:"",endDate:""};
-  const [f,setF]=useState(item?{...item}:blank);
-  const set=(k,v)=>setF(p=>({...p,[k]:v}));
-  const isNew=!item;
+  const isNew = !item;
+  const init = item || {id:newId(),initiative:"",team:lookups.teams[0]?.name||"",status:lookups.statuses[0]?.name||"",impact:lookups.impacts[0]?.name||"",type:lookups.types[0]?.name||"",assignee:"",description:"",problem:"",solution:"",scoreNotes:"",scores:DEFAULT_CRITERIA.map(c=>({...c,score:0})),scoreHistory:[],startDate:"",endDate:""};
+  const formRef = useRef(null);
+  const [title, setTitle] = useState(init.initiative);
+
+  const collect = () => {
+    const get = n => formRef.current?.querySelector(`[name="${n}"]`)?.value ?? "";
+    return { ...init, id:get("id")||init.id, initiative:get("initiative"), assignee:get("assignee"), type:get("type"), team:get("team"), status:get("status"), impact:get("impact"), startDate:get("startDate"), endDate:get("endDate"), description:get("description"), problem:get("problem"), solution:get("solution") };
+  };
+
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20,backdropFilter:"blur(3px)"}}>
       <div style={{background:"white",borderRadius:16,width:"100%",maxWidth:680,maxHeight:"93vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.18)"}}>
         <div style={{padding:"20px 24px 14px",borderBottom:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:"white",zIndex:10}}>
-          <div><div style={{fontSize:10,color:"#9ca3af",letterSpacing:"0.8px",textTransform:"uppercase",fontWeight:700,marginBottom:3}}>{isNew?"New":"Edit"} Initiative</div><div style={{fontSize:16,fontWeight:700,color:"#111827"}}>{f.initiative||"Untitled"}</div></div>
+          <div><div style={{fontSize:10,color:"#9ca3af",letterSpacing:"0.8px",textTransform:"uppercase",fontWeight:700,marginBottom:3}}>{isNew?"New":"Edit"} Initiative</div><div style={{fontSize:16,fontWeight:700,color:"#111827"}}>{title||"Untitled"}</div></div>
           <button onClick={onClose} style={{background:"#f1f5f9",border:"none",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:18,color:"#6b7280",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
         </div>
-        <div style={{padding:"18px 24px",display:"flex",flexDirection:"column",gap:14}}>
+        <div ref={formRef} style={{padding:"18px 24px",display:"flex",flexDirection:"column",gap:14}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <EditField label="Jira Key" value={f.id} onChange={v=>set("id",v)}/>
-            <EditField label="Assignee" value={f.assignee} onChange={v=>set("assignee",v)}/>
+            <EditField label="Jira Key" name="id" defaultValue={init.id}/>
+            <EditField label="Assignee" name="assignee" defaultValue={init.assignee}/>
           </div>
-          <EditField label="Initiative Name" value={f.initiative} onChange={v=>setF(p=>({...p,initiative:v,...(isNew?{type:inferType(v,lookups.types)}:{})}))} />
+          <EditField label="Initiative Name" name="initiative" defaultValue={init.initiative}
+            onChange={e=>{
+              setTitle(e.target.value);
+              if(isNew){const el=formRef.current?.querySelector('[name="type"]');if(el)el.value=inferType(e.target.value,lookups.types);}
+            }}/>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <EditField label="Type" value={f.type} onChange={v=>set("type",v)} type="select" opts={lookups.types.map(t=>t.name)}/>
-            <EditField label="Team" value={f.team} onChange={v=>set("team",v)} type="select" opts={lookups.teams.map(t=>t.name)}/>
+            <EditField label="Type" name="type" defaultValue={init.type} type="select" opts={lookups.types.map(t=>t.name)}/>
+            <EditField label="Team" name="team" defaultValue={init.team} type="select" opts={lookups.teams.map(t=>t.name)}/>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <EditField label="Status" value={f.status} onChange={v=>set("status",v)} type="select" opts={lookups.statuses.map(s=>s.name)}/>
-            <EditField label="Impact" value={f.impact} onChange={v=>set("impact",v)} type="select" opts={lookups.impacts.map(i=>i.name)}/>
+            <EditField label="Status" name="status" defaultValue={init.status} type="select" opts={lookups.statuses.map(s=>s.name)}/>
+            <EditField label="Impact" name="impact" defaultValue={init.impact} type="select" opts={lookups.impacts.map(i=>i.name)}/>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <EditField label="📅 Start Date" value={f.startDate} onChange={v=>set("startDate",v)} type="date"/>
-            <EditField label="📅 End Date" value={f.endDate} onChange={v=>set("endDate",v)} type="date"/>
+            <EditField label="📅 Start Date" name="startDate" defaultValue={init.startDate} type="date"/>
+            <EditField label="📅 End Date" name="endDate" defaultValue={init.endDate} type="date"/>
           </div>
           <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:10,padding:"14px 16px",display:"flex",flexDirection:"column",gap:13}}>
             <div style={{fontSize:11,fontWeight:700,color:"#92400e"}}>⚡ KEY DETAILS</div>
-            <EditField label="📝 Description" value={f.description} onChange={v=>set("description",v)} type="textarea"/>
-            <EditField label="🔴 Problem" value={f.problem} onChange={v=>set("problem",v)} type="textarea"/>
-            <EditField label="✅ Solution" value={f.solution} onChange={v=>set("solution",v)} type="textarea"/>
+            <EditField label="📝 Description" name="description" defaultValue={init.description} type="textarea"/>
+            <EditField label="🔴 Problem" name="problem" defaultValue={init.problem} type="textarea"/>
+            <EditField label="✅ Solution" name="solution" defaultValue={init.solution} type="textarea"/>
           </div>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",paddingTop:2}}>
             <button onClick={onClose} style={{padding:"9px 20px",borderRadius:8,border:"1.5px solid #e5e7eb",background:"white",color:"#6b7280",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancel</button>
-            <button onClick={()=>{if(!f.initiative.trim()){alert("Initiative name required");return;}onSave(f);}} style={{padding:"9px 22px",borderRadius:8,border:"none",background:"#1d4ed8",color:"white",fontSize:13,fontWeight:600,cursor:"pointer",boxShadow:"0 2px 8px #1d4ed830"}}>{isNew?"Add Initiative":"Save Changes"}</button>
+            <button onClick={()=>{const d=collect();if(!d.initiative.trim()){alert("Initiative name required");return;}onSave(d);}} style={{padding:"9px 22px",borderRadius:8,border:"none",background:"#1d4ed8",color:"white",fontSize:13,fontWeight:600,cursor:"pointer",boxShadow:"0 2px 8px #1d4ed830"}}>{isNew?"Add Initiative":"Save Changes"}</button>
           </div>
         </div>
       </div>
@@ -572,6 +583,8 @@ export default function AutomationTracker() {
   const [filterAssignee, setFilterAssignee] = useState("All");
   const [search,  setSearch]  = useState("");
   const [sortBy,  setSortBy]  = useState("id");
+  // col order: checkbox | jirakey | initiative | type | team | assignee | status | impact | actions
+  const [colWidths, setColWidths] = useState([36, 88, 200, 200, 110, 110, 130, 80, 72]);
 
   // ── Load from DB on mount ────────────────────────────────────────────────
   useEffect(()=>{
@@ -593,6 +606,18 @@ export default function AutomationTracker() {
       setLoaded(true);
     })();
   },[]);
+
+  // ── Column resize ─────────────────────────────────────────────────────────
+  const startResize = (idx, e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = colWidths[idx];
+    const onMove = me => setColWidths(prev => { const n=[...prev]; n[idx]=Math.max(48, startW+(me.clientX-startX)); return n; });
+    const onUp   = () => { document.removeEventListener("mousemove",onMove); document.removeEventListener("mouseup",onUp); };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup",   onUp);
+  };
+  const gridCols = colWidths.map(w=>w+"px").join(" ");
 
   // ── Persist helpers ──────────────────────────────────────────────────────
   const persistItems = async next => {
@@ -665,6 +690,8 @@ export default function AutomationTracker() {
         .trow:hover .row-act{opacity:1}
         button,input,select,textarea{font-family:'DM Sans',sans-serif}
         ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:3px}
+        .col-resize{position:absolute;right:0;top:0;bottom:0;width:5px;cursor:col-resize;z-index:1}
+        .col-resize:hover,.col-resize:active{background:#3b82f6;opacity:.6}
       `}</style>
 
       {manageOpen&&<ManageModal onClose={()=>setManageOpen(false)} lookups={lookups} setLookups={persistLookups}/>}
@@ -739,12 +766,15 @@ export default function AutomationTracker() {
 
         {activeView==="table"&&(
           <div style={{background:"white",border:"1.5px solid #e5e7eb",borderRadius:12,overflow:"hidden",boxShadow:"0 1px 8px rgba(0,0,0,0.04)"}}>
-            <div style={{display:"grid",gridTemplateColumns:"36px 88px 200px 200px 110px 110px 130px 80px 72px",background:"#f8fafc",borderBottom:"2px solid #e5e7eb",padding:"10px 18px",alignItems:"center"}}>
+            <div style={{display:"grid",gridTemplateColumns:gridCols,background:"#f8fafc",borderBottom:"2px solid #e5e7eb",padding:"10px 18px",alignItems:"center"}}>
               <div style={{paddingLeft:2}}>
                 <input type="checkbox" checked={allFilteredSelected} onChange={e=>toggleSelectAll(e.target.checked)} style={{cursor:"pointer",width:14,height:14,accentColor:"#1d4ed8"}}/>
               </div>
               {["Jira Key","Initiative","Type","Team","Assignee","Status","Impact",""].map((h,i)=>(
-                <div key={i} style={{fontSize:10,fontWeight:700,color:"#6b7280",letterSpacing:"1px",textTransform:"uppercase",paddingLeft:i===0?0:8}}>{h}</div>
+                <div key={i} style={{fontSize:10,fontWeight:700,color:"#6b7280",letterSpacing:"1px",textTransform:"uppercase",paddingLeft:i===0?0:8,position:"relative",overflow:"hidden"}}>
+                  {h}
+                  {i<7&&<div className="col-resize" onMouseDown={e=>startResize(i+1,e)}/>}
+                </div>
               ))}
             </div>
 
@@ -761,7 +791,7 @@ export default function AutomationTracker() {
                 return (
                   <div key={item.id} style={{borderBottom:idx<filtered.length-1?"1px solid #f1f5f9":"none",background:isSel?"#eff6ff":"white"}}>
                     <div className="trow" onClick={()=>setExpanded(isExp?null:item.id)}
-                      style={{display:"grid",gridTemplateColumns:"36px 88px 200px 200px 110px 110px 130px 80px 72px",padding:"11px 18px",alignItems:"center",cursor:"pointer",userSelect:"none",background:isSel?"#eff6ff":undefined}}>
+                      style={{display:"grid",gridTemplateColumns:gridCols,padding:"11px 18px",alignItems:"center",cursor:"pointer",userSelect:"none",background:isSel?"#eff6ff":undefined}}>
                       <div onClick={e=>toggleSelect(item.id,e)} style={{paddingLeft:2}}>
                         <input type="checkbox" checked={isSel} onChange={()=>{}} style={{cursor:"pointer",width:14,height:14,accentColor:"#1d4ed8"}} onClick={e=>e.stopPropagation()}/>
                       </div>
