@@ -290,19 +290,21 @@ function ExpandedRow({ item, tab, setTab, onUpdate }) {
 
 // ── MANAGE MODAL ──────────────────────────────────────────────────────────────
 function ManageModal({ onClose, lookups, setLookups }) {
+  const [local,setLocal]=useState({types:[...lookups.types],teams:[...lookups.teams],statuses:[...lookups.statuses],impacts:[...lookups.impacts]});
   const [section,setSection]=useState("types");
   const [editingId,setEditingId]=useState(null);
   const [draft,setDraft]=useState(null);
   const [newName,setNewName]=useState("");
   const [newColorIdx,setNewColorIdx]=useState(0);
   const sections=[{key:"types",label:"Types",icon:"🏷️",hasColor:true},{key:"teams",label:"Teams",icon:"👥",hasColor:false},{key:"statuses",label:"Statuses",icon:"📍",hasColor:true},{key:"impacts",label:"Impacts",icon:"⚡",hasColor:true}];
-  const items=lookups[section]||[];
+  const items=local[section]||[];
   const hasColor=sections.find(s=>s.key===section)?.hasColor;
   const startEdit=item=>{setEditingId(item.id);setDraft({...item});};
   const cancelEdit=()=>{setEditingId(null);setDraft(null);};
-  const saveEdit=()=>{if(!draft.name.trim())return;setLookups(l=>({...l,[section]:l[section].map(i=>i.id===draft.id?draft:i)}));cancelEdit();};
-  const removeItem=id=>{if(!window.confirm("Remove? Initiatives using it keep the value."))return;setLookups(l=>({...l,[section]:l[section].filter(i=>i.id!==id)}));};
-  const addItem=()=>{const n=newName.trim();if(!n)return;const preset=COLOR_PRESETS[newColorIdx];const ni=hasColor?{id:uid(),name:n,...preset}:{id:uid(),name:n};setLookups(l=>({...l,[section]:[...l[section],ni]}));setNewName("");setNewColorIdx(0);};
+  const saveEdit=()=>{if(!draft.name.trim())return;setLocal(l=>({...l,[section]:l[section].map(i=>i.id===draft.id?draft:i)}));cancelEdit();};
+  const removeItem=id=>{if(!window.confirm("Remove? Initiatives using it keep the value."))return;setLocal(l=>({...l,[section]:l[section].filter(i=>i.id!==id)}));};
+  const addItem=()=>{const n=newName.trim();if(!n)return;const preset=COLOR_PRESETS[newColorIdx];const ni=hasColor?{id:uid(),name:n,...preset}:{id:uid(),name:n};setLocal(l=>({...l,[section]:[...l[section],ni]}));setNewName("");setNewColorIdx(0);};
+  const handleSave=()=>{setLookups(local);onClose();};
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20,backdropFilter:"blur(3px)"}}>
       <div style={{background:"white",borderRadius:16,width:"100%",maxWidth:680,maxHeight:"90vh",overflow:"hidden",boxShadow:"0 20px 60px rgba(0,0,0,0.18)",display:"flex",flexDirection:"column"}}>
@@ -321,7 +323,7 @@ function ManageModal({ onClose, lookups, setLookups }) {
                   <>{hasColor?<Badge text={draft.name||item.name} color={draft.color} bg={draft.bg} border={draft.border} small/>:<span style={{flex:1,fontSize:13,fontWeight:500}}>{draft.name}</span>}
                   <input value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} autoFocus style={{flex:1,border:"1.5px solid #3b82f6",borderRadius:7,padding:"6px 10px",fontSize:13,fontFamily:"'DM Sans',sans-serif",outline:"none"}}/>
                   {hasColor&&<div style={{display:"flex",gap:4,flexWrap:"wrap",maxWidth:180}}>{COLOR_PRESETS.map((p,i)=><span key={i} onClick={()=>setDraft(d=>({...d,...p}))} style={{width:20,height:20,borderRadius:"50%",background:p.bg,border:`2px solid ${draft.color===p.color?"#1d4ed8":p.border}`,cursor:"pointer"}}/>)}</div>}
-                  <button onClick={saveEdit} style={{background:"#1d4ed8",border:"none",borderRadius:7,color:"white",fontSize:12,fontWeight:700,padding:"6px 14px",cursor:"pointer"}}>Save</button>
+                  <button onClick={saveEdit} style={{background:"#1d4ed8",border:"none",borderRadius:7,color:"white",fontSize:12,fontWeight:700,padding:"6px 14px",cursor:"pointer"}}>Done</button>
                   <button onClick={cancelEdit} style={{background:"#f1f5f9",border:"none",borderRadius:7,color:"#6b7280",fontSize:12,fontWeight:600,padding:"6px 12px",cursor:"pointer"}}>Cancel</button></>
                 ):(
                   <>{hasColor?<Badge text={item.name} color={item.color} bg={item.bg} border={item.border} small/>:<span style={{flex:1,fontSize:13,fontWeight:500,color:"#111827"}}>{item.name}</span>}
@@ -345,7 +347,31 @@ function ManageModal({ onClose, lookups, setLookups }) {
             {hasColor&&newName&&<div style={{marginTop:10,display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#6b7280"}}>Preview: <Badge text={newName} color={COLOR_PRESETS[newColorIdx].color} bg={COLOR_PRESETS[newColorIdx].bg} border={COLOR_PRESETS[newColorIdx].border} small/></div>}
           </div>
         </div>
+        <div style={{padding:"14px 22px",borderTop:"1px solid #e5e7eb",display:"flex",justifyContent:"flex-end",gap:8,flexShrink:0,background:"white"}}>
+          <button onClick={onClose} style={{padding:"9px 20px",borderRadius:8,border:"1.5px solid #e5e7eb",background:"white",color:"#6b7280",fontSize:13,fontWeight:600,cursor:"pointer"}}>Discard</button>
+          <button onClick={handleSave} style={{padding:"9px 22px",borderRadius:8,border:"none",background:"#1d4ed8",color:"white",fontSize:13,fontWeight:600,cursor:"pointer",boxShadow:"0 2px 8px #1d4ed830"}}>Save Changes</button>
+        </div>
       </div>
+    </div>
+  );
+}
+
+// ── EDIT FIELD ────────────────────────────────────────────────────────────────
+function EditField({ label, value, onChange, type="input", opts }) {
+  const base={border:"1.5px solid #e5e7eb",borderRadius:8,padding:"9px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#111827",outline:"none"};
+  const fo=e=>e.target.style.borderColor="#3b82f6";
+  const bl=e=>e.target.style.borderColor="#e5e7eb";
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:5}}>
+      <label style={{fontSize:11,fontWeight:700,color:"#374151"}}>{label}</label>
+      {type==="textarea"
+        ?<textarea value={value||""} onChange={e=>onChange(e.target.value)} rows={3} style={{...base,resize:"vertical",lineHeight:1.55}} onFocus={fo} onBlur={bl}/>
+        :type==="select"
+        ?<select value={value||""} onChange={e=>onChange(e.target.value)} style={{...base,background:"white",cursor:"pointer"}}>{opts.map(o=><option key={o}>{o}</option>)}</select>
+        :type==="date"
+        ?<input type="date" value={value||""} onChange={e=>onChange(e.target.value)} style={base} onFocus={fo} onBlur={bl}/>
+        :<input value={value||""} onChange={e=>onChange(e.target.value)} style={base} onFocus={fo} onBlur={bl}/>
+      }
     </div>
   );
 }
@@ -356,15 +382,6 @@ function EditModal({ item, onSave, onClose, lookups }) {
   const [f,setF]=useState(item?{...item}:blank);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const isNew=!item;
-  const Field=({label,k,type="input",opts})=>(
-    <div style={{display:"flex",flexDirection:"column",gap:5}}>
-      <label style={{fontSize:11,fontWeight:700,color:"#374151"}}>{label}</label>
-      {type==="textarea"?<textarea value={f[k]||""} onChange={e=>set(k,e.target.value)} rows={3} style={{border:"1.5px solid #e5e7eb",borderRadius:8,padding:"9px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#111827",resize:"vertical",outline:"none",lineHeight:1.55}} onFocus={e=>e.target.style.borderColor="#3b82f6"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
-      :type==="select"?<select value={f[k]||""} onChange={e=>set(k,e.target.value)} style={{border:"1.5px solid #e5e7eb",borderRadius:8,padding:"9px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#111827",outline:"none",background:"white",cursor:"pointer"}}>{opts.map(o=><option key={o}>{o}</option>)}</select>
-      :type==="date"?<input type="date" value={f[k]||""} onChange={e=>set(k,e.target.value)} style={{border:"1.5px solid #e5e7eb",borderRadius:8,padding:"9px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#111827",outline:"none"}} onFocus={e=>e.target.style.borderColor="#3b82f6"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
-      :<input value={f[k]||""} onChange={e=>{set(k,e.target.value);if(k==="initiative"&&isNew)set("type",inferType(e.target.value,lookups.types));}} style={{border:"1.5px solid #e5e7eb",borderRadius:8,padding:"9px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#111827",outline:"none"}} onFocus={e=>e.target.style.borderColor="#3b82f6"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>}
-    </div>
-  );
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20,backdropFilter:"blur(3px)"}}>
       <div style={{background:"white",borderRadius:16,width:"100%",maxWidth:680,maxHeight:"93vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.18)"}}>
@@ -373,16 +390,28 @@ function EditModal({ item, onSave, onClose, lookups }) {
           <button onClick={onClose} style={{background:"#f1f5f9",border:"none",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:18,color:"#6b7280",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
         </div>
         <div style={{padding:"18px 24px",display:"flex",flexDirection:"column",gap:14}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}><Field label="Jira Key" k="id"/><Field label="Assignee" k="assignee"/></div>
-          <Field label="Initiative Name" k="initiative"/>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}><Field label="Type" k="type" type="select" opts={lookups.types.map(t=>t.name)}/><Field label="Team" k="team" type="select" opts={lookups.teams.map(t=>t.name)}/></div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}><Field label="Status" k="status" type="select" opts={lookups.statuses.map(s=>s.name)}/><Field label="Impact" k="impact" type="select" opts={lookups.impacts.map(i=>i.name)}/></div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}><Field label="📅 Start Date" k="startDate" type="date"/><Field label="📅 End Date" k="endDate" type="date"/></div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <EditField label="Jira Key" value={f.id} onChange={v=>set("id",v)}/>
+            <EditField label="Assignee" value={f.assignee} onChange={v=>set("assignee",v)}/>
+          </div>
+          <EditField label="Initiative Name" value={f.initiative} onChange={v=>{set("initiative",v);if(isNew)set("type",inferType(v,lookups.types));}}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <EditField label="Type" value={f.type} onChange={v=>set("type",v)} type="select" opts={lookups.types.map(t=>t.name)}/>
+            <EditField label="Team" value={f.team} onChange={v=>set("team",v)} type="select" opts={lookups.teams.map(t=>t.name)}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <EditField label="Status" value={f.status} onChange={v=>set("status",v)} type="select" opts={lookups.statuses.map(s=>s.name)}/>
+            <EditField label="Impact" value={f.impact} onChange={v=>set("impact",v)} type="select" opts={lookups.impacts.map(i=>i.name)}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <EditField label="📅 Start Date" value={f.startDate} onChange={v=>set("startDate",v)} type="date"/>
+            <EditField label="📅 End Date" value={f.endDate} onChange={v=>set("endDate",v)} type="date"/>
+          </div>
           <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:10,padding:"14px 16px",display:"flex",flexDirection:"column",gap:13}}>
             <div style={{fontSize:11,fontWeight:700,color:"#92400e"}}>⚡ KEY DETAILS</div>
-            <Field label="📝 Description" k="description" type="textarea"/>
-            <Field label="🔴 Problem" k="problem" type="textarea"/>
-            <Field label="✅ Solution" k="solution" type="textarea"/>
+            <EditField label="📝 Description" value={f.description} onChange={v=>set("description",v)} type="textarea"/>
+            <EditField label="🔴 Problem" value={f.problem} onChange={v=>set("problem",v)} type="textarea"/>
+            <EditField label="✅ Solution" value={f.solution} onChange={v=>set("solution",v)} type="textarea"/>
           </div>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",paddingTop:2}}>
             <button onClick={onClose} style={{padding:"9px 20px",borderRadius:8,border:"1.5px solid #e5e7eb",background:"white",color:"#6b7280",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancel</button>
@@ -576,12 +605,9 @@ export default function AutomationTracker() {
       setSaveMsg("⚠ Save failed");
     }
   };
-  const persistLookups = async nextOrUpdater => {
-    setLookups(prev => {
-      const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(prev) : nextOrUpdater;
-      apiSet("auto-lookups", next).catch(() => {});
-      return next;
-    });
+  const persistLookups = async next => {
+    setLookups(next);
+    try { await apiSet("auto-lookups", next); } catch {}
   };
   const persistJira = async url => {
     setJiraBase(url);
@@ -713,7 +739,7 @@ export default function AutomationTracker() {
 
         {activeView==="table"&&(
           <div style={{background:"white",border:"1.5px solid #e5e7eb",borderRadius:12,overflow:"hidden",boxShadow:"0 1px 8px rgba(0,0,0,0.04)"}}>
-            <div style={{display:"grid",gridTemplateColumns:"36px 88px 1fr 190px 120px 115px 130px 90px 72px",background:"#f8fafc",borderBottom:"2px solid #e5e7eb",padding:"10px 18px",alignItems:"center"}}>
+            <div style={{display:"grid",gridTemplateColumns:"36px 88px 240px 190px 120px 115px 130px 90px 72px",background:"#f8fafc",borderBottom:"2px solid #e5e7eb",padding:"10px 18px",alignItems:"center"}}>
               <div style={{paddingLeft:2}}>
                 <input type="checkbox" checked={allFilteredSelected} onChange={e=>toggleSelectAll(e.target.checked)} style={{cursor:"pointer",width:14,height:14,accentColor:"#1d4ed8"}}/>
               </div>
@@ -735,7 +761,7 @@ export default function AutomationTracker() {
                 return (
                   <div key={item.id} style={{borderBottom:idx<filtered.length-1?"1px solid #f1f5f9":"none",background:isSel?"#eff6ff":"white"}}>
                     <div className="trow" onClick={()=>setExpanded(isExp?null:item.id)}
-                      style={{display:"grid",gridTemplateColumns:"36px 88px 1fr 190px 120px 115px 130px 90px 72px",padding:"11px 18px",alignItems:"center",cursor:"pointer",userSelect:"none",background:isSel?"#eff6ff":undefined}}>
+                      style={{display:"grid",gridTemplateColumns:"36px 88px 240px 190px 120px 115px 130px 90px 72px",padding:"11px 18px",alignItems:"center",cursor:"pointer",userSelect:"none",background:isSel?"#eff6ff":undefined}}>
                       <div onClick={e=>toggleSelect(item.id,e)} style={{paddingLeft:2}}>
                         <input type="checkbox" checked={isSel} onChange={()=>{}} style={{cursor:"pointer",width:14,height:14,accentColor:"#1d4ed8"}} onClick={e=>e.stopPropagation()}/>
                       </div>
@@ -745,9 +771,9 @@ export default function AutomationTracker() {
                           {item.id} →
                         </a>
                       </div>
-                      <div style={{paddingLeft:8}}>
-                        <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
-                          <span style={{fontSize:13,fontWeight:600,color:"#111827"}}>{item.initiative}</span>
+                      <div style={{paddingLeft:8,overflow:"hidden"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:7,overflow:"hidden"}}>
+                          <span style={{fontSize:13,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.initiative}</span>
                           {sc&&<span style={{fontSize:10,fontWeight:700,color:scc,border:`1.5px solid ${scc}`,borderRadius:10,padding:"1px 6px",lineHeight:1.5,background:"white"}}>★ {sc}</span>}
                           {(item.scoreHistory||[]).length>0&&<span style={{fontSize:9,color:"#9ca3af",background:"#f1f5f9",borderRadius:8,padding:"1px 6px"}}>{item.scoreHistory.length} snap</span>}
                         </div>
