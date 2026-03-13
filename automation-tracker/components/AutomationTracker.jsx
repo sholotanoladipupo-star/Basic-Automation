@@ -105,7 +105,7 @@ function makeSeed(types) {
 
 // ── SMALL ATOMS ───────────────────────────────────────────────────────────────
 function Badge({ text, color, bg, border, small }) {
-  return <span style={{display:"inline-flex",alignItems:"center",padding:small?"2px 8px":"3px 10px",borderRadius:20,fontSize:small?10:11,fontWeight:600,background:bg||"#f3f4f6",color:color||"#374151",border:`1px solid ${border||"#e5e7eb"}`,whiteSpace:"nowrap",lineHeight:1.5}}>{text}</span>;
+  return <span style={{display:"inline-block",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",padding:small?"2px 8px":"3px 10px",borderRadius:20,fontSize:small?10:11,fontWeight:600,background:bg||"#f3f4f6",color:color||"#374151",border:`1px solid ${border||"#e5e7eb"}`,whiteSpace:"nowrap",lineHeight:1.5,verticalAlign:"middle",boxSizing:"border-box"}}>{text}</span>;
 }
 
 function Avatar({ name, size=26 }) {
@@ -394,7 +394,7 @@ function EditModal({ item, onSave, onClose, lookups }) {
             <EditField label="Jira Key" value={f.id} onChange={v=>set("id",v)}/>
             <EditField label="Assignee" value={f.assignee} onChange={v=>set("assignee",v)}/>
           </div>
-          <EditField label="Initiative Name" value={f.initiative} onChange={v=>{set("initiative",v);if(isNew)set("type",inferType(v,lookups.types));}}/>
+          <EditField label="Initiative Name" value={f.initiative} onChange={v=>setF(p=>({...p,initiative:v,...(isNew?{type:inferType(v,lookups.types)}:{})}))} />
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <EditField label="Type" value={f.type} onChange={v=>set("type",v)} type="select" opts={lookups.types.map(t=>t.name)}/>
             <EditField label="Team" value={f.team} onChange={v=>set("team",v)} type="select" opts={lookups.teams.map(t=>t.name)}/>
@@ -739,7 +739,7 @@ export default function AutomationTracker() {
 
         {activeView==="table"&&(
           <div style={{background:"white",border:"1.5px solid #e5e7eb",borderRadius:12,overflow:"hidden",boxShadow:"0 1px 8px rgba(0,0,0,0.04)"}}>
-            <div style={{display:"grid",gridTemplateColumns:"36px 88px 240px 190px 120px 115px 130px 90px 72px",background:"#f8fafc",borderBottom:"2px solid #e5e7eb",padding:"10px 18px",alignItems:"center"}}>
+            <div style={{display:"grid",gridTemplateColumns:"36px 88px 200px 200px 110px 110px 130px 80px 72px",background:"#f8fafc",borderBottom:"2px solid #e5e7eb",padding:"10px 18px",alignItems:"center"}}>
               <div style={{paddingLeft:2}}>
                 <input type="checkbox" checked={allFilteredSelected} onChange={e=>toggleSelectAll(e.target.checked)} style={{cursor:"pointer",width:14,height:14,accentColor:"#1d4ed8"}}/>
               </div>
@@ -761,7 +761,7 @@ export default function AutomationTracker() {
                 return (
                   <div key={item.id} style={{borderBottom:idx<filtered.length-1?"1px solid #f1f5f9":"none",background:isSel?"#eff6ff":"white"}}>
                     <div className="trow" onClick={()=>setExpanded(isExp?null:item.id)}
-                      style={{display:"grid",gridTemplateColumns:"36px 88px 240px 190px 120px 115px 130px 90px 72px",padding:"11px 18px",alignItems:"center",cursor:"pointer",userSelect:"none",background:isSel?"#eff6ff":undefined}}>
+                      style={{display:"grid",gridTemplateColumns:"36px 88px 200px 200px 110px 110px 130px 80px 72px",padding:"11px 18px",alignItems:"center",cursor:"pointer",userSelect:"none",background:isSel?"#eff6ff":undefined}}>
                       <div onClick={e=>toggleSelect(item.id,e)} style={{paddingLeft:2}}>
                         <input type="checkbox" checked={isSel} onChange={()=>{}} style={{cursor:"pointer",width:14,height:14,accentColor:"#1d4ed8"}} onClick={e=>e.stopPropagation()}/>
                       </div>
@@ -771,14 +771,14 @@ export default function AutomationTracker() {
                           {item.id} →
                         </a>
                       </div>
-                      <div style={{paddingLeft:8,overflow:"hidden"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:7,overflow:"hidden"}}>
-                          <span style={{fontSize:13,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.initiative}</span>
-                          {sc&&<span style={{fontSize:10,fontWeight:700,color:scc,border:`1.5px solid ${scc}`,borderRadius:10,padding:"1px 6px",lineHeight:1.5,background:"white"}}>★ {sc}</span>}
-                          {(item.scoreHistory||[]).length>0&&<span style={{fontSize:9,color:"#9ca3af",background:"#f1f5f9",borderRadius:8,padding:"1px 6px"}}>{item.scoreHistory.length} snap</span>}
+                      <div style={{paddingLeft:8,minWidth:0,overflow:"hidden"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
+                          <span style={{fontSize:13,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:"1 1 0",minWidth:0}}>{item.initiative}</span>
+                          {sc&&<span style={{fontSize:10,fontWeight:700,color:scc,border:`1.5px solid ${scc}`,borderRadius:10,padding:"1px 6px",lineHeight:1.5,background:"white",flexShrink:0}}>★ {sc}</span>}
+                          {(item.scoreHistory||[]).length>0&&<span style={{fontSize:9,color:"#9ca3af",background:"#f1f5f9",borderRadius:8,padding:"1px 6px",flexShrink:0}}>{item.scoreHistory.length} snap</span>}
                         </div>
                       </div>
-                      <div style={{paddingLeft:8}}><Badge text={item.type||"—"} color={ts.color} bg={ts.bg} border={ts.border} small/></div>
+                      <div style={{paddingLeft:8,overflow:"hidden"}}><Badge text={item.type||"—"} color={ts.color} bg={ts.bg} border={ts.border} small/></div>
                       <div style={{paddingLeft:8,fontSize:12,color:"#374151",fontWeight:500}}>{item.team}</div>
                       <div style={{paddingLeft:8,display:"flex",alignItems:"center",gap:6}}>
                         <Avatar name={item.assignee} size={24}/>
