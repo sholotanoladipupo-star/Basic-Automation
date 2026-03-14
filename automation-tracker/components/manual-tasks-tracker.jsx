@@ -420,6 +420,10 @@ export default function ManualTasksTracker() {
   const [expanded, setExpanded] = useState(null);
   const [editing,  setEditing]  = useState(null);
   const [manageOpen,setManageOpen]=useState(false);
+  const [editMode,  setEditMode]  = useState(false);
+  const [pinModal,  setPinModal]  = useState(false);
+  const [pinInput,  setPinInput]  = useState("");
+  const [pinError,  setPinError]  = useState("");
   const [jiraBase, setJiraBase] = useState("https://your-org.atlassian.net/browse");
   const [saveMsg,  setSaveMsg]  = useState("");
   const [selected, setSelected] = useState(new Set());
@@ -461,6 +465,14 @@ export default function ManualTasksTracker() {
     })();
   },[]);
 
+  useEffect(()=>{ if(typeof window!=="undefined"&&sessionStorage.getItem("editMode")==="1") setEditMode(true); },[]);
+  const unlockEdit = async () => {
+    const res = await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pin:pinInput})});
+    if(res.ok){const d=await res.json();if(d.ok){sessionStorage.setItem("editMode","1");setEditMode(true);setPinModal(false);setPinInput("");setPinError("");return;}}
+    setPinError("Incorrect PIN. Try again.");
+  };
+  const lockEdit = () => { sessionStorage.removeItem("editMode"); setEditMode(false); };
+
   const persistItems  = async next=>{ setItems(next); try{ await apiSet("mt-items-v1",next); setSaveMsg("Saved ✓"); setTimeout(()=>setSaveMsg(""),2000); }catch{ setSaveMsg("⚠ Save failed"); }};
   const persistLookups= async next=>{ setLookups(next); try{ await apiSet("mt-lookups",next); }catch{}};
   const saveItem  = form=>{ persistItems(items.findIndex(i=>i.id===form.id)>=0?items.map(i=>i.id===form.id?form:i):[...items,form]); setEditing(null); };
@@ -496,6 +508,24 @@ export default function ManualTasksTracker() {
   const hasFilter=filterCat!=="All"||filterFreq!=="All"||filterStatus!=="All"||filterEffort!=="All"||filterLinked!=="All"||search;
   const allSel=filtered.length>0&&filtered.every(i=>selected.has(i.id));
 
+  // Auto-sized column widths based on data content
+  const mtGridCols = useMemo(() => {
+    const ch = 7.5;
+    const badge = s => (s || "").length * ch + 24;
+    const text  = s => (s || "").length * ch + 16;
+    const maxLinked = items.reduce((m, i) => Math.max(m, (i.linkedAutomations||[]).length * 62), 60);
+    return [
+      36,
+      72,
+      Math.max(150, ...items.map(i => text(i.task) + badge(i.effort) + 10)),
+      Math.max(90,  ...items.map(i => badge(i.category))),
+      Math.max(80,  ...items.map(i => badge(i.frequency))),
+      Math.max(80,  ...items.map(i => badge(i.status))),
+      Math.max(120, maxLinked),
+      80,
+    ].map(w => w + "px").join(" ");
+  }, [items]);
+
   if(!loaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",fontFamily:"'DM Sans',sans-serif",color:"#6b7280",fontSize:14}}>Loading…</div>;
 
   return (
@@ -514,6 +544,25 @@ export default function ManualTasksTracker() {
       {manageOpen&&<ManageModal onClose={()=>setManageOpen(false)} lookups={lookups} setLookups={persistLookups}/>}
       {editing&&<EditModal item={editing==="new"?null:editing} onSave={saveItem} onClose={()=>setEditing(null)} lookups={lookups} jiraBase={jiraBase}/>}
 
+      {/* PIN MODAL */}
+      {pinModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>{setPinModal(false);setPinInput("");setPinError("");}}>
+          <div style={{background:"white",borderRadius:14,padding:"28px 32px",width:320,boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:18,fontWeight:800,color:"#111827",marginBottom:4}}>🔐 Editor Access</div>
+            <div style={{fontSize:13,color:"#6b7280",marginBottom:18}}>Enter your PIN to enable editing.</div>
+            <input autoFocus type="password" value={pinInput} onChange={e=>{setPinInput(e.target.value);setPinError("");}}
+              onKeyDown={e=>e.key==="Enter"&&unlockEdit()}
+              placeholder="Enter PIN…"
+              style={{width:"100%",border:`1.5px solid ${pinError?"#fca5a5":"#e5e7eb"}`,borderRadius:8,padding:"10px 13px",fontSize:14,outline:"none",marginBottom:8,boxSizing:"border-box"}}/>
+            {pinError&&<div style={{fontSize:12,color:"#dc2626",marginBottom:10}}>{pinError}</div>}
+            <div style={{display:"flex",gap:8,marginTop:4}}>
+              <button onClick={()=>{setPinModal(false);setPinInput("");setPinError("");}} style={{flex:1,padding:"9px",borderRadius:8,border:"1.5px solid #e5e7eb",background:"white",fontSize:13,fontWeight:600,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
+              <button onClick={unlockEdit} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:"#dc2626",color:"white",fontSize:13,fontWeight:700,cursor:"pointer"}}>Unlock</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TOP BAR */}
       <div style={{background:"white",borderBottom:"1px solid #e5e7eb",padding:"15px 28px",position:"sticky",top:44,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
         <div style={{maxWidth:1440,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
@@ -528,8 +577,11 @@ export default function ManualTasksTracker() {
             {saveMsg&&<span style={{fontSize:12,fontWeight:600,padding:"4px 10px",borderRadius:6,color:saveMsg.startsWith("⚠")?"#dc2626":"#16a34a",background:saveMsg.startsWith("⚠")?"#fef2f2":"#f0fdf4",border:`1px solid ${saveMsg.startsWith("⚠")?"#fecaca":"#bbf7d0"}`}}>{saveMsg}</span>}
             <span style={{fontSize:11,color:"#9ca3af"}}>Updated: {today()}</span>
             <button onClick={()=>exportCSV(items)} style={{background:"#f0fdf4",color:"#16a34a",border:"1.5px solid #bbf7d0",borderRadius:8,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>⬇ Export CSV</button>
-            <button onClick={()=>setManageOpen(true)} style={{background:"#f8fafc",color:"#475569",border:"1.5px solid #e5e7eb",borderRadius:8,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🏷️ Manage Options</button>
-            <button onClick={()=>setEditing("new")} style={{background:"#dc2626",color:"white",border:"none",borderRadius:8,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px #dc262630"}}>+ Add Task</button>
+            {editMode&&<button onClick={()=>setManageOpen(true)} style={{background:"#f8fafc",color:"#475569",border:"1.5px solid #e5e7eb",borderRadius:8,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🏷️ Manage Options</button>}
+            {editMode&&<button onClick={()=>setEditing("new")} style={{background:"#dc2626",color:"white",border:"none",borderRadius:8,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px #dc262630"}}>+ Add Task</button>}
+            <button onClick={editMode?lockEdit:()=>setPinModal(true)} style={{background:editMode?"#f0fdf4":"#f8fafc",color:editMode?"#16a34a":"#6b7280",border:`1.5px solid ${editMode?"#bbf7d0":"#e5e7eb"}`,borderRadius:8,padding:"7px 13px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+              {editMode?"🔓 Editing":"🔒 Locked"}
+            </button>
           </div>
         </div>
       </div>
@@ -591,7 +643,7 @@ export default function ManualTasksTracker() {
         </div>
 
         {/* BULK BAR */}
-        {selected.size>0&&(
+        {editMode&&selected.size>0&&(
           <div style={{position:"sticky",top:108,zIndex:90,background:"#dc2626",color:"white",padding:"10px 20px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",boxShadow:"0 4px 16px #dc262640",borderRadius:10,margin:"0 0 12px 0"}}>
             <span style={{fontSize:13,fontWeight:700}}>✓ {selected.size} selected</span>
             <span style={{fontSize:12,opacity:0.85}}>Bulk update status:</span>
@@ -605,10 +657,10 @@ export default function ManualTasksTracker() {
         )}
 
         {/* TABLE */}
-        <div style={{background:"white",border:"1.5px solid #e5e7eb",borderRadius:12,overflow:"hidden",boxShadow:"0 1px 8px rgba(0,0,0,0.04)"}}>
+        <div style={{background:"white",border:"1.5px solid #e5e7eb",borderRadius:12,overflowX:"auto",boxShadow:"0 1px 8px rgba(0,0,0,0.04)"}}>
           {/* Header */}
-          <div style={{display:"grid",gridTemplateColumns:"36px 72px 1fr 160px 110px 90px 160px 68px",background:"#f8fafc",borderBottom:"2px solid #e5e7eb",padding:"10px 18px",alignItems:"center"}}>
-            <div><input type="checkbox" checked={allSel} onChange={e=>setSelected(e.target.checked?new Set(filtered.map(i=>i.id)):new Set())} style={{cursor:"pointer",width:14,height:14,accentColor:"#dc2626"}}/></div>
+          <div style={{display:"grid",gridTemplateColumns:mtGridCols,background:"#f8fafc",borderBottom:"2px solid #e5e7eb",padding:"10px 18px",alignItems:"center",minWidth:"max-content"}}>
+            <div>{editMode&&<input type="checkbox" checked={allSel} onChange={e=>setSelected(e.target.checked?new Set(filtered.map(i=>i.id)):new Set())} style={{cursor:"pointer",width:14,height:14,accentColor:"#dc2626"}}/>}</div>
             {["ID","Manual Task","Category","Frequency","Status","Linked Automations",""].map((h,i)=>(
               <div key={i} style={{fontSize:10,fontWeight:700,color:"#6b7280",letterSpacing:"1px",textTransform:"uppercase",paddingLeft:i===0?0:8}}>{h}</div>
             ))}
@@ -626,22 +678,22 @@ export default function ManualTasksTracker() {
               return (
                 <div key={item.id} style={{borderBottom:idx<filtered.length-1?"1px solid #f1f5f9":"none",background:isSel?"#fff7ed":undefined}}>
                   <div className="trow" onClick={()=>setExpanded(isExp?null:item.id)}
-                    style={{display:"grid",gridTemplateColumns:"36px 72px 1fr 160px 110px 90px 160px 68px",padding:"11px 18px",background:isSel?"#fff7ed":"white",alignItems:"center",cursor:"pointer",userSelect:"none"}}>
+                    style={{display:"grid",gridTemplateColumns:mtGridCols,padding:"11px 18px",background:isSel?"#fff7ed":"white",alignItems:"center",cursor:"pointer",userSelect:"none",minWidth:"max-content"}}>
 
-                    <div onClick={e=>e.stopPropagation()}><input type="checkbox" checked={isSel} onChange={()=>{}} style={{cursor:"pointer",width:14,height:14,accentColor:"#dc2626"}} onClick={e=>{e.stopPropagation();setSelected(s=>{const ns=new Set(s);ns.has(item.id)?ns.delete(item.id):ns.add(item.id);return ns;})}}/></div>
+                    <div onClick={e=>e.stopPropagation()}>{editMode&&<input type="checkbox" checked={isSel} onChange={()=>{}} style={{cursor:"pointer",width:14,height:14,accentColor:"#dc2626"}} onClick={e=>{e.stopPropagation();setSelected(s=>{const ns=new Set(s);ns.has(item.id)?ns.delete(item.id):ns.add(item.id);return ns;})}}/>}</div>
 
                     <div style={{paddingLeft:0}}><span style={{fontSize:10,fontFamily:"'DM Mono',monospace",fontWeight:700,color:"#9ca3af"}}>{item.id}</span></div>
 
-                    <div style={{paddingLeft:8}}>
-                      <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+                    <div style={{paddingLeft:8,whiteSpace:"nowrap"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:7}}>
                         <span style={{fontSize:13,fontWeight:600,color:"#111827"}}>{item.task}</span>
                         <Badge text={item.effort} color={getEffort(item.effort).color} bg={getEffort(item.effort).bg} border={getEffort(item.effort).border} small/>
                       </div>
                     </div>
 
-                    <div style={{paddingLeft:8}}><Badge text={item.category} color={cs.color} bg={cs.bg} border={cs.border} small/></div>
-                    <div style={{paddingLeft:8}}><Badge text={item.frequency} color={fs.color} bg={fs.bg} border={fs.border} small/></div>
-                    <div style={{paddingLeft:8}}><Badge text={item.status} color={ss.color} bg={ss.bg} border={ss.border} small/></div>
+                    <div style={{paddingLeft:8,whiteSpace:"nowrap"}}><Badge text={item.category} color={cs.color} bg={cs.bg} border={cs.border} small/></div>
+                    <div style={{paddingLeft:8,whiteSpace:"nowrap"}}><Badge text={item.frequency} color={fs.color} bg={fs.bg} border={fs.border} small/></div>
+                    <div style={{paddingLeft:8,whiteSpace:"nowrap"}}><Badge text={item.status} color={ss.color} bg={ss.bg} border={ss.border} small/></div>
 
                     {/* Linked CARs */}
                     <div style={{paddingLeft:8,display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
@@ -656,10 +708,10 @@ export default function ManualTasksTracker() {
                     </div>
 
                     <div style={{paddingLeft:8,display:"flex",gap:4,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
-                      <div className="row-act" style={{display:"flex",gap:4}}>
+                      {editMode&&<div className="row-act" style={{display:"flex",gap:4}}>
                         <button onClick={()=>setEditing(item)} style={{background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:6,color:"#ea580c",fontSize:11,fontWeight:700,padding:"4px 8px",cursor:"pointer"}}>Edit</button>
                         <button onClick={()=>deleteItem(item.id)} style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:6,color:"#dc2626",fontSize:12,fontWeight:700,padding:"4px 7px",cursor:"pointer"}}>×</button>
-                      </div>
+                      </div>}
                       <span style={{fontSize:10,color:"#d1d5db",marginLeft:2}}>{isExp?"▲":"▼"}</span>
                     </div>
                   </div>

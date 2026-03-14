@@ -142,23 +142,26 @@ function exportCSV(items) {
 }
 
 // ── SCORE PANEL ───────────────────────────────────────────────────────────────
-function ScorePanel({ item, onUpdate }) {
+function ScorePanel({ item, onUpdate, editMode }) {
   const [newName,setNewName]=useState("");
   const [periodLabel,setPeriodLabel]=useState("");
   const scores=item.scores||[];
   const history=item.scoreHistory||[];
   const overall=avg(scores);
   const oc=scColor(overall?parseFloat(overall):null);
-  const setScore=(id,score)=>onUpdate({...item,scores:scores.map(c=>c.id===id?{...c,score}:c)});
-  const removeRow=id=>onUpdate({...item,scores:scores.filter(c=>c.id!==id)});
-  const addRow=()=>{const n=newName.trim();if(!n)return;onUpdate({...item,scores:[...scores,{id:"c"+uid(),name:n,score:0}]});setNewName("");};
+  const locked=!!item.scoreLocked;
+  const setScore=(id,score)=>{if(locked||!editMode)return;onUpdate({...item,scores:scores.map(c=>c.id===id?{...c,score}:c)});};
+  const removeRow=id=>{if(locked||!editMode)return;onUpdate({...item,scores:scores.filter(c=>c.id!==id)});};
+  const addRow=()=>{if(locked||!editMode)return;const n=newName.trim();if(!n)return;onUpdate({...item,scores:[...scores,{id:"c"+uid(),name:n,score:0}]});setNewName("");};
   const saveSnapshot=()=>{
+    if(!editMode)return;
     const label=periodLabel.trim()||`Snapshot ${new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}`;
     const snap={id:uid(),period:label,date:isoToday(),scores:scores.map(c=>({...c})),notes:item.scoreNotes||"",avg:overall};
-    onUpdate({...item,scoreHistory:[...history,snap]});
+    onUpdate({...item,scoreHistory:[...history,snap],scoreLocked:true});
     setPeriodLabel("");
   };
-  const removeSnap=id=>onUpdate({...item,scoreHistory:history.filter(s=>s.id!==id)});
+  const unlockScores=()=>{if(editMode)onUpdate({...item,scoreLocked:false});};
+  const removeSnap=id=>{if(editMode)onUpdate({...item,scoreHistory:history.filter(s=>s.id!==id)});};
 
   return (
     <div style={{padding:"16px 22px 20px",background:"#fafbfc",borderTop:"1px solid #e5e7eb"}}>
@@ -166,45 +169,61 @@ function ScorePanel({ item, onUpdate }) {
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <span style={{fontSize:13,fontWeight:700,color:"#374151"}}>Delivery Scorecard</span>
           {overall?<span style={{background:oc,color:"white",borderRadius:20,padding:"2px 12px",fontSize:12,fontWeight:700}}>★ {overall} / 5</span>:<span style={{fontSize:11,color:"#9ca3af",fontStyle:"italic"}}>Not yet scored</span>}
+          {locked&&<span style={{fontSize:10,background:"#fef3c7",color:"#92400e",border:"1px solid #fde68a",borderRadius:10,padding:"2px 8px",fontWeight:600}}>Snapshot saved</span>}
         </div>
-        <span style={{fontSize:11,color:"#9ca3af"}}>{scores.filter(c=>c.score>0).length}/{scores.length} rated</span>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:11,color:"#9ca3af"}}>{scores.filter(c=>c.score>0).length}/{scores.length} rated</span>
+          {locked&&editMode&&<button onClick={unlockScores} style={{background:"#fff7ed",border:"1px solid #fed7aa",borderRadius:7,color:"#ea580c",fontSize:11,fontWeight:700,padding:"4px 10px",cursor:"pointer"}}>✏️ Edit Scores</button>}
+        </div>
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
-        {scores.length===0&&<div style={{fontSize:12,color:"#9ca3af",fontStyle:"italic",padding:"4px 0"}}>No criteria — add one below.</div>}
+        {scores.length===0&&<div style={{fontSize:12,color:"#9ca3af",fontStyle:"italic",padding:"4px 0"}}>No criteria — {editMode&&!locked?"add one below.":"no criteria set."}</div>}
         {scores.map(c=>(
-          <div key={c.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",background:"white",border:"1.5px solid #e5e7eb",borderRadius:8,flexWrap:"wrap"}}>
+          <div key={c.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",background:"white",border:"1.5px solid #e5e7eb",borderRadius:8,flexWrap:"wrap",opacity:locked?0.85:1}}>
             <span style={{flex:1,fontSize:13,color:"#111827",fontWeight:500,minWidth:160}}>{c.name}</span>
-            <Stars value={c.score} onChange={s=>setScore(c.id,s)}/>
-            <button onClick={()=>removeRow(c.id)} style={{background:"none",border:"none",color:"#d1d5db",fontSize:18,cursor:"pointer",padding:"0 4px",lineHeight:1}}>×</button>
+            <Stars value={c.score} onChange={locked||!editMode?()=>{}:s=>setScore(c.id,s)} disabled={locked||!editMode}/>
+            {!locked&&editMode&&<button onClick={()=>removeRow(c.id)} style={{background:"none",border:"none",color:"#d1d5db",fontSize:18,cursor:"pointer",padding:"0 4px",lineHeight:1}}>×</button>}
           </div>
         ))}
       </div>
-      <div style={{marginBottom:14}}>
-        <div style={{fontSize:11,fontWeight:700,color:"#6b7280",marginBottom:6}}>NOTES</div>
-        <textarea value={item.scoreNotes||""} onChange={e=>onUpdate({...item,scoreNotes:e.target.value})} rows={2}
-          placeholder="Add notes about delivery quality, issues, or observations…"
-          style={{width:"100%",border:"1.5px solid #e5e7eb",borderRadius:8,padding:"9px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#374151",resize:"vertical",outline:"none",lineHeight:1.55}}
-          onFocus={e=>e.target.style.borderColor="#3b82f6"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
-      </div>
-      <div style={{display:"flex",gap:8,marginBottom:16}}>
-        <input value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addRow()}
-          placeholder="Add a new scoring criterion…"
-          style={{flex:1,border:"1.5px dashed #d1d5db",borderRadius:8,padding:"8px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#374151",outline:"none",background:"white"}}
-          onFocus={e=>e.target.style.borderColor="#3b82f6"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
-        <button onClick={addRow} style={{background:"#f8fafc",border:"1.5px solid #e5e7eb",borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:600,color:"#374151",cursor:"pointer",whiteSpace:"nowrap"}}>+ Add</button>
-      </div>
+      {editMode&&!locked&&(
+        <>
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#6b7280",marginBottom:6}}>NOTES</div>
+            <textarea value={item.scoreNotes||""} onChange={e=>onUpdate({...item,scoreNotes:e.target.value})} rows={2}
+              placeholder="Add notes about delivery quality, issues, or observations…"
+              style={{width:"100%",border:"1.5px solid #e5e7eb",borderRadius:8,padding:"9px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#374151",resize:"vertical",outline:"none",lineHeight:1.55}}
+              onFocus={e=>e.target.style.borderColor="#3b82f6"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
+          </div>
+          <div style={{display:"flex",gap:8,marginBottom:16}}>
+            <input value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addRow()}
+              placeholder="Add a new scoring criterion…"
+              style={{flex:1,border:"1.5px dashed #d1d5db",borderRadius:8,padding:"8px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#374151",outline:"none",background:"white"}}
+              onFocus={e=>e.target.style.borderColor="#3b82f6"} onBlur={e=>e.target.style.borderColor="#d1d5db"}/>
+            <button onClick={addRow} style={{background:"#f8fafc",border:"1.5px solid #e5e7eb",borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:600,color:"#374151",cursor:"pointer",whiteSpace:"nowrap"}}>+ Add</button>
+          </div>
+        </>
+      )}
+      {!editMode&&item.scoreNotes&&(
+        <div style={{marginBottom:14,padding:"9px 12px",background:"white",border:"1.5px solid #e5e7eb",borderRadius:8}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#6b7280",marginBottom:4}}>NOTES</div>
+          <div style={{fontSize:13,color:"#374151",lineHeight:1.55,fontStyle:"italic"}}>"{item.scoreNotes}"</div>
+        </div>
+      )}
       <div style={{borderTop:"1px solid #e5e7eb",paddingTop:14}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:8}}>
           <span style={{fontSize:12,fontWeight:700,color:"#374151"}}>📊 Score History</span>
-          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-            <input value={periodLabel} onChange={e=>setPeriodLabel(e.target.value)} placeholder="Label (e.g. Q1 2026)"
-              style={{border:"1.5px solid #e5e7eb",borderRadius:7,padding:"5px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",width:150}}
-              onFocus={e=>e.target.style.borderColor="#3b82f6"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
-            <button onClick={saveSnapshot}
-              style={{background:"#1d4ed8",border:"none",borderRadius:7,color:"white",fontSize:12,fontWeight:700,padding:"5px 14px",cursor:"pointer",whiteSpace:"nowrap"}}>
-              Save Snapshot
-            </button>
-          </div>
+          {editMode&&!locked&&(
+            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+              <input value={periodLabel} onChange={e=>setPeriodLabel(e.target.value)} placeholder="Label (e.g. Q1 2026)"
+                style={{border:"1.5px solid #e5e7eb",borderRadius:7,padding:"5px 10px",fontSize:12,fontFamily:"'DM Sans',sans-serif",outline:"none",width:150}}
+                onFocus={e=>e.target.style.borderColor="#3b82f6"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
+              <button onClick={saveSnapshot}
+                style={{background:"#1d4ed8",border:"none",borderRadius:7,color:"white",fontSize:12,fontWeight:700,padding:"5px 14px",cursor:"pointer",whiteSpace:"nowrap"}}>
+                Save Snapshot
+              </button>
+            </div>
+          )}
         </div>
         {history.length===0
           ? <div style={{fontSize:12,color:"#9ca3af",fontStyle:"italic"}}>No snapshots yet. Score this initiative and click Save Snapshot to track progress over time.</div>
@@ -261,7 +280,7 @@ function ScorePanel({ item, onUpdate }) {
 }
 
 // ── EXPANDED ROW ──────────────────────────────────────────────────────────────
-function ExpandedRow({ item, tab, setTab, onUpdate }) {
+function ExpandedRow({ item, tab, setTab, onUpdate, editMode }) {
   const sc=avg(item.scores||[]);
   const histCount=(item.scoreHistory||[]).length;
   return (
@@ -283,7 +302,7 @@ function ExpandedRow({ item, tab, setTab, onUpdate }) {
           ))}
         </div>
       )}
-      {tab==="Score"&&<ScorePanel item={item} onUpdate={onUpdate}/>}
+      {tab==="Score"&&<ScorePanel item={item} onUpdate={onUpdate} editMode={editMode}/>}
     </div>
   );
 }
@@ -571,6 +590,10 @@ export default function AutomationTracker() {
   const [tabMap,     setTabMap]    = useState({});
   const [editing,    setEditing]   = useState(null);
   const [manageOpen, setManageOpen]= useState(false);
+  const [editMode,   setEditMode]  = useState(false);
+  const [pinModal,   setPinModal]  = useState(false);
+  const [pinInput,   setPinInput]  = useState("");
+  const [pinError,   setPinError]  = useState("");
   const [jiraModal,  setJiraModal] = useState(false);
   const [jiraBase,   setJiraBase]  = useState("https://your-org.atlassian.net/browse");
   const [saveMsg,    setSaveMsg]   = useState("");
@@ -584,7 +607,33 @@ export default function AutomationTracker() {
   const [search,  setSearch]  = useState("");
   const [sortBy,  setSortBy]  = useState("id");
   // col order: checkbox | jirakey | initiative | type | team | assignee | status | impact | actions
-  const [colWidths, setColWidths] = useState([36, 88, 200, 200, 110, 110, 130, 80, 72]);
+  const [colOverrides, setColOverrides] = useState({});
+  const colWidths = useMemo(() => {
+    const ch = 7.5;
+    const badge = s => (s || "").length * ch + 24;
+    const text  = s => (s || "").length * ch + 16;
+    const base = [
+      36,
+      100,
+      Math.max(160, ...items.map(i => text(i.initiative))),
+      Math.max(100, ...items.map(i => badge(i.type))),
+      Math.max(100, ...items.map(i => text(i.team))),
+      Math.max(110, ...items.map(i => text(i.assignee || "Unassigned") + 34)),
+      Math.max(80,  ...items.map(i => badge(i.status))),
+      Math.max(60,  ...items.map(i => badge(i.impact))),
+      90,
+    ];
+    return base.map((w, i) => colOverrides[i] ?? w);
+  }, [items, colOverrides]);
+
+  // ── Auth helpers ─────────────────────────────────────────────────────────
+  useEffect(()=>{ if(typeof window!=="undefined"&&sessionStorage.getItem("editMode")==="1") setEditMode(true); },[]);
+  const unlockEdit = async () => {
+    const res = await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pin:pinInput})});
+    if(res.ok){const d=await res.json();if(d.ok){sessionStorage.setItem("editMode","1");setEditMode(true);setPinModal(false);setPinInput("");setPinError("");return;}}
+    setPinError("Incorrect PIN. Try again.");
+  };
+  const lockEdit = () => { sessionStorage.removeItem("editMode"); setEditMode(false); };
 
   // ── Load from DB on mount ────────────────────────────────────────────────
   useEffect(()=>{
@@ -612,7 +661,7 @@ export default function AutomationTracker() {
     e.preventDefault();
     const startX = e.clientX;
     const startW = colWidths[idx];
-    const onMove = me => setColWidths(prev => { const n=[...prev]; n[idx]=Math.max(48, startW+(me.clientX-startX)); return n; });
+    const onMove = me => setColOverrides(prev => ({ ...prev, [idx]: Math.max(48, startW+(me.clientX-startX)) }));
     const onUp   = () => { document.removeEventListener("mousemove",onMove); document.removeEventListener("mouseup",onUp); };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup",   onUp);
@@ -698,6 +747,25 @@ export default function AutomationTracker() {
       {editing&&<EditModal item={editing==="new"?null:editing} onSave={saveItem} onClose={()=>setEditing(null)} lookups={lookups}/>}
       {jiraModal&&<JiraModal url={jiraBase} onSave={persistJira} onClose={()=>setJiraModal(false)}/>}
 
+      {/* PIN MODAL */}
+      {pinModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>{setPinModal(false);setPinInput("");setPinError("");}}>
+          <div style={{background:"white",borderRadius:14,padding:"28px 32px",width:320,boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:18,fontWeight:800,color:"#111827",marginBottom:4}}>🔐 Editor Access</div>
+            <div style={{fontSize:13,color:"#6b7280",marginBottom:18}}>Enter your PIN to enable editing.</div>
+            <input autoFocus type="password" value={pinInput} onChange={e=>{setPinInput(e.target.value);setPinError("");}}
+              onKeyDown={e=>e.key==="Enter"&&unlockEdit()}
+              placeholder="Enter PIN…"
+              style={{width:"100%",border:`1.5px solid ${pinError?"#fca5a5":"#e5e7eb"}`,borderRadius:8,padding:"10px 13px",fontSize:14,outline:"none",marginBottom:8,boxSizing:"border-box"}}/>
+            {pinError&&<div style={{fontSize:12,color:"#dc2626",marginBottom:10}}>{pinError}</div>}
+            <div style={{display:"flex",gap:8,marginTop:4}}>
+              <button onClick={()=>{setPinModal(false);setPinInput("");setPinError("");}} style={{flex:1,padding:"9px",borderRadius:8,border:"1.5px solid #e5e7eb",background:"white",fontSize:13,fontWeight:600,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
+              <button onClick={unlockEdit} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:"#1d4ed8",color:"white",fontSize:13,fontWeight:700,cursor:"pointer"}}>Unlock</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TOP BAR */}
       <div style={{background:"white",borderBottom:"1px solid #e5e7eb",padding:"15px 28px",position:"sticky",top:44,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
         <div style={{maxWidth:1440,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
@@ -714,9 +782,12 @@ export default function AutomationTracker() {
             </div>
             <span style={{fontSize:11,color:"#9ca3af"}}>Updated: {today()}</span>
             <button onClick={()=>exportCSV(items)} style={{background:"#f0fdf4",color:"#16a34a",border:"1.5px solid #bbf7d0",borderRadius:8,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>⬇ Export CSV</button>
-            <button onClick={()=>setJiraModal(true)} style={{background:"#f8fafc",color:"#475569",border:"1.5px solid #e5e7eb",borderRadius:8,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>⚙️ Jira URL</button>
-            <button onClick={()=>setManageOpen(true)} style={{background:"#f8fafc",color:"#475569",border:"1.5px solid #e5e7eb",borderRadius:8,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🏷️ Manage Options</button>
-            <button onClick={()=>setEditing("new")} style={{background:"#1d4ed8",color:"white",border:"none",borderRadius:8,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px #1d4ed830"}}>+ Add Initiative</button>
+            {editMode&&<button onClick={()=>setJiraModal(true)} style={{background:"#f8fafc",color:"#475569",border:"1.5px solid #e5e7eb",borderRadius:8,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>⚙️ Jira URL</button>}
+            {editMode&&<button onClick={()=>setManageOpen(true)} style={{background:"#f8fafc",color:"#475569",border:"1.5px solid #e5e7eb",borderRadius:8,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🏷️ Manage Options</button>}
+            {editMode&&<button onClick={()=>setEditing("new")} style={{background:"#1d4ed8",color:"white",border:"none",borderRadius:8,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer",boxShadow:"0 2px 8px #1d4ed830"}}>+ Add Initiative</button>}
+            <button onClick={editMode?lockEdit:()=>setPinModal(true)} style={{background:editMode?"#f0fdf4":"#f8fafc",color:editMode?"#16a34a":"#6b7280",border:`1.5px solid ${editMode?"#bbf7d0":"#e5e7eb"}`,borderRadius:8,padding:"7px 13px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+              {editMode?"🔓 Editing":"🔒 Locked"}
+            </button>
           </div>
         </div>
       </div>
@@ -756,7 +827,7 @@ export default function AutomationTracker() {
           {activeView==="table"&&<span style={{fontStyle:"italic"}}> · Click row to expand · Hover to edit · Check boxes for bulk update</span>}
         </div>
 
-        {selected.size>0&&(
+        {editMode&&selected.size>0&&(
           <BulkBar count={selected.size} statuses={lookups.statuses} onApply={applyBulkStatus} onClear={()=>setSelected(new Set())}/>
         )}
 
@@ -765,10 +836,10 @@ export default function AutomationTracker() {
         )}
 
         {activeView==="table"&&(
-          <div style={{background:"white",border:"1.5px solid #e5e7eb",borderRadius:12,overflow:"hidden",boxShadow:"0 1px 8px rgba(0,0,0,0.04)"}}>
-            <div style={{display:"grid",gridTemplateColumns:gridCols,background:"#f8fafc",borderBottom:"2px solid #e5e7eb",padding:"10px 18px",alignItems:"center"}}>
+          <div style={{background:"white",border:"1.5px solid #e5e7eb",borderRadius:12,overflowX:"auto",boxShadow:"0 1px 8px rgba(0,0,0,0.04)"}}>
+            <div style={{display:"grid",gridTemplateColumns:gridCols,background:"#f8fafc",borderBottom:"2px solid #e5e7eb",padding:"10px 18px",alignItems:"center",minWidth:"max-content"}}>
               <div style={{paddingLeft:2}}>
-                <input type="checkbox" checked={allFilteredSelected} onChange={e=>toggleSelectAll(e.target.checked)} style={{cursor:"pointer",width:14,height:14,accentColor:"#1d4ed8"}}/>
+                {editMode&&<input type="checkbox" checked={allFilteredSelected} onChange={e=>toggleSelectAll(e.target.checked)} style={{cursor:"pointer",width:14,height:14,accentColor:"#1d4ed8"}}/>}
               </div>
               {["Jira Key","Initiative","Type","Team","Assignee","Status","Impact",""].map((h,i)=>(
                 <div key={i} style={{fontSize:10,fontWeight:700,color:"#6b7280",letterSpacing:"1px",textTransform:"uppercase",paddingLeft:i===0?0:8,position:"relative",overflow:"hidden"}}>
@@ -791,9 +862,9 @@ export default function AutomationTracker() {
                 return (
                   <div key={item.id} style={{borderBottom:idx<filtered.length-1?"1px solid #f1f5f9":"none",background:isSel?"#eff6ff":"white"}}>
                     <div className="trow" onClick={()=>setExpanded(isExp?null:item.id)}
-                      style={{display:"grid",gridTemplateColumns:gridCols,padding:"11px 18px",alignItems:"center",cursor:"pointer",userSelect:"none",background:isSel?"#eff6ff":undefined}}>
-                      <div onClick={e=>toggleSelect(item.id,e)} style={{paddingLeft:2}}>
-                        <input type="checkbox" checked={isSel} onChange={()=>{}} style={{cursor:"pointer",width:14,height:14,accentColor:"#1d4ed8"}} onClick={e=>e.stopPropagation()}/>
+                      style={{display:"grid",gridTemplateColumns:gridCols,padding:"11px 18px",alignItems:"center",cursor:"pointer",userSelect:"none",background:isSel?"#eff6ff":undefined,minWidth:"max-content"}}>
+                      <div onClick={e=>editMode&&toggleSelect(item.id,e)} style={{paddingLeft:2}}>
+                        {editMode&&<input type="checkbox" checked={isSel} onChange={()=>{}} style={{cursor:"pointer",width:14,height:14,accentColor:"#1d4ed8"}} onClick={e=>e.stopPropagation()}/>}
                       </div>
                       <div onClick={e=>e.stopPropagation()}>
                         <a href={`${jiraBase}/${item.id}`} target="_blank" rel="noopener noreferrer"
@@ -801,30 +872,30 @@ export default function AutomationTracker() {
                           {item.id} →
                         </a>
                       </div>
-                      <div style={{paddingLeft:8,minWidth:0,overflow:"hidden"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
-                          <span style={{fontSize:13,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:"1 1 0",minWidth:0}}>{item.initiative}</span>
+                      <div style={{paddingLeft:8,whiteSpace:"nowrap"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontSize:13,fontWeight:600,color:"#111827"}}>{item.initiative}</span>
                           {sc&&<span style={{fontSize:10,fontWeight:700,color:scc,border:`1.5px solid ${scc}`,borderRadius:10,padding:"1px 6px",lineHeight:1.5,background:"white",flexShrink:0}}>★ {sc}</span>}
                           {(item.scoreHistory||[]).length>0&&<span style={{fontSize:9,color:"#9ca3af",background:"#f1f5f9",borderRadius:8,padding:"1px 6px",flexShrink:0}}>{item.scoreHistory.length} snap</span>}
                         </div>
                       </div>
-                      <div style={{paddingLeft:8,overflow:"hidden"}}><Badge text={item.type||"—"} color={ts.color} bg={ts.bg} border={ts.border} small/></div>
-                      <div style={{paddingLeft:8,fontSize:12,color:"#374151",fontWeight:500}}>{item.team}</div>
-                      <div style={{paddingLeft:8,display:"flex",alignItems:"center",gap:6}}>
+                      <div style={{paddingLeft:8,whiteSpace:"nowrap"}}><Badge text={item.type||"—"} color={ts.color} bg={ts.bg} border={ts.border} small/></div>
+                      <div style={{paddingLeft:8,fontSize:12,color:"#374151",fontWeight:500,whiteSpace:"nowrap"}}>{item.team}</div>
+                      <div style={{paddingLeft:8,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
                         <Avatar name={item.assignee} size={24}/>
                         {item.assignee?<span style={{fontSize:12,color:"#374151",fontWeight:500}}>{item.assignee}</span>:<span style={{fontSize:11,color:"#d1d5db",fontStyle:"italic"}}>Unassigned</span>}
                       </div>
                       <div style={{paddingLeft:8}}><Badge text={item.status} color={ss.color} bg={ss.bg} border={ss.border} small/></div>
                       <div style={{paddingLeft:8}}><Badge text={item.impact} color={is.color} bg={is.bg} border={is.border} small/></div>
                       <div style={{paddingLeft:8,display:"flex",gap:4,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
-                        <div className="row-act" style={{display:"flex",gap:4}}>
+                        {editMode&&<div className="row-act" style={{display:"flex",gap:4}}>
                           <button onClick={()=>setEditing(item)} style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:6,color:"#1d4ed8",fontSize:11,fontWeight:700,padding:"4px 8px",cursor:"pointer"}}>Edit</button>
                           <button onClick={()=>deleteItem(item.id)} style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:6,color:"#dc2626",fontSize:12,fontWeight:700,padding:"4px 7px",cursor:"pointer"}}>×</button>
-                        </div>
+                        </div>}
                         <span style={{fontSize:10,color:"#d1d5db",marginLeft:2}}>{isExp?"▲":"▼"}</span>
                       </div>
                     </div>
-                    {isExp&&<ExpandedRow item={item} tab={getTab(item.id)} setTab={t=>setTab(item.id,t)} onUpdate={updateItem}/>}
+                    {isExp&&<ExpandedRow item={item} tab={getTab(item.id)} setTab={t=>setTab(item.id,t)} onUpdate={updateItem} editMode={editMode}/>}
                   </div>
                 );
               })}
