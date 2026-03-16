@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: sre-sim-backend
+    runtime: node
+    rootDir: sre-simulation-platform/backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_KEY
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
