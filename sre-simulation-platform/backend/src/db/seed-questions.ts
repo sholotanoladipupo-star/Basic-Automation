@@ -323,544 +323,204 @@ Expected columns: \`title\`, \`service\`, \`reported_by\`, \`resolved_by\`, \`ho
   for (const q of questions) {
     // Compute expected_output dynamically from the actual seeded data
     const expected_output = await computeExpected(client, q.correct_query)
-    const { correct_query: _cq, ...rest } = q
+    const { correct_query, ...rest } = q
 
     await client.query(
-      `INSERT INTO sql_questions (title, description, difficulty, question_type, starter_query, expected_output, schema_hint, hint, time_limit_seconds)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `INSERT INTO sql_questions (title, description, difficulty, question_type, starter_query, expected_output, solution_query, schema_hint, hint, time_limit_seconds)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT DO NOTHING`,
-      [rest.title, rest.description, rest.difficulty, rest.question_type, rest.starter_query, JSON.stringify(expected_output), rest.schema_hint, rest.hint, rest.time_limit_seconds]
+      [rest.title, rest.description, rest.difficulty, rest.question_type, rest.starter_query, JSON.stringify(expected_output), correct_query.trim(), rest.schema_hint, rest.hint, rest.time_limit_seconds]
     )
   }
   console.log(`Seeded ${questions.length} SQL questions with dynamically computed expected_output.`)
 }
 
+// ─── Sub-question types for Grafana-like UI ──────────────────────────────────
+// type: 'datasource'         → Data Source panel (choose type + URL/project)
+// type: 'alert_rule'         → Alert Rules panel (metric query + threshold + duration)
+// type: 'contact_point'      → Contact Points panel (type + config)
+// type: 'notification_policy'→ Notification Policies panel (routing + grouping)
+//
+// Scoring uses required_keywords matched against the candidate's answer string.
+
 async function seedMonitoringQuestions(client: PoolClient) {
-  console.log('Seeding monitoring questions...')
+  console.log('Seeding monitoring questions (Grafana-style)...')
   await client.query(`DELETE FROM monitoring_questions WHERE title LIKE '[SEED]%'`)
 
-  const questions = [
-    {
-      title: '[SEED] Redis Cache Alerting Setup',
-      scenario: `**Scenario:** Your production Redis cache cluster handles 50,000 req/s. Over the past week you had two incidents:
-1. Redis OOM-killed at 97% memory (SEV1, 2 hours to recover)
-2. Cache hit rate dropped below 40% during a deploy, causing DB connection storm
+  type SubQuestion = {
+    id: string
+    type: string
+    prompt: string
+    placeholder: string
+    required_keywords: string[]
+    bonus_keywords: string[]
+    reference_answer: string
+  }
 
-You need to set up monitoring and alerting to catch these earlier. Your stack uses **Prometheus + Grafana + Alertmanager**.
+  type MonitoringQ = {
+    title: string
+    scenario: string
+    difficulty: string
+    time_limit_seconds: number
+    sub_questions: SubQuestion[]
+  }
+
+  const questions: MonitoringQ[] = [
+    {
+      title: '[SEED] API Gateway Error Rate Alerting',
+      difficulty: 'medium',
+      time_limit_seconds: 900,
+      scenario: `**Scenario:** You are the SRE on-call for an e-commerce platform. The API gateway has had intermittent spikes in 5xx error rates. The SEV1 threshold is >10% for >2 minutes. Configure Grafana monitoring so the on-call team is paged before users notice.
+
+**Stack:** Prometheus (metrics), Grafana (dashboards + alerts), Alertmanager (routing), Slack (#alerts-prod), PagerDuty (on-call).
 
 **Available Prometheus metrics:**
-- \`redis_memory_used_bytes\` / \`redis_memory_max_bytes\`
-- \`redis_keyspace_hits_total\`, \`redis_keyspace_misses_total\`
-- \`redis_connected_clients\`
-- \`redis_instantaneous_ops_per_sec\`
-- \`up{job="redis"}\``,
+- \`http_requests_total{service="api-gateway", status_code="5xx"}\`
+- \`http_requests_total{service="api-gateway"}\`
+- \`http_request_duration_seconds_bucket{service="api-gateway"}\`
+- \`up{job="api-gateway"}\``,
+      sub_questions: [
+        {
+          id: 'datasource',
+          type: 'datasource',
+          prompt: 'Configure the data source for your Grafana instance. What type of data source would you add for Prometheus metrics, and what is the typical connection URL?',
+          placeholder: 'Type: Prometheus\nURL: http://prometheus:9090',
+          required_keywords: ['prometheus'],
+          bonus_keywords: ['9090', 'server', '15s'],
+          reference_answer: 'Type: Prometheus\nURL: http://prometheus:9090\nAccess: Server (default)\nScrape interval: 15s',
+        },
+        {
+          id: 'alert_rule',
+          type: 'alert_rule',
+          prompt: 'Create an alert rule for high API gateway error rate. Write the PromQL expression, set threshold at 10%, and configure a 2-minute pending period.',
+          placeholder: 'rate(http_requests_total{status_code="5xx"}[5m]) / rate(http_requests_total[5m]) > 0.1',
+          required_keywords: ['http_requests_total', 'rate', '5xx'],
+          bonus_keywords: ['0.1', '2m', 'for', 'api-gateway', 'critical'],
+          reference_answer: 'Alert: HighAPIGatewayErrorRate\nExpr: rate(http_requests_total{service="api-gateway",status_code="5xx"}[5m]) / rate(http_requests_total{service="api-gateway"}[5m]) > 0.1\nFor: 2m\nSeverity: critical\nSummary: API gateway error rate above 10%',
+        },
+        {
+          id: 'contact_point',
+          type: 'contact_point',
+          prompt: 'Configure contact points for the on-call team. Set up a Slack channel for team awareness and PagerDuty for on-call escalation.',
+          placeholder: 'Slack: channel=#alerts-prod, webhook=https://hooks.slack.com/...\nPagerDuty: integration key=<routing-key>',
+          required_keywords: ['slack', 'pagerduty'],
+          bonus_keywords: ['webhook', '#alerts-prod', 'integration key', 'channel'],
+          reference_answer: 'Contact Point 1 - Slack:\n  Channel: #alerts-prod\n  Webhook URL: https://hooks.slack.com/services/...\n\nContact Point 2 - PagerDuty:\n  Integration Key: <your-routing-key>\n  Severity: critical',
+        },
+        {
+          id: 'notification_policy',
+          type: 'notification_policy',
+          prompt: 'Set up the notification routing policy. Critical alerts should go to both Slack and PagerDuty. Configure grouping to avoid alert storms.',
+          placeholder: 'Default: Slack\nRoute: severity=critical -> Slack + PagerDuty\nGroup by: [alertname, service]\nGroup wait: 30s',
+          required_keywords: ['critical', 'slack'],
+          bonus_keywords: ['group_by', 'group_wait', 'pagerduty', 'repeat_interval'],
+          reference_answer: 'Default policy:\n  Contact point: Slack (#alerts-prod)\n  Group by: [alertname, service]\n  Group wait: 30s\n  Repeat interval: 4h\n\nNested route (severity=critical):\n  Contact point: PagerDuty\n  Continue matching: true (also notifies Slack)',
+        },
+      ],
+    },
+    {
+      title: '[SEED] Cloud Spanner High CPU Alerting (Google Cloud Monitoring)',
       difficulty: 'medium',
-      time_limit_seconds: 600,
+      time_limit_seconds: 900,
+      scenario: `**Scenario:** Your team runs a product catalog on Cloud Spanner. A hot key issue drove CPU to 92% and took down the catalog service for 45 minutes before anyone noticed. Set up proactive monitoring.
+
+**Stack:** Google Cloud Monitoring (GCM) as a Grafana data source, Slack #platform-alerts, PagerDuty for on-call.
+
+**Available GCM metrics:**
+- \`spanner.googleapis.com/instance/cpu/utilization\`
+- \`spanner.googleapis.com/instance/query_count\`
+- \`spanner.googleapis.com/instance/storage/used_bytes\`
+- \`spanner.googleapis.com/instance/api/request_latencies\``,
       sub_questions: [
         {
-          id: 'sq1',
-          prompt: 'Write a PromQL expression that evaluates to `true` when Redis memory usage exceeds **85%** for more than **3 minutes**. This will be used as the alert condition.',
-          type: 'promql',
-          placeholder: '# PromQL expression\n',
-          required_keywords: ['redis_memory_used_bytes', 'redis_memory_max_bytes', '0.85'],
-          bonus_keywords: ['for:', '3m', '>'],
-          expected_answer: 'redis_memory_used_bytes / redis_memory_max_bytes > 0.85',
-          reference_answer: `# Alert fires when memory > 85% for 3 minutes
-(redis_memory_used_bytes / redis_memory_max_bytes) > 0.85
-
-# In a full alert rule:
-- alert: RedisHighMemory
-  expr: (redis_memory_used_bytes / redis_memory_max_bytes) > 0.85
-  for: 3m
-  labels:
-    severity: warning
-  annotations:
-    summary: "Redis memory usage above 85%"`,
+          id: 'datasource',
+          type: 'datasource',
+          prompt: 'Your metrics are in Google Cloud Monitoring (formerly Stackdriver). What Grafana data source type would you configure, and what authentication does it require?',
+          placeholder: 'Type: Google Cloud Monitoring\nAuth: Service Account JSON key\nProject ID: your-gcp-project-id',
+          required_keywords: ['google cloud monitoring', 'cloud monitoring', 'gcm', 'stackdriver'],
+          bonus_keywords: ['service account', 'json', 'oauth', 'project id', 'gcp'],
+          reference_answer: 'Data source type: Google Cloud Monitoring (Stackdriver)\nAuthentication: GCP Service Account JSON key (or Workload Identity on GKE)\nProject ID: your-gcp-project-id',
         },
         {
-          id: 'sq2',
-          prompt: 'Write a PromQL expression for **cache hit rate** (as a percentage, 0–100). Then write the alert condition that fires when hit rate drops below **60% for 5 minutes**.',
-          type: 'promql',
-          placeholder: '# PromQL expression for hit rate\n\n# Alert condition\n',
-          required_keywords: ['redis_keyspace_hits_total', 'redis_keyspace_misses_total', 'rate'],
-          bonus_keywords: ['5m', '60', '0.60', 'for:'],
-          expected_answer: 'rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m])) * 100 < 60',
-          reference_answer: `# Hit rate as percentage
-rate(redis_keyspace_hits_total[5m]) /
-  (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m])) * 100
-
-# Alert condition (< 60% for 5 min)
-- alert: RedisCacheHitRateLow
-  expr: |
-    rate(redis_keyspace_hits_total[5m]) /
-      (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m])) * 100 < 60
-  for: 5m
-  labels:
-    severity: critical
-  annotations:
-    summary: "Redis hit rate below 60% — DB connection storm risk"`,
+          id: 'alert_rule',
+          type: 'alert_rule',
+          prompt: 'Create an alert rule for Spanner high CPU utilization. The metric is spanner.googleapis.com/instance/cpu/utilization. Alert when CPU exceeds 70% for more than 5 minutes.',
+          placeholder: 'Metric: spanner.googleapis.com/instance/cpu/utilization\nFilter: resource.type="spanner_instance"\nThreshold: > 0.70\nFor: 5m',
+          required_keywords: ['cpu', 'utilization', '70'],
+          bonus_keywords: ['0.7', 'spanner', '5m', 'instance', 'node'],
+          reference_answer: 'Alert: SpannerHighCPU\nMetric: spanner.googleapis.com/instance/cpu/utilization\nFilter: resource.type="spanner_instance"\nThreshold: > 0.70 (70%)\nFor: 5m\nSeverity: warning (>70%) / critical (>85%)\nSummary: Spanner CPU above 70% - check for hot key patterns',
         },
         {
-          id: 'sq3',
-          prompt: 'Design the Grafana dashboard for Redis health. List 4–5 panels you would add, the visualization type for each, and what metric/query powers it.',
-          type: 'text',
-          placeholder: 'Panel 1: ...\nPanel 2: ...\n',
-          required_keywords: ['memory', 'hit rate', 'connections'],
-          bonus_keywords: ['stat', 'time series', 'gauge', 'ops', 'latency'],
-          expected_answer: '',
-          reference_answer: `**Recommended panels:**
-1. **Memory Usage %** — Gauge (0–100%) — redis_memory_used_bytes / redis_memory_max_bytes * 100
-2. **Cache Hit Rate %** — Stat + Spark line — rate(hits) / (rate(hits)+rate(misses)) * 100
-3. **Ops/sec** — Time Series — redis_instantaneous_ops_per_sec
-4. **Connected Clients** — Time Series — redis_connected_clients
-5. **Evicted Keys/sec** — Time Series — rate(redis_evicted_keys_total[5m])
-
-Set thresholds on memory (yellow 75%, red 90%) and hit rate (yellow 70%, red 60%).`,
+          id: 'contact_point',
+          type: 'contact_point',
+          prompt: 'Configure contact points. The team uses Slack #platform-alerts for warnings. Critical issues also need a PagerDuty page. Optionally add a webhook for runbook automation.',
+          placeholder: 'Slack: #platform-alerts\nPagerDuty: routing key\nWebhook (optional): https://automation.internal/runbooks/spanner',
+          required_keywords: ['slack', 'pagerduty'],
+          bonus_keywords: ['webhook', '#platform-alerts', 'runbook', 'integration key'],
+          reference_answer: 'Contact Point 1 - Slack:\n  Channel: #platform-alerts\n  Include dashboard link: yes\n\nContact Point 2 - PagerDuty:\n  Integration Key: <routing-key>\n  Severity mapping: warning->warning, critical->critical\n\nOptional Webhook: https://automation.internal/runbooks/spanner-high-cpu',
         },
-      ]
+        {
+          id: 'notification_policy',
+          type: 'notification_policy',
+          prompt: 'Define routing: warnings go to Slack only; critical alerts (CPU > 85%) go to Slack and PagerDuty. Explain how you would silence alerts during a planned maintenance window.',
+          placeholder: 'Route warning -> Slack\nRoute critical -> Slack + PagerDuty\nSilence: create Grafana silence covering maintenance window',
+          required_keywords: ['warning', 'critical', 'slack'],
+          bonus_keywords: ['silence', 'maintenance', 'inhibit', 'pagerduty', 'group_by'],
+          reference_answer: 'Route 1 (severity=warning): Slack #platform-alerts, repeat 1h\nRoute 2 (severity=critical): Slack + PagerDuty, repeat 30m until ack\nMaintenance window: Create a Grafana silence or Alertmanager time_intervals block',
+        },
+      ],
     },
     {
-      title: '[SEED] API Gateway Error Rate & Latency',
-      scenario: `**Scenario:** Your API gateway processes 200,000 req/min in production. You have an SLA of 99.9% availability and P99 latency < 500ms.
-
-Last month you had three incidents where error rates spiked to >5% before anyone noticed. You need to set up monitoring across two observability stacks your org uses:
-- **New Relic** (primary APM)
-- **Prometheus + Grafana** (infrastructure)
-
-**Available data:**
-- New Relic: \`Transaction\`, \`TransactionError\`, \`Metric\` event types
-- Prometheus: \`http_requests_total{status, method, path}\`, \`http_request_duration_seconds{quantile}\``,
+      title: '[SEED] Kubernetes Pod CrashLoopBackOff Detection',
       difficulty: 'hard',
-      time_limit_seconds: 720,
+      time_limit_seconds: 900,
+      scenario: `**Scenario:** A service pod entered CrashLoopBackOff and went undetected for 20 minutes because there was no alert. Build monitoring to catch pods in degraded states within 2 minutes.
+
+**Stack:** Prometheus + kube-state-metrics, Grafana, Alertmanager, Slack.
+
+**Available metrics:**
+- \`kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"}\`
+- \`kube_pod_container_status_restarts_total\`
+- \`kube_pod_status_phase{phase="Failed"}\`
+- \`kube_deployment_status_replicas_unavailable\``,
       sub_questions: [
         {
-          id: 'sq1',
-          prompt: 'Write a **New Relic NRQL query** that shows the error rate (%) per minute over the last 30 minutes, broken down by HTTP status code family (2xx, 4xx, 5xx).',
-          type: 'nrql',
-          placeholder: 'SELECT ...\nFROM ...\nWHERE ...\n',
-          required_keywords: ['SELECT', 'FROM', 'TransactionError'],
-          bonus_keywords: ['TIMESERIES', 'FACET', 'percentage', 'SINCE'],
-          expected_answer: '',
-          reference_answer: `SELECT
-  percentage(count(*), WHERE error IS TRUE) AS error_rate,
-  filter(count(*), WHERE httpResponseCode LIKE '5%') AS server_errors,
-  filter(count(*), WHERE httpResponseCode LIKE '4%') AS client_errors
-FROM Transaction
-FACET httpResponseCodeCategory
-SINCE 30 minutes ago
-TIMESERIES 1 minute`,
+          id: 'datasource',
+          type: 'datasource',
+          prompt: 'kube-state-metrics exposes Kubernetes object metrics scraped by Prometheus. What data source would you configure in Grafana, and what namespace does kube-state-metrics typically run in?',
+          placeholder: 'Type: Prometheus\nURL: http://prometheus-server.monitoring.svc.cluster.local\nkube-state-metrics runs in: kube-system',
+          required_keywords: ['prometheus'],
+          bonus_keywords: ['kube-state-metrics', 'kube-system', 'monitoring', 'scrape'],
+          reference_answer: 'Data source: Prometheus\nURL: http://prometheus-server.monitoring.svc.cluster.local\nkube-state-metrics namespace: kube-system\nScrape interval: 15s',
         },
         {
-          id: 'sq2',
-          prompt: 'Write a **PromQL expression** for P99 request latency using the histogram metric. Then write an alert that fires when P99 > 500ms for 2 minutes.',
-          type: 'promql',
-          placeholder: '# P99 latency expression\n\n# Alert rule\n',
-          required_keywords: ['http_request_duration_seconds', 'histogram_quantile', '0.99'],
-          bonus_keywords: ['2m', '0.5', '500', 'for:'],
-          expected_answer: 'histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 0.5',
-          reference_answer: `# P99 latency
-histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))
-
-# Alert rule
-- alert: APIHighP99Latency
-  expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 0.5
-  for: 2m
-  labels:
-    severity: warning
-  annotations:
-    summary: "P99 latency above 500ms"
-    description: "Current: {{ $value | humanizeDuration }}"`,
+          id: 'alert_rule',
+          type: 'alert_rule',
+          prompt: 'Write two alert rules: (1) Alert when any pod is in CrashLoopBackOff for > 2 minutes. (2) Alert when a deployment has unavailable replicas for > 5 minutes.',
+          placeholder: 'Alert 1: kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1, for: 2m\nAlert 2: kube_deployment_status_replicas_unavailable > 0, for: 5m',
+          required_keywords: ['kube_pod_container_status_waiting_reason', 'CrashLoopBackOff'],
+          bonus_keywords: ['kube_deployment_status_replicas_unavailable', '5m', '2m', 'for'],
+          reference_answer: 'Alert 1 - CrashLoopBackOff:\n  expr: kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1\n  for: 2m, severity: critical\n\nAlert 2 - Unavailable replicas:\n  expr: kube_deployment_status_replicas_unavailable > 0\n  for: 5m, severity: warning',
         },
         {
-          id: 'sq3',
-          prompt: 'You need to set up a **multi-window, multi-burn-rate alert** for your 99.9% SLA. Describe: (1) what burn rates you would use, (2) the alerting windows, and (3) why this is better than a simple threshold alert.',
-          type: 'text',
-          placeholder: 'Burn rates: ...\nWindows: ...\nWhy better: ...\n',
-          required_keywords: ['burn rate', 'window'],
-          bonus_keywords: ['1h', '6h', '24h', '72h', 'false positive', 'SLO', 'error budget'],
-          expected_answer: '',
-          reference_answer: `**Multi-window, multi-burn-rate strategy:**
-
-Burn rates: 14.4x (fast: consuming budget in 1h), 6x (medium: 6h), 1x (slow: budget depletion pace)
-
-Windows:
-- 14.4x burn rate → alert on 1h + 5m windows (page immediately)
-- 6x burn rate → alert on 6h + 30m windows (ticket/slack)
-- 1x burn rate → alert on 3d window (weekly review only)
-
-Why better than simple threshold:
-1. Reduces false positives — a 5-min spike at 14x burn won't page you unless it persists
-2. Correlated windows ensure the spike is real, not a blip
-3. Different burn rates give you fast detection AND early warning
-4. Directly tied to error budget, not arbitrary thresholds`,
-        },
-      ]
-    },
-    {
-      title: '[SEED] Grafana Alerting — Contact Points & Routing',
-      scenario: `**Scenario:** Your SRE team uses Grafana for alerting. You need to configure contact points and notification routing for a new service you are onboarding.
-
-Requirements:
-- SEV1 alerts → PagerDuty (immediate) + #incidents Slack channel
-- SEV2 alerts → #alerts Slack channel only (no page)
-- All alerts → archive to a webhook for audit logging
-- Business hours alerts only for the on-call Slack DM
-
-Your Grafana version: **10.x** (unified alerting). You have a PagerDuty integration key and Slack bot token.`,
-      difficulty: 'medium',
-      time_limit_seconds: 720,
-      sub_questions: [
-        {
-          id: 'sq1',
-          prompt: 'Write the **Grafana contact point configuration** (YAML format, as used in Grafana provisioning) for the PagerDuty + Slack SEV1 contact point.',
-          type: 'yaml',
-          placeholder: '# grafana/provisioning/alerting/contact-points.yaml\napiVersion: 1\ncontactPoints:\n  - name: ...\n',
-          required_keywords: ['pagerduty', 'slack', 'name', 'receivers'],
-          bonus_keywords: ['integration_key', 'url', 'channel', 'apiVersion', 'title', 'text'],
-          expected_answer: '',
-          reference_answer: `# grafana/provisioning/alerting/contact-points.yaml
-apiVersion: 1
-contactPoints:
-  - orgId: 1
-    name: sev1-critical
-    receivers:
-      - uid: pagerduty-sev1
-        type: pagerduty
-        settings:
-          integrationKey: \${PAGERDUTY_INTEGRATION_KEY}
-          severity: critical
-          title: "{{ .GroupLabels.alertname }}: {{ .CommonAnnotations.summary }}"
-          details: |
-            Service: {{ .CommonLabels.service }}
-            Runbook: {{ .CommonAnnotations.runbook_url }}
-        disableResolveMessage: false
-
-      - uid: slack-incidents
-        type: slack
-        settings:
-          url: \${SLACK_WEBHOOK_URL}
-          channel: '#incidents'
-          title: ':red_circle: SEV1 — {{ .GroupLabels.alertname }}'
-          text: |
-            *Summary:* {{ .CommonAnnotations.summary }}
-            *Service:* {{ .CommonLabels.service }}
-            *Runbook:* {{ .CommonAnnotations.runbook_url }}
-        disableResolveMessage: false
-
-  - orgId: 1
-    name: sev2-warning
-    receivers:
-      - uid: slack-alerts
-        type: slack
-        settings:
-          url: \${SLACK_WEBHOOK_URL}
-          channel: '#alerts'
-          title: ':warning: SEV2 — {{ .GroupLabels.alertname }}'
-          text: "{{ .CommonAnnotations.summary }}"`,
+          id: 'contact_point',
+          type: 'contact_point',
+          prompt: 'Configure a Slack contact point for the platform team. Template the message to include the pod name, namespace, and a link to logs.',
+          placeholder: 'Type: Slack\nChannel: #platform-alerts\nTitle template: [{{ .Status }}] {{ .CommonLabels.alertname }}\nBody: Pod: {{ .CommonLabels.pod }} in {{ .CommonLabels.namespace }}',
+          required_keywords: ['slack'],
+          bonus_keywords: ['template', 'namespace', 'pod', 'annotations', 'channel', '#platform'],
+          reference_answer: 'Contact Point - Slack:\n  Channel: #platform-alerts\n  Title: [{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}\n  Body: Pod: {{ .CommonLabels.pod }}\n  Namespace: {{ .CommonLabels.namespace }}\n  Summary: {{ .CommonAnnotations.summary }}',
         },
         {
-          id: 'sq2',
-          prompt: 'Write the **Alertmanager-compatible routing tree** (YAML) that routes alerts to the correct contact points based on severity label.',
-          type: 'yaml',
-          placeholder: '# Routing configuration\nroute:\n  receiver: ...\n  routes:\n',
-          required_keywords: ['route', 'receiver', 'match', 'severity'],
-          bonus_keywords: ['group_by', 'group_wait', 'group_interval', 'repeat_interval', 'continue'],
-          expected_answer: '',
-          reference_answer: `route:
-  receiver: default-webhook
-  group_by: ['alertname', 'service', 'severity']
-  group_wait: 30s
-  group_interval: 5m
-  repeat_interval: 4h
-
-  routes:
-    # SEV1 — page immediately, also send to Slack
-    - matchers:
-        - severity = "sev1"
-      receiver: sev1-critical
-      group_wait: 10s
-      repeat_interval: 1h
-      continue: true   # also send to audit webhook
-
-    # SEV2 — Slack only
-    - matchers:
-        - severity = "sev2"
-      receiver: sev2-warning
-      repeat_interval: 6h
-      continue: true
-
-    # Audit webhook catches everything
-    - receiver: default-webhook
-      continue: false
-
-receivers:
-  - name: sev1-critical
-  - name: sev2-warning
-  - name: default-webhook
-    webhook_configs:
-      - url: 'https://audit.internal/alerts'
-        send_resolved: true`,
+          id: 'notification_policy',
+          type: 'notification_policy',
+          prompt: 'Route alerts so that CrashLoopBackOff in the "prod" namespace pages the on-call engineer immediately, but the same alert in "staging" only posts to Slack.',
+          placeholder: 'Route: namespace=prod -> PagerDuty + Slack (group_wait: 0s)\nRoute: namespace=staging -> Slack only (group_wait: 5m)',
+          required_keywords: ['prod', 'staging', 'namespace'],
+          bonus_keywords: ['pagerduty', 'match', 'label', 'continue'],
+          reference_answer: 'Route 1 (namespace=prod, alertname=PodCrashLoopBackOff):\n  -> PagerDuty + Slack #platform-alerts\n  group_wait: 0s, repeat_interval: 30m\n\nRoute 2 (namespace=staging):\n  -> Slack #platform-staging-alerts only\n  group_wait: 5m, repeat_interval: 2h',
         },
-        {
-          id: 'sq3',
-          prompt: 'Describe **3 common alerting anti-patterns** you would avoid when setting up this routing, and how Grafana/Alertmanager features help address them.',
-          type: 'text',
-          placeholder: 'Anti-pattern 1: ...\nAnti-pattern 2: ...\nAnti-pattern 3: ...\n',
-          required_keywords: ['alert', 'noise', 'silence'],
-          bonus_keywords: ['inhibition', 'group', 'flapping', 'repeat_interval', 'runbook', 'false positive'],
-          expected_answer: '',
-          reference_answer: `**Common alerting anti-patterns:**
-
-1. **Alert fatigue / noise** — Too many low-priority alerts paging on-call.
-   Fix: Use severity labels + routing to send SEV2 to Slack only. Use repeat_interval (e.g. 4h) so resolved-and-refired alerts don't spam. Use inhibit_rules so child alerts are suppressed when a parent fires.
-
-2. **Missing runbook links** — Alerts with no context slow incident response.
-   Fix: Always include runbook_url in annotations. Grafana templates can render these in Slack/PD messages automatically.
-
-3. **Alert flapping** — Alert fires and resolves repeatedly during a flapping condition.
-   Fix: Use for: duration in Prometheus alert rules (e.g. for: 5m) so a transient spike doesn't page. Use group_wait and group_interval to batch related alerts rather than firing immediately.`,
-        },
-      ]
-    },
-    {
-      title: '[SEED] New Relic Alert Policy Design',
-      scenario: `**Scenario:** Your team is moving from Datadog to **New Relic** for APM. You need to create alert policies and NRQL alert conditions for your payment service.
-
-Service SLOs:
-- Error rate < 1% over any 5-minute window
-- P95 latency < 300ms
-- Throughput > 100 req/min (dead-man's switch)
-
-You need to write NRQL conditions for a New Relic alert policy and configure the appropriate thresholds.`,
-      difficulty: 'hard',
-      time_limit_seconds: 600,
-      sub_questions: [
-        {
-          id: 'sq1',
-          prompt: 'Write the **NRQL alert condition** for error rate exceeding 1%. Include both a WARNING (0.5%) and CRITICAL (1%) threshold. Use a 5-minute sliding window.',
-          type: 'nrql',
-          placeholder: '-- NRQL query\nSELECT ...\nFROM ...\n\n-- Thresholds:\n-- WARNING: ...\n-- CRITICAL: ...',
-          required_keywords: ['SELECT', 'FROM', 'Transaction', 'error'],
-          bonus_keywords: ['percentage', 'TIMESERIES', 'SLIDING', '0.5', '1.0', 'WHERE'],
-          expected_answer: '',
-          reference_answer: `-- NRQL Alert Condition: Error Rate
-SELECT percentage(count(*), WHERE error IS TRUE) AS error_rate
-FROM Transaction
-WHERE appName = 'payment-service'
-TIMESERIES
-
--- Alert condition config (New Relic API / Terraform):
--- Type: NRQL
--- Aggregation method: EVENT_FLOW
--- Aggregation window: 5 minutes (SLIDING)
--- Fill option: NONE (to avoid masking gaps)
-
--- Thresholds:
--- WARNING:  error_rate > 0.5  for at least 5 minutes
--- CRITICAL: error_rate > 1.0  for at least 5 minutes
-
--- Signal: Open violation when query returns no data (detects service outage)`,
-        },
-        {
-          id: 'sq2',
-          prompt: 'Write the **NRQL condition for P95 latency** > 300ms AND a **dead-man\'s switch** condition that fires when throughput drops to zero for 3 minutes.',
-          type: 'nrql',
-          placeholder: '-- P95 latency query\nSELECT ...\n\n-- Dead-man switch query\nSELECT ...\n',
-          required_keywords: ['SELECT', 'FROM', 'percentile', 'Transaction'],
-          bonus_keywords: ['300', 'count', 'throughput', 'SINCE', 'fill', '0'],
-          expected_answer: '',
-          reference_answer: `-- P95 Latency condition
-SELECT percentile(duration * 1000, 95) AS p95_ms
-FROM Transaction
-WHERE appName = 'payment-service'
-TIMESERIES
-
--- Threshold: CRITICAL when p95_ms > 300 for 5 minutes
-
----
-
--- Dead-man switch (throughput = 0)
-SELECT count(*) AS request_count
-FROM Transaction
-WHERE appName = 'payment-service'
-TIMESERIES
-
--- Threshold: CRITICAL when request_count < 1 for 3 minutes
--- This fires when the service stops receiving traffic entirely.
--- Set "fill with last known value" OFF so gaps trigger the alert.`,
-        },
-        {
-          id: 'sq3',
-          prompt: 'Explain the **difference between baseline and static threshold** alert conditions in New Relic, and when you would use each for the payment service.',
-          type: 'text',
-          placeholder: 'Static threshold: ...\nBaseline: ...\nWhen to use each: ...\n',
-          required_keywords: ['baseline', 'static', 'threshold'],
-          bonus_keywords: ['anomaly', 'deviation', 'standard deviation', 'seasonal', 'traffic', 'dynamic'],
-          expected_answer: '',
-          reference_answer: `**Static threshold:**
-A fixed numeric limit (e.g., error rate > 1%). Fires whenever the metric crosses the line.
-- Use for: SLO-driven conditions where you have a hard contractual limit (e.g., error rate > 1% violates SLA).
-- Use for: Dead-man switches where "no data" itself is the problem.
-- Downside: Generates noise during expected traffic spikes (e.g., Black Friday) unless thresholds are tuned.
-
-**Baseline (anomaly) threshold:**
-New Relic learns the metric's normal behavior over time and alerts when it deviates by N standard deviations.
-- Use for: Latency during variable traffic patterns — e.g., P95 spikes 3x above normal at 2 AM even if it's below 300ms absolute.
-- Use for: Throughput drops — a 50% traffic drop is suspicious even if absolute count stays above a fixed threshold.
-- Downside: Requires a learning period (~7 days). Can miss issues during first deployment.
-
-**For payment service:**
-- Error rate → Static (hard SLO: 1%)
-- P95 latency → Baseline (traffic varies by time of day; 300ms may be fine at low traffic but suspicious at peak)
-- Throughput → Both: static dead-man (<100 req/min) + baseline anomaly for sudden drops`,
-        },
-      ]
-    },
-    {
-      title: '[SEED] Grafana Dashboard JSON Design',
-      scenario: `**Scenario:** You are building a Grafana dashboard for your **order processing service**. The service emits the following Prometheus metrics:
-
-- \`orders_total{status="success"|"failed"|"pending"}\` — counter
-- \`order_processing_duration_seconds{quantile}\` — summary metric (p50, p95, p99)
-- \`order_queue_depth\` — gauge
-- \`order_value_dollars_total\` — counter (cumulative revenue)
-
-You need to design and write the JSON for key panels. Use **Grafana 10.x panel JSON format**.`,
-      difficulty: 'hard',
-      time_limit_seconds: 720,
-      sub_questions: [
-        {
-          id: 'sq1',
-          prompt: 'Write the **Grafana panel JSON** for a Stat panel showing the current **order success rate %** (last 5 minutes). Include thresholds: green ≥ 99%, yellow ≥ 95%, red < 95%.',
-          type: 'yaml',
-          placeholder: '{\n  "type": "stat",\n  "title": "...",\n  "targets": [...],\n  "options": {...}\n}',
-          required_keywords: ['type', 'stat', 'targets', 'thresholds'],
-          bonus_keywords: ['expr', 'orders_total', 'rate', 'percentage', '99', '95', 'green', 'red', 'yellow'],
-          expected_answer: '',
-          reference_answer: `{
-  "type": "stat",
-  "title": "Order Success Rate (5m)",
-  "datasource": { "type": "prometheus", "uid": "prometheus" },
-  "targets": [
-    {
-      "expr": "rate(orders_total{status='success'}[5m]) / rate(orders_total[5m]) * 100",
-      "legendFormat": "Success Rate %",
-      "refId": "A"
-    }
-  ],
-  "options": {
-    "reduceOptions": { "calcs": ["lastNotNull"] },
-    "orientation": "auto",
-    "textMode": "auto",
-    "colorMode": "background",
-    "unit": "percent"
-  },
-  "fieldConfig": {
-    "defaults": {
-      "unit": "percent",
-      "thresholds": {
-        "mode": "absolute",
-        "steps": [
-          { "color": "red",    "value": null },
-          { "color": "yellow", "value": 95 },
-          { "color": "green",  "value": 99 }
-        ]
-      },
-      "mappings": []
-    }
-  }
-}`,
-        },
-        {
-          id: 'sq2',
-          prompt: 'Write the **Grafana panel JSON** for a Time Series panel showing **P50, P95, P99 order processing latency** over the selected time range.',
-          type: 'yaml',
-          placeholder: '{\n  "type": "timeseries",\n  ...\n}',
-          required_keywords: ['type', 'timeseries', 'targets', 'expr'],
-          bonus_keywords: ['order_processing_duration', 'p50', 'p95', 'p99', 'legendFormat', 'unit', 'ms'],
-          expected_answer: '',
-          reference_answer: `{
-  "type": "timeseries",
-  "title": "Order Processing Latency",
-  "datasource": { "type": "prometheus", "uid": "prometheus" },
-  "targets": [
-    {
-      "expr": "order_processing_duration_seconds{quantile='0.5'} * 1000",
-      "legendFormat": "P50",
-      "refId": "A"
-    },
-    {
-      "expr": "order_processing_duration_seconds{quantile='0.95'} * 1000",
-      "legendFormat": "P95",
-      "refId": "B"
-    },
-    {
-      "expr": "order_processing_duration_seconds{quantile='0.99'} * 1000",
-      "legendFormat": "P99",
-      "refId": "C"
-    }
-  ],
-  "fieldConfig": {
-    "defaults": {
-      "unit": "ms",
-      "custom": {
-        "lineWidth": 2,
-        "fillOpacity": 10,
-        "showPoints": "never"
-      },
-      "thresholds": {
-        "mode": "absolute",
-        "steps": [
-          { "color": "green",  "value": null },
-          { "color": "yellow", "value": 500 },
-          { "color": "red",    "value": 1000 }
-        ]
-      }
-    },
-    "overrides": [
-      { "matcher": { "id": "byName", "options": "P99" },
-        "properties": [{ "id": "custom.lineStyle", "value": { "dash": [10, 10] } }] }
-    ]
-  },
-  "options": {
-    "tooltip": { "mode": "multi" },
-    "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] }
-  }
-}`,
-        },
-        {
-          id: 'sq3',
-          prompt: 'Describe your **overall dashboard layout strategy** for this service: row organization, variable/template variables you would add, and how you would use dashboard links to connect it to related dashboards or runbooks.',
-          type: 'text',
-          placeholder: 'Rows: ...\nVariables: ...\nDashboard links: ...\n',
-          required_keywords: ['row', 'variable', 'link'],
-          bonus_keywords: ['template', 'instance', 'environment', 'annotation', 'runbook', 'drill-down', 'time range'],
-          expected_answer: '',
-          reference_answer: `**Dashboard layout strategy:**
-
-**Rows (top to bottom):**
-1. Overview row — Stat panels: Success Rate %, Error Rate %, Queue Depth, Revenue/min (4 stats in one row)
-2. Latency row — P50/P95/P99 time series + heatmap of latency distribution
-3. Volume row — Orders/min by status (stacked bar), Failed order count
-4. Queue row — Queue depth over time + queue processing rate vs input rate
-5. Revenue row — Cumulative revenue counter, revenue/hour rate
-
-**Template variables:**
-- \`$environment\` — dropdown: prod | staging | dev (filters all metrics by environment label)
-- \`$instance\` — multi-select from \`label_values(orders_total, instance)\` (drill into specific pods)
-- \`$interval\` — interval picker (auto | 1m | 5m) for rate() window
-
-**Annotations:**
-- Deployment events from CI/CD webhook (highlight when releases happened)
-- SEV1/2 incident windows from PagerDuty annotation API
-
-**Dashboard links:**
-- Link to "Order Service Logs" in Grafana Loki (passing \`$__timeRange\`)
-- Link to "Infrastructure — Payment DB" dashboard
-- External link to Runbook: https://wiki.internal/runbooks/order-service
-- Link to New Relic APM trace explorer with \`service=order-service\` pre-filled`,
-        },
-      ]
+      ],
     },
   ]
 
@@ -874,6 +534,7 @@ You need to design and write the JSON for key panels. Use **Grafana 10.x panel J
   }
   console.log(`Seeded ${questions.length} monitoring questions.`)
 }
+
 
 export async function runSeed() {
   const client = await pool.connect()

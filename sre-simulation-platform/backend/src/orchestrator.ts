@@ -2,6 +2,9 @@ import { WebSocket } from 'ws'
 import { v4 as uuidv4 } from 'uuid'
 import { pool } from './db/client'
 import { getCacheDatabaseCascadeScenario, checkResolutionAttempt } from './scenarios/cache-db-cascade'
+import { getDbSlowQueriesScenario, checkDbSlowQueriesResolution } from './scenarios/db-slow-queries'
+import { getSpannerHighUtilizationScenario, checkSpannerResolution } from './scenarios/spanner-high-utilization'
+import { getPodCrashLoopScenario, checkPodCrashLoopResolution } from './scenarios/pod-crashloop'
 import { runSimulator } from './agents/simulator'
 import { runEvaluator } from './agents/evaluator'
 import {
@@ -151,9 +154,13 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
     return
   }
 
-  // Incident simulation flow
-  // Only one scenario for now; extend here when more are added
-  const scenario = getCacheDatabaseCascadeScenario(sessionId)
+  // Incident simulation flow — route to correct scenario
+  const scenarioId = assignment.scenario_id ?? 'cache-db-cascade'
+  const scenario =
+    scenarioId === 'db-slow-queries' ? getDbSlowQueriesScenario(sessionId) :
+    scenarioId === 'spanner-high-utilization' ? getSpannerHighUtilizationScenario(sessionId) :
+    scenarioId === 'pod-crashloop' ? getPodCrashLoopScenario(sessionId) :
+    getCacheDatabaseCascadeScenario(sessionId)
 
   // Apply step 0 (t=0 failure) immediately
   let initialState = { ...scenario.initial_system_state, session_id: sessionId }
@@ -348,9 +355,19 @@ async function handleRunCommand(ws: SREWebSocket, payload: { cmd: string }): Pro
   await logEvent(session, 'command_run', { cmd: payload.cmd })
   sendMessage(ws, { type: 'thinking', payload: { message: 'Simulator processing command...' } })
 
-  // Check for resolution attempt
-  if (checkResolutionAttempt(payload.cmd)) {
-    await logEvent(session, 'remediation_attempted', { cmd: payload.cmd, target: 'redis-primary' })
+  // Check for resolution attempt — use scenario-specific checker
+  const scenId = session.scenario.id
+  const isResolution =
+    scenId === 'db-slow-queries' ? checkDbSlowQueriesResolution(payload.cmd) :
+    scenId === 'spanner-high-utilization' ? checkSpannerResolution(payload.cmd) :
+    scenId === 'pod-crashloop' ? checkPodCrashLoopResolution(payload.cmd) :
+    checkResolutionAttempt(payload.cmd)
+
+  if (isResolution) {
+    const target = scenId === 'db-slow-queries' ? 'postgres-primary' :
+      scenId === 'spanner-high-utilization' ? 'spanner-primary' :
+      scenId === 'pod-crashloop' ? 'checkout-service' : 'redis-primary'
+    await logEvent(session, 'remediation_attempted', { cmd: payload.cmd, target })
     if (session.recovery_ticks === 0) {
       session.recovery_ticks = 1
     }

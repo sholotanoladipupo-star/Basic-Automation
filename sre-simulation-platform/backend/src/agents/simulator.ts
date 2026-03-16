@@ -12,22 +12,38 @@ function getStateConditions(state: SystemState): string[] {
   const redis = state.infrastructure.caches[0]
   const pgPrimary = state.infrastructure.databases[0]
   const orderSvc = state.services['order-service']
+  const checkoutSvc = state.services['checkout-service']
 
+  // Redis conditions (cache-db-cascade)
   if (redis?.status === 'down') conditions.push('redis_down')
   if (redis?.status === 'degraded') conditions.push('redis_recovering', 'redis_down')
   if (redis?.status === 'healthy' && (redis.hit_rate ?? 0) > 0.7) conditions.push('redis_healthy')
 
+  // DB conditions (all scenarios)
   if (pgPrimary?.status === 'down') {
     conditions.push('db_down', 'db_overloaded')
   } else if (pgPrimary && (pgPrimary.connection_count > 100 || pgPrimary.status === 'degraded')) {
     conditions.push('db_overloaded')
   }
+  if (pgPrimary && pgPrimary.query_latency_ms > 2000) conditions.push('db_slow_queries')
 
+  // Services degraded
   if (orderSvc?.status === 'down') {
     conditions.push('services_down', 'services_degraded')
   } else if (orderSvc && (orderSvc.status === 'degraded' || orderSvc.error_rate > 0.2)) {
     conditions.push('services_degraded')
   }
+
+  // checkout-service crashloop
+  if (checkoutSvc?.status === 'down') conditions.push('checkout_down', 'services_degraded')
+
+  // Spanner scenario
+  const spannerDb = state.infrastructure.databases.find(d => d.name === 'spanner-primary')
+  if (spannerDb?.status === 'down') conditions.push('spanner_down', 'db_down')
+  else if (spannerDb?.status === 'degraded') conditions.push('spanner_degraded')
+
+  // Scenario-specific tag
+  if (state.scenario_id) conditions.push(`scenario_${state.scenario_id.replace(/-/g, '_')}`)
 
   return conditions
 }
@@ -63,12 +79,26 @@ export async function runSimulator(
 function localFallback(cmd: string, state: SystemState): SimulatorResponse {
   const redis = state.infrastructure.caches[0]
   const pgPrimary = state.infrastructure.databases[0]
+  const scenario = state.scenario_id ?? ''
 
   if ((cmd.includes('redis') || cmd.includes('6379')) && redis?.status === 'down') {
     return { stdout: 'Could not connect to Redis at redis-primary.cache.svc.cluster.local:6379: Connection refused', exit_code: 1, latency_ms: 2500 }
   }
   if ((cmd.includes('psql') || cmd.includes('postgres')) && pgPrimary?.status === 'down') {
     return { stdout: 'psql: error: connection to server failed: FATAL:  sorry, too many clients already', exit_code: 1, latency_ms: 5000 }
+  }
+  if (cmd.includes('psql') && scenario === 'db-slow-queries' && pgPrimary?.status === 'degraded') {
+    return { stdout: 'psql: WARNING: transaction took 8423ms (slow query detected)', exit_code: 0, latency_ms: 8500 }
+  }
+  if ((cmd.includes('gcloud spanner') || cmd.includes('spanner')) && scenario === 'spanner-high-utilization') {
+    const db = state.infrastructure.databases.find(d => d.name === 'spanner-primary')
+    if (db?.status === 'degraded') return { stdout: 'ERROR: Cloud Spanner instance prod-catalog: Node us-central1-b CPU 92%. Queries experiencing elevated latency.', exit_code: 1, latency_ms: 3000 }
+  }
+  if (cmd.startsWith('kubectl') && scenario === 'pod-crashloop') {
+    const svc = state.services['checkout-service']
+    if (svc?.status === 'down' && cmd.includes('get pods')) {
+      return { stdout: 'NAME                                READY   STATUS             RESTARTS   AGE\ncheckout-service-5b7c8d6f4-abc1    0/1     CrashLoopBackOff   8          12m\ncheckout-service-5b7c8d6f4-abc2    0/1     CrashLoopBackOff   8          12m\ncheckout-service-5b7c8d6f4-abc3    0/1     CrashLoopBackOff   7          12m', exit_code: 0, latency_ms: 180 }
+    }
   }
   if (cmd.startsWith('kubectl')) {
     return { stdout: `Error from server: resource not found\nUsage: kubectl [command] [TYPE] [NAME] [flags]`, exit_code: 1, latency_ms: 200 }
@@ -87,5 +117,5 @@ function localFallback(cmd: string, state: SystemState): SimulatorResponse {
   if (cmd === 'date') return { stdout: new Date().toUTCString(), exit_code: 0, latency_ms: 30 }
 
   const cmdName = cmd.split(' ')[0] ?? cmd
-  return { stdout: `${cmdName}: command not found\nTry: kubectl, redis-cli, psql, nc, curl, df, free, top`, exit_code: 127, latency_ms: 80 }
+  return { stdout: `${cmdName}: command not found\nTry: kubectl, redis-cli, psql, gcloud, nc, curl, df, free, top`, exit_code: 127, latency_ms: 80 }
 }

@@ -68,10 +68,11 @@ sqlRouter.post('/submit', async (req, res) => {
   const { session_id, question_id, query } = req.body as { session_id?: string; question_id?: string; query?: string }
   if (!session_id || !question_id || !query) { res.status(400).json({ error: 'session_id, question_id, query required' }); return }
   try {
-    const qr = await pool.query(`SELECT expected_output FROM sql_questions WHERE id = $1`, [question_id])
+    const qr = await pool.query(`SELECT expected_output, solution_query FROM sql_questions WHERE id = $1`, [question_id])
     if (!qr.rows[0]) { res.status(404).json({ error: 'Question not found' }); return }
 
     const expected = qr.rows[0].expected_output as { columns: string[]; rows: Record<string, unknown>[] }
+    const solutionQuery = (qr.rows[0].solution_query ?? '') as string
     const result = await executeQuery(query)
     const score = scoreQueryResult(result, expected)
     const rating = sqlRating(score)
@@ -107,7 +108,7 @@ sqlRouter.post('/submit', async (req, res) => {
       [session_id, score, JSON.stringify(scorecard.dimensions), JSON.stringify(scorecard.timeline_highlights), scorecard.postmortem_summary]
     )
 
-    res.json({ score, rating, scorecard })
+    res.json({ score, rating, scorecard, solution_query: solutionQuery, candidate_result: result })
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
@@ -120,12 +121,12 @@ sqlRouter.get('/admin/questions', requireAdmin, async (_req, res) => {
 })
 
 sqlRouter.post('/admin/questions', requireAdmin, async (req, res) => {
-  const { title, description, difficulty, question_type, starter_query, expected_output, schema_hint, hint, time_limit_seconds } = req.body as Record<string, unknown>
+  const { title, description, difficulty, question_type, starter_query, expected_output, solution_query, schema_hint, hint, time_limit_seconds } = req.body as Record<string, unknown>
   try {
     const r = await pool.query(
-      `INSERT INTO sql_questions (title, description, difficulty, question_type, starter_query, expected_output, schema_hint, hint, time_limit_seconds)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [title, description, difficulty ?? 'medium', question_type ?? 'write', starter_query ?? '', JSON.stringify(expected_output ?? {}), schema_hint ?? '', hint ?? '', time_limit_seconds ?? 300]
+      `INSERT INTO sql_questions (title, description, difficulty, question_type, starter_query, expected_output, solution_query, schema_hint, hint, time_limit_seconds)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [title, description, difficulty ?? 'medium', question_type ?? 'write', starter_query ?? '', JSON.stringify(expected_output ?? {}), solution_query ?? '', schema_hint ?? '', hint ?? '', time_limit_seconds ?? 300]
     )
     res.json(r.rows[0])
   } catch (err) { res.status(500).json({ error: String(err) }) }

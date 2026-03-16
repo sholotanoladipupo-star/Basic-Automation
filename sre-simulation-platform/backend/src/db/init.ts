@@ -133,6 +133,9 @@ export async function initDb(): Promise<void> {
       )
     `)
 
+    // Add solution_query column to sql_questions if not present
+    await client.query(`ALTER TABLE sql_questions ADD COLUMN IF NOT EXISTS solution_query TEXT NOT NULL DEFAULT ''`)
+
     await client.query(`CREATE INDEX IF NOT EXISTS idx_event_logs_session ON event_logs(session_id)`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_state_snapshots_session ON state_snapshots(session_id)`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_scorecards_session ON scorecards(session_id)`)

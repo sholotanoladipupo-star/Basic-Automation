@@ -591,6 +591,345 @@ Swap:             0           0           0`
     exit_code: 7, latency_ms: 2000,
     stdout: `curl: (7) Failed to connect to redis-primary.cache.svc.cluster.local port 6379 after 2002 ms: Connection refused`
   },
+
+  // ══════════════════════════════════════════════════════════════════
+  // SCENARIO: db-slow-queries
+  // ══════════════════════════════════════════════════════════════════
+
+  {
+    scenario_id: 'db-slow-queries',
+    command_pattern: 'pg_stat_activity',
+    state_condition: 'db_slow_queries',
+    priority: 5,
+    exit_code: 0, latency_ms: 400,
+    stdout: `  pid  | state  |    duration    |                         query
+-------+--------+----------------+--------------------------------------------------------
+ 18432 | active | 00:04:21.831   | SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC
+ 18433 | active | 00:04:20.112   | SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC
+ 18434 | active | 00:03:58.441   | SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC
+ 18435 | active | 00:02:11.009   | SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC
+ 18436 | active | 00:01:44.332   | SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC
+ 18250 | idle   | 00:00:00       | COMMIT
+ 18251 | idle   | 00:00:00       | COMMIT
+(7 rows)`
+  },
+  {
+    scenario_id: 'db-slow-queries',
+    command_pattern: 'pg_stat_activity',
+    state_condition: 'db_overloaded',
+    priority: 4,
+    exit_code: 0, latency_ms: 400,
+    stdout: `  pid  | state  |    duration    |                         query
+-------+--------+----------------+--------------------------------------------------------
+ 18432 | active | 00:08:21.831   | SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC
+ 18433 | active | 00:08:20.112   | SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC
+ 18434 | active | 00:07:58.441   | SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC
+ ... (142 more active queries queued) ...
+(145 rows) -- WARNING: 80% of connection pool in use`
+  },
+  {
+    scenario_id: 'db-slow-queries',
+    command_pattern: 'pg_stat_activity',
+    state_condition: 'always',
+    priority: 0,
+    exit_code: 0, latency_ms: 200,
+    stdout: `  pid  | state | duration  | query
+-------+-------+-----------+--------
+ 12001 | idle  | 00:00:00  | COMMIT
+ 12002 | idle  | 00:00:00  | COMMIT
+ 12003 | active| 00:00:01  | SELECT * FROM products WHERE id = $1
+(3 rows)`
+  },
+  {
+    scenario_id: 'db-slow-queries',
+    command_pattern: 'explain analyze',
+    state_condition: 'db_slow_queries',
+    priority: 5,
+    exit_code: 0, latency_ms: 4200,
+    stdout: `QUERY PLAN
+---------------------------------------------------------------------------
+ Sort  (cost=24823.42..24923.42 rows=40000 width=312) (actual time=4181.234..4182.110 rows=8 loops=1)
+   Sort Key: created_at DESC
+   Sort Method: quicksort  Memory: 28kB
+   ->  Seq Scan on orders  (cost=0.00..22540.00 rows=40000 width=312) (actual time=0.041..4170.882 rows=8 loops=1)
+         Filter: (user_id = $1)
+         Rows Removed by Filter: 1999992
+ Planning Time: 0.185 ms
+ Execution Time: 4182.341 ms
+
+WARNING: Seq Scan on orders (1,999,992 rows scanned for 8 matches).
+RECOMMENDATION: CREATE INDEX idx_orders_user_id ON orders(user_id);`
+  },
+  {
+    scenario_id: 'db-slow-queries',
+    command_pattern: 'pg_terminate_backend',
+    state_condition: 'db_slow_queries',
+    priority: 5,
+    exit_code: 0, latency_ms: 300,
+    stdout: ` pg_terminate_backend
+----------------------
+ t
+ t
+ t
+ t
+ t
+(5 rows)
+
+5 slow queries terminated. Connection pool freed.`
+  },
+  {
+    scenario_id: 'db-slow-queries',
+    command_pattern: 'pg_cancel_backend',
+    state_condition: 'db_slow_queries',
+    priority: 5,
+    exit_code: 0, latency_ms: 300,
+    stdout: ` pg_cancel_backend
+-------------------
+ t
+ t
+ t
+(3 rows)
+
+3 queries cancelled. Connections releasing back to pool.`
+  },
+  {
+    scenario_id: 'db-slow-queries',
+    command_pattern: 'create index',
+    state_condition: 'db_slow_queries',
+    priority: 5,
+    exit_code: 0, latency_ms: 12000,
+    stdout: `CREATE INDEX
+Index "idx_orders_user_id" created CONCURRENTLY on table "orders".
+Rows indexed: 2,000,000. Duration: 11.8s.
+
+Verify with: EXPLAIN (ANALYZE) SELECT * FROM orders WHERE user_id = 12345;`
+  },
+  {
+    scenario_id: 'db-slow-queries',
+    command_pattern: 'create index',
+    state_condition: 'always',
+    priority: 2,
+    exit_code: 0, latency_ms: 8000,
+    stdout: `CREATE INDEX
+Index created successfully.`
+  },
+  {
+    scenario_id: 'db-slow-queries',
+    command_pattern: 'kubectl get pods',
+    state_condition: 'db_slow_queries',
+    priority: 3,
+    exit_code: 0, latency_ms: 180,
+    stdout: `NAME                                   READY   STATUS    RESTARTS   AGE
+api-gateway-7d4f8b9c6-xkp2m           1/1     Running   0          3d
+checkout-service-5b7c8d6f4-qr7s       1/1     Running   0          3d
+product-service-6c8d9f7b5-mn3p        1/1     Running   0          3d
+order-service-5b7c8d6f4-rs8t          0/1     Pending   0          3m
+payment-service-4a6b7c5e3-ts9k        1/1     Running   1          3d`
+  },
+
+  // ══════════════════════════════════════════════════════════════════
+  // SCENARIO: spanner-high-utilization
+  // ══════════════════════════════════════════════════════════════════
+
+  {
+    scenario_id: 'spanner-high-utilization',
+    command_pattern: 'kubectl get pods',
+    state_condition: 'spanner_degraded',
+    priority: 5,
+    exit_code: 0, latency_ms: 180,
+    stdout: `NAME                                      READY   STATUS    RESTARTS   AGE
+api-gateway-7d4f8b9c6-xkp2m              1/1     Running   0          2d
+catalog-service-6c8d9f7b5-mn3p           1/1     Running   3          2d
+search-service-5b7c8d6f4-qr7s            1/1     Running   2          2d
+recommendation-service-4f9a2b1c-rt5p     1/1     Running   0          20m`
+  },
+  {
+    scenario_id: 'spanner-high-utilization',
+    command_pattern: 'kubectl rollout history',
+    state_condition: 'always',
+    priority: 2,
+    exit_code: 0, latency_ms: 180,
+    stdout: `deployment.apps/recommendation-service
+REVISION  CHANGE-CAUSE
+1         v2.0.3 stable
+2         v2.1.0 feature/event-tracking`
+  },
+  {
+    scenario_id: 'spanner-high-utilization',
+    command_pattern: 'kubectl rollout undo',
+    state_condition: 'spanner_degraded',
+    priority: 5,
+    exit_code: 0, latency_ms: 500,
+    stdout: `deployment.apps/recommendation-service rolled back to revision 1 (v2.0.3)
+Waiting for rollout to complete...
+recommendation-service-4f9a2b1c-rt5p terminated
+recommendation-service-9b8c7d6e-wq2m Running (1/1 Ready)
+Rollback complete. Spanner write pressure should reduce within 60s.`
+  },
+  {
+    scenario_id: 'spanner-high-utilization',
+    command_pattern: 'gcloud spanner',
+    state_condition: 'spanner_degraded',
+    priority: 5,
+    exit_code: 0, latency_ms: 2000,
+    stdout: `Spanner Instance: prod-catalog
+Node Count: 3
+State: READY
+
+Node CPU Utilization:
+  us-central1-a: 41%
+  us-central1-b: 92%  ← HOT NODE
+  us-central1-c: 38%
+
+Top tables by CPU (last 5 min):
+  product_events:   78% of node CPU (hot key detected)
+  products:          8%
+  recommendations:   6%
+
+Hot key pattern: product_events rows starting with "2024-01-15T14:..." (timestamp prefix)
+Recommendation: Use hash or UUID prefix to distribute writes across splits.`
+  },
+  {
+    scenario_id: 'spanner-high-utilization',
+    command_pattern: 'kubectl describe deployment recommendation-service',
+    state_condition: 'always',
+    priority: 2,
+    exit_code: 0, latency_ms: 220,
+    stdout: `Name:               recommendation-service
+Namespace:          prod
+Replicas:           1 desired | 1 updated | 1 total | 1 available
+Image:              gcr.io/myproject/recommendation-service:v2.1.0
+  Environment:
+    SPANNER_INSTANCE: prod-catalog
+    WRITE_KEY_FORMAT:  TIMESTAMP_PRODUCTID  ← hot key pattern
+    FEATURE_EVENT_TRACKING: "true"  ← new in v2.1.0`
+  },
+  {
+    scenario_id: 'spanner-high-utilization',
+    command_pattern: 'kubectl logs',
+    state_condition: 'spanner_degraded',
+    priority: 3,
+    exit_code: 0, latency_ms: 300,
+    stdout: `2024-01-15T14:01:42Z INFO  Starting recommendation-service v2.1.0
+2024-01-15T14:01:44Z INFO  Feature flag FEATURE_EVENT_TRACKING=true
+2024-01-15T14:01:44Z INFO  Writing events with key format: TIMESTAMP_PRODUCTID
+2024-01-15T14:02:10Z WARN  Spanner write latency high: 2341ms (threshold 500ms)
+2024-01-15T14:02:45Z WARN  Spanner write latency high: 4102ms
+2024-01-15T14:03:12Z ERROR Spanner write timeout after 5000ms — retrying (attempt 1/3)
+2024-01-15T14:03:18Z ERROR Spanner write timeout after 5000ms — retrying (attempt 2/3)`
+  },
+
+  // ══════════════════════════════════════════════════════════════════
+  // SCENARIO: pod-crashloop
+  // ══════════════════════════════════════════════════════════════════
+
+  {
+    scenario_id: 'pod-crashloop',
+    command_pattern: 'kubectl get pods',
+    state_condition: 'checkout_down',
+    priority: 5,
+    exit_code: 0, latency_ms: 180,
+    stdout: `NAME                                   READY   STATUS             RESTARTS   AGE
+api-gateway-7d4f8b9c6-xkp2m           1/1     Running            0          2d
+checkout-service-5b7c8d6f4-abc1       0/1     CrashLoopBackOff   8          15m
+checkout-service-5b7c8d6f4-abc2       0/1     CrashLoopBackOff   8          15m
+checkout-service-5b7c8d6f4-abc3       0/1     CrashLoopBackOff   7          15m
+inventory-service-3e5f6d4c2-vw2x      1/1     Running            0          2d
+notification-service-8b2c4d1e-kp3m    1/1     Running            0          2d`
+  },
+  {
+    scenario_id: 'pod-crashloop',
+    command_pattern: 'kubectl describe pod checkout-service',
+    state_condition: 'checkout_down',
+    priority: 5,
+    exit_code: 0, latency_ms: 250,
+    stdout: `Name:         checkout-service-5b7c8d6f4-abc1
+Namespace:    prod
+Status:       Running → Terminated → Waiting (CrashLoopBackOff)
+Containers:
+  checkout-service:
+    Image:      gcr.io/myproject/checkout-service:v1.4.2
+    Port:       8080/TCP
+    Limits:
+      cpu:     500m
+      memory:  512Mi
+    Last State:  Terminated
+      Reason:    Error
+      Exit Code: 1
+      Finished:  Mon, 15 Jan 2024 14:14:08 +0000
+    Ready:          False
+    Restart Count:  8
+    Environment:
+      DATABASE_URL:  postgres://postgres-primary.db.svc.cluster.local:5432/checkout  ← (WRONG NAMESPACE)
+      REDIS_URL:     redis://redis-primary.cache.svc.cluster.local:6379
+Events:
+  Warning  BackOff  2m   kubelet  Back-off restarting failed container checkout-service
+  Warning  Failed   12m  kubelet  Error: failed to create containerd task: container exited with code 1`
+  },
+  {
+    scenario_id: 'pod-crashloop',
+    command_pattern: 'kubectl logs checkout-service',
+    state_condition: 'checkout_down',
+    priority: 5,
+    exit_code: 0, latency_ms: 300,
+    stdout: `2024-01-15T14:14:05Z INFO  checkout-service v1.4.2 starting...
+2024-01-15T14:14:05Z INFO  Connecting to database: postgres://postgres-primary.db.svc.cluster.local:5432/checkout
+2024-01-15T14:14:05Z ERROR Failed to connect to database after 3s: dial tcp: lookup postgres-primary.db.svc.cluster.local: no such host
+2024-01-15T14:14:05Z FATAL Database connection failed — exiting (exit code 1)
+
+(pod exited with code 1 → CrashLoopBackOff)`
+  },
+  {
+    scenario_id: 'pod-crashloop',
+    command_pattern: 'kubectl describe configmap checkout-service-config',
+    state_condition: 'checkout_down',
+    priority: 5,
+    exit_code: 0, latency_ms: 200,
+    stdout: `Name:         checkout-service-config
+Namespace:    prod
+Data
+====
+DATABASE_URL:
+  postgres://postgres-primary.db.svc.cluster.local:5432/checkout
+REDIS_URL:
+  redis://redis-primary.cache.svc.cluster.local:6379
+LOG_LEVEL:
+  info
+
+NOTE: DATABASE_URL uses namespace "db" which doesn't exist.
+Correct namespace is "default": postgres://postgres-primary.default.svc.cluster.local:5432/checkout`
+  },
+  {
+    scenario_id: 'pod-crashloop',
+    command_pattern: 'kubectl rollout restart deployment/checkout-service',
+    state_condition: 'checkout_down',
+    priority: 5,
+    exit_code: 0, latency_ms: 400,
+    stdout: `deployment.apps/checkout-service restarted
+Waiting for rollout to finish: 0 out of 3 new replicas have been updated...
+Waiting for rollout to finish: 1 out of 3 new replicas have been updated...
+Waiting for rollout to finish: 2 out of 3 new replicas have been updated...
+Waiting for rollout to finish: 3 out of 3 new replicas have been updated...
+deployment "checkout-service" successfully rolled out`
+  },
+  {
+    scenario_id: 'pod-crashloop',
+    command_pattern: 'kubectl patch configmap',
+    state_condition: 'checkout_down',
+    priority: 5,
+    exit_code: 0, latency_ms: 300,
+    stdout: `configmap/checkout-service-config patched
+DATABASE_URL updated: postgres://postgres-primary.default.svc.cluster.local:5432/checkout`
+  },
+  {
+    scenario_id: 'pod-crashloop',
+    command_pattern: 'kubectl rollout status',
+    state_condition: 'always',
+    priority: 1,
+    exit_code: 0, latency_ms: 300,
+    stdout: `Waiting for deployment "checkout-service" rollout to finish...
+deployment "checkout-service" successfully rolled out`
+  },
 ]
 
 async function seed(): Promise<void> {

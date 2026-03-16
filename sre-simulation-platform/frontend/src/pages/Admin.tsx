@@ -6,9 +6,9 @@ const API_BASE = (import.meta.env.VITE_WS_URL ?? 'ws://localhost:3001')
 
 const SCENARIOS = [
   { id: 'cache-db-cascade', name: 'Redis Cache → DB Cascade', difficulty: 'SENIOR', timeLimit: 10 },
-  { id: 'network-partition', name: 'Network Partition & Split Brain', difficulty: 'STAFF', timeLimit: 15, disabled: true },
-  { id: 'memory-leak', name: 'Gradual Memory Leak', difficulty: 'MID', timeLimit: 12, disabled: true },
-  { id: 'deployment-rollout', name: 'Bad Deployment Rollout', difficulty: 'MID', timeLimit: 10, disabled: true },
+  { id: 'db-slow-queries', name: 'Database Slow Queries — Connection Pool Exhaustion', difficulty: 'SENIOR', timeLimit: 10 },
+  { id: 'spanner-high-utilization', name: 'Cloud Spanner Node CPU Spike — Hot Key Hotspot', difficulty: 'SENIOR', timeLimit: 10 },
+  { id: 'pod-crashloop', name: 'checkout-service Pods in CrashLoopBackOff', difficulty: 'SENIOR', timeLimit: 10 },
 ]
 
 interface Assignment {
@@ -326,13 +326,11 @@ export default function Admin({ onBack }: AdminProps) {
                         <div className="space-y-2">
                           {SCENARIOS.map(s => (
                             <label key={s.id} className={`flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors ${
-                              s.disabled ? 'opacity-40 cursor-not-allowed border-[#30363d]'
-                              : scenarioId === s.id ? 'border-[#3fb950] bg-[#0d1117]'
+                              scenarioId === s.id ? 'border-[#3fb950] bg-[#0d1117]'
                               : 'border-[#30363d] hover:border-[#484f58]'}`}>
-                              <input type="radio" name="scenario" value={s.id} checked={scenarioId === s.id} onChange={() => !s.disabled && setScenarioId(s.id)} disabled={s.disabled} className="accent-[#3fb950]" />
+                              <input type="radio" name="scenario" value={s.id} checked={scenarioId === s.id} onChange={() => setScenarioId(s.id)} className="accent-[#3fb950]" />
                               <span className="text-[#e6edf3] flex-1">{s.name}</span>
                               <span className="text-[#8b949e]">{s.timeLimit}min</span>
-                              {s.disabled && <span className="text-[#484f58] text-[10px]">COMING SOON</span>}
                             </label>
                           ))}
                         </div>

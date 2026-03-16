@@ -28,6 +28,8 @@ interface QueryResult {
 interface ScoreResult {
   score: number
   rating: 'Good' | 'Managing' | 'Learning'
+  solution_query: string
+  candidate_result: { columns: string[]; rows: Record<string, unknown>[]; row_count: number; error?: string }
   scorecard: {
     dimensions: {
       query_correctness: { score: number; max: number }
@@ -347,6 +349,7 @@ export default function SQLSimulation({ sessionInfo }: Props) {
 
             {submitted && scoreResult && (
               <div className="p-4 space-y-4">
+                {/* Score header */}
                 <div className="flex items-center gap-4">
                   <div className={`text-3xl font-bold ${ratingColor(scoreResult.rating)}`}>
                     {scoreResult.rating}
@@ -356,6 +359,7 @@ export default function SQLSimulation({ sessionInfo }: Props) {
                   </div>
                 </div>
 
+                {/* Score breakdown */}
                 <div className="space-y-2">
                   <div className="text-[#484f58] uppercase tracking-widest">Score Breakdown</div>
                   {Object.entries(scoreResult.scorecard.dimensions).map(([key, dim]) => {
@@ -375,9 +379,50 @@ export default function SQLSimulation({ sessionInfo }: Props) {
                   })}
                 </div>
 
+                {/* Postmortem */}
                 <div className="text-[#e6edf3] bg-[#161b22] border border-[#30363d] rounded p-3 leading-relaxed">
                   {scoreResult.scorecard.postmortem_summary}
                 </div>
+
+                {/* Your query vs reference query side by side */}
+                <div>
+                  <div className="text-[#484f58] uppercase tracking-widest mb-2">Query Comparison</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-[#484f58] text-[10px] uppercase tracking-widest mb-1">Your Query</div>
+                      <pre className="bg-[#0d1117] border border-[#30363d] rounded p-3 text-[#8b949e] text-[11px] whitespace-pre-wrap overflow-x-auto">{query || '(empty)'}</pre>
+                    </div>
+                    <div>
+                      <div className="text-[#484f58] text-[10px] uppercase tracking-widest mb-1">Reference Answer</div>
+                      <pre className="bg-[#0d1117] border border-[#238636] rounded p-3 text-[#79c0ff] text-[11px] whitespace-pre-wrap overflow-x-auto">{scoreResult.solution_query || '(not available)'}</pre>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Candidate result summary */}
+                {scoreResult.candidate_result && !scoreResult.candidate_result.error && scoreResult.candidate_result.columns.length > 0 && (
+                  <div>
+                    <div className="text-[#484f58] uppercase tracking-widest mb-2">Your Result ({scoreResult.candidate_result.row_count} rows)</div>
+                    <div className="overflow-x-auto max-h-32 overflow-y-auto">
+                      <table className="w-full text-[10px]">
+                        <thead>
+                          <tr className="text-[#484f58] border-b border-[#30363d]">
+                            {scoreResult.candidate_result.columns.map(c => <th key={c} className="text-left px-2 py-1 font-normal">{c}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {scoreResult.candidate_result.rows.slice(0, 5).map((row, i) => (
+                            <tr key={i} className="border-b border-[#1c2128]">
+                              {scoreResult.candidate_result.columns.map(c => (
+                                <td key={c} className="px-2 py-1 text-[#8b949e]">{String(row[c] ?? '')}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
