@@ -9,6 +9,7 @@ import { handleConnection } from './orchestrator'
 import { initDb } from './db/init'
 import { pool } from './db/client'
 import { sqlRouter, monitoringRouter } from './routes/modules'
+import { runSeed } from './db/seed-questions'
 
 const app = express()
 
@@ -86,6 +87,16 @@ app.delete('/admin/assignments/:id', requireAdmin, async (req, res) => {
   try {
     await pool.query('DELETE FROM session_assignments WHERE id = $1', [req.params.id])
     res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ error: String(err) })
+  }
+})
+
+// Admin: seed questions (one-time setup)
+app.post('/admin/seed-questions', requireAdmin, async (_req, res) => {
+  try {
+    await runSeed()
+    res.json({ ok: true, message: 'Questions seeded successfully' })
   } catch (err) {
     res.status(500).json({ error: String(err) })
   }

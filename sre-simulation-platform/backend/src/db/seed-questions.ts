@@ -507,7 +507,7 @@ Why better than simple threshold:
   console.log(`Seeded ${questions.length} monitoring questions.`)
 }
 
-async function main() {
+export async function runSeed() {
   const client = await pool.connect()
   try {
     await seedSqlSandbox(client)
@@ -516,8 +516,12 @@ async function main() {
     console.log('All questions seeded successfully.')
   } finally {
     client.release()
-    await pool.end()
   }
+}
+
+async function main() {
+  await runSeed()
+  await pool.end()
 }
 
 main().catch(err => { console.error(err); process.exit(1) })
