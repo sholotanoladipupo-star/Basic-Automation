@@ -1,8 +1,8 @@
 /**
  * Seeds:
  * 1. sql_sandbox schema with 5 tables + realistic data
- * 2. 5 SQL questions (write / fix / analyse)
- * 3. 2 monitoring & observability questions
+ * 2. 5 SQL questions (write / fix / analyse) — expected_output computed dynamically
+ * 3. 5 monitoring & observability questions
  */
 import { PoolClient } from 'pg'
 import { pool } from './client'
@@ -148,20 +148,33 @@ async function seedSqlSandbox(client: PoolClient) {
     (20,1, 'Backend',     '2024-02-01')
   `)
 
-  // Incidents
+  // Incidents — TLS cert expiry fixed: resolved_at is AFTER opened_at
   await client.query(`
     INSERT INTO sql_sandbox.incidents (title, severity, service, reported_by, resolved_by, opened_at, resolved_at, root_cause) VALUES
     ('Redis OOM kill',              'sev1', 'cache',       7,  7,  NOW()-INTERVAL'45 days', NOW()-INTERVAL'44 days 22 hours', 'Memory limit too low'),
-    ('DB connection pool exhausted','sev1', 'postgres',    8,  6,  NOW()-INTERVAL'30 days', NOW()-INTERVAL'30 days 2 hours',  'Missing connection timeout'),
-    ('API gateway 502 storm',       'sev2', 'api-gateway', 7,  8,  NOW()-INTERVAL'20 days', NOW()-INTERVAL'20 days 1 hour',   'Upstream timeout misconfigured'),
+    ('DB connection pool exhausted','sev1', 'postgres',    8,  6,  NOW()-INTERVAL'30 days', NOW()-INTERVAL'29 days 22 hours', 'Missing connection timeout'),
+    ('API gateway 502 storm',       'sev2', 'api-gateway', 7,  8,  NOW()-INTERVAL'20 days', NOW()-INTERVAL'19 days 23 hours', 'Upstream timeout misconfigured'),
     ('Auth service latency spike',  'sev2', 'auth',        9,  2,  NOW()-INTERVAL'15 days', NOW()-INTERVAL'14 days 23 hours', 'N+1 query in session lookup'),
     ('Payment timeout cascade',     'sev1', 'payments',    6,  6,  NOW()-INTERVAL'10 days', NOW()-INTERVAL'9 days 20 hours',  'Redis timeout propagated'),
-    ('ML pipeline OOM',             'sev3', 'ml-pipeline', 11, 10, NOW()-INTERVAL'8 days',  NOW()-INTERVAL'8 days 4 hours',   'Batch size too large'),
-    ('Disk full on logs host',      'sev2', 'logging',     8,  9,  NOW()-INTERVAL'5 days',  NOW()-INTERVAL'5 days 3 hours',   'Log rotation not configured'),
-    ('TLS cert expiry',             'sev1', 'api-gateway', 16, 15, NOW()-INTERVAL'3 days',  NOW()-INTERVAL'3 days 1 hour',    'Cert renewal automation missed')
+    ('ML pipeline OOM',             'sev3', 'ml-pipeline', 11, 10, NOW()-INTERVAL'8 days',  NOW()-INTERVAL'7 days 20 hours',  'Batch size too large'),
+    ('Disk full on logs host',      'sev2', 'logging',     8,  9,  NOW()-INTERVAL'5 days',  NOW()-INTERVAL'4 days 21 hours',  'Log rotation not configured'),
+    ('TLS cert expiry',             'sev1', 'api-gateway', 16, 15, NOW()-INTERVAL'3 days',  NOW()-INTERVAL'2 days 23 hours',  'Cert renewal automation missed')
   `)
 
   console.log('SQL sandbox seeded.')
+}
+
+/** Run a query against the sandbox and return {columns, rows} for expected_output */
+async function computeExpected(client: PoolClient, sql: string): Promise<{ columns: string[]; rows: Record<string, string>[] }> {
+  const r = await client.query(sql)
+  return {
+    columns: r.fields.map(f => f.name),
+    rows: r.rows.map(row =>
+      Object.fromEntries(
+        Object.entries(row).map(([k, v]) => [k, v === null ? '' : String(v)])
+      ) as Record<string, string>
+    )
+  }
 }
 
 async function seedSqlQuestions(client: PoolClient) {
@@ -183,23 +196,13 @@ Expected columns: \`name\`, \`department\`, \`role\`, \`salary\``,
 **departments**: id, name, budget, location`,
       hint: 'Join employees with departments. Filter by department name using IN. Remember to filter is_active = true.',
       time_limit_seconds: 300,
-      expected_output: {
-        columns: ['name','department','role','salary'],
-        rows: [
-          {name:'Alice Chen',department:'Engineering',role:'Engineering Manager',salary:'145000.00'},
-          {name:'Bob Okafor',department:'Engineering',role:'Senior Engineer',salary:'118000.00'},
-          {name:'Chloe Martin',department:'Engineering',role:'Senior Engineer',salary:'115000.00'},
-          {name:'Frank Nguyen',department:'DevOps',role:'DevOps Lead',salary:'130000.00'},
-          {name:'Grace Lee',department:'DevOps',role:'SRE',salary:'108000.00'},
-          {name:'Henry Obi',department:'DevOps',role:'SRE',salary:'104000.00'},
-          {name:'Tina Reyes',department:'Engineering',role:'Engineer',salary:'91000.00'},
-          {name:'David Kim',department:'Engineering',role:'Engineer',salary:'92000.00'},
-          {name:'Eva Rossi',department:'Engineering',role:'Engineer',salary:'88000.00'},
-          {name:'Isla Patel',department:'DevOps',role:'Platform Engineer',salary:'96000.00'},
-          {name:'Quinn Murphy',department:'Engineering',role:'Junior Engineer',salary:'72000.00'},
-          {name:'Rita Yamada',department:'DevOps',role:'Junior SRE',salary:'74000.00'},
-        ]
-      }
+      correct_query: `
+        SELECT e.name, d.name AS department, e.role, e.salary
+        FROM sql_sandbox.employees e
+        JOIN sql_sandbox.departments d ON e.department_id = d.id
+        WHERE d.name IN ('Engineering','DevOps') AND e.is_active = true
+        ORDER BY e.salary DESC
+      `
     },
     {
       title: '[SEED] Average Salary by Department',
@@ -215,14 +218,16 @@ Expected columns: \`department\`, \`avg_salary\`, \`employee_count\``,
 **departments**: id, name`,
       hint: 'Use GROUP BY and HAVING. ROUND() the average to 2 decimal places. Use COUNT() for employee_count.',
       time_limit_seconds: 300,
-      expected_output: {
-        columns: ['department','avg_salary','employee_count'],
-        rows: [
-          {department:'Engineering',avg_salary:'91571.43',employee_count:'7'},
-          {department:'DevOps',avg_salary:'102500.00',employee_count:'4'},
-          {department:'Data',avg_salary:'95500.00',employee_count:'4'},
-        ]
-      }
+      correct_query: `
+        SELECT d.name AS department,
+               ROUND(AVG(e.salary), 2) AS avg_salary,
+               COUNT(*) AS employee_count
+        FROM sql_sandbox.employees e
+        JOIN sql_sandbox.departments d ON e.department_id = d.id
+        GROUP BY d.name
+        HAVING COUNT(*) > 2
+        ORDER BY avg_salary DESC
+      `
     },
     {
       title: '[SEED] Fix the Broken Query',
@@ -248,21 +253,13 @@ ORDR BY e.salary DESC`,
 **departments**: id, name`,
       hint: 'Look carefully at the keywords and table/column names. There are spelling mistakes.',
       time_limit_seconds: 240,
-      expected_output: {
-        columns: ['name','salary','department'],
-        rows: [
-          {name:'Alice Chen',salary:'145000.00',department:'Engineering'},
-          {name:'Olivia Brooks',salary:'135000.00',department:'Security'},
-          {name:'Frank Nguyen',salary:'130000.00',department:'DevOps'},
-          {name:'James Adeyemi',salary:'125000.00',department:'Data'},
-          {name:'Mia Fischer',salary:'115000.00',department:'Product'},
-          {name:'Bob Okafor',salary:'118000.00',department:'Engineering'},
-          {name:'Chloe Martin',salary:'115000.00',department:'Engineering'},
-          {name:'Grace Lee',salary:'108000.00',department:'DevOps'},
-          {name:'Henry Obi',salary:'104000.00',department:'DevOps'},
-          {name:'Peter Walsh',salary:'102000.00',department:'Security'},
-        ]
-      }
+      correct_query: `
+        SELECT e.name, e.salary, d.name AS department
+        FROM sql_sandbox.employees e
+        JOIN sql_sandbox.departments d ON e.department_id = d.id
+        WHERE e.salary > (SELECT AVG(salary) FROM sql_sandbox.employees)
+        ORDER BY e.salary DESC
+      `
     },
     {
       title: '[SEED] Employees on Multiple Projects',
@@ -278,22 +275,22 @@ Expected columns: \`name\`, \`department\`, \`active_projects\``,
 **departments**: id, name
 **projects**: id, name, status
 **project_assignments**: employee_id, project_id, role, start_date`,
-      hint: 'Join employees → project_assignments → projects. Filter projects.status = \'active\'. GROUP BY employee. Use HAVING COUNT > 1.',
+      hint: "Join employees → project_assignments → projects. Filter projects.status = 'active'. GROUP BY employee. Use HAVING COUNT > 1.",
       time_limit_seconds: 360,
-      expected_output: {
-        columns: ['name','department','active_projects'],
-        rows: [
-          {name:'Frank Nguyen',department:'DevOps',active_projects:'4'},
-          {name:'Grace Lee',department:'DevOps',active_projects:'2'},
-          {name:'Henry Obi',department:'DevOps',active_projects:'2'},
-          {name:'Isla Patel',department:'DevOps',active_projects:'2'},
-          {name:'James Adeyemi',department:'Data',active_projects:'2'},
-          {name:'Tina Reyes',department:'Engineering',active_projects:'2'},
-        ]
-      }
+      correct_query: `
+        SELECT e.name, d.name AS department, COUNT(*) AS active_projects
+        FROM sql_sandbox.employees e
+        JOIN sql_sandbox.departments d ON e.department_id = d.id
+        JOIN sql_sandbox.project_assignments pa ON pa.employee_id = e.id
+        JOIN sql_sandbox.projects p ON p.id = pa.project_id
+        WHERE p.status = 'active'
+        GROUP BY e.name, d.name
+        HAVING COUNT(*) > 1
+        ORDER BY active_projects DESC, e.name
+      `
     },
     {
-      title: '[SEED] Unresolved SEV1 Incidents',
+      title: '[SEED] SEV1 Incident Resolution Times',
       description: `Find all **SEV1 incidents** that were resolved, along with:
 - The name of the employee who reported it
 - The name of the employee who resolved it
@@ -307,30 +304,35 @@ Expected columns: \`title\`, \`service\`, \`reported_by\`, \`resolved_by\`, \`ho
       starter_query: '-- Write your query here\nSELECT\n\nFROM incidents i\n',
       schema_hint: `**incidents**: id, title, severity, service, reported_by (employee_id), resolved_by (employee_id), opened_at, resolved_at
 **employees**: id, name`,
-      hint: 'You need to JOIN employees twice (once for reporter, once for resolver). Use EXTRACT(EPOCH ...) or ROUND(...) to calculate hours. Filter WHERE severity = \'sev1\' AND resolved_at IS NOT NULL.',
+      hint: "You need to JOIN employees twice (once for reporter, once for resolver). Use EXTRACT(EPOCH ...) or ROUND(...) to calculate hours. Filter WHERE severity = 'sev1' AND resolved_at IS NOT NULL.",
       time_limit_seconds: 420,
-      expected_output: {
-        columns: ['title','service','reported_by','resolved_by','hours_to_resolve'],
-        rows: [
-          {title:'Auth service latency spike', service:'auth',     reported_by:'Isla Patel',  resolved_by:'Bob Okafor', hours_to_resolve:'23.0'},
-          {title:'Payment timeout cascade',    service:'payments', reported_by:'Frank Nguyen',resolved_by:'Frank Nguyen',hours_to_resolve:'28.0'},
-          {title:'DB connection pool exhausted',service:'postgres',reported_by:'Henry Obi',  resolved_by:'Frank Nguyen',hours_to_resolve:'2.0'},
-          {title:'TLS cert expiry',            service:'api-gateway',reported_by:'Peter Walsh',resolved_by:'Olivia Brooks',hours_to_resolve:'1.0'},
-          {title:'Redis OOM kill',             service:'cache',    reported_by:'Grace Lee',   resolved_by:'Grace Lee',  hours_to_resolve:'2.0'},
-        ]
-      }
+      correct_query: `
+        SELECT i.title, i.service,
+               rep.name AS reported_by,
+               res.name AS resolved_by,
+               ROUND(EXTRACT(EPOCH FROM (i.resolved_at - i.opened_at)) / 3600, 1) AS hours_to_resolve
+        FROM sql_sandbox.incidents i
+        JOIN sql_sandbox.employees rep ON rep.id = i.reported_by
+        JOIN sql_sandbox.employees res ON res.id = i.resolved_by
+        WHERE i.severity = 'sev1' AND i.resolved_at IS NOT NULL
+        ORDER BY hours_to_resolve ASC
+      `
     },
   ]
 
   for (const q of questions) {
-    await pool.query(
+    // Compute expected_output dynamically from the actual seeded data
+    const expected_output = await computeExpected(client, q.correct_query)
+    const { correct_query: _cq, ...rest } = q
+
+    await client.query(
       `INSERT INTO sql_questions (title, description, difficulty, question_type, starter_query, expected_output, schema_hint, hint, time_limit_seconds)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        ON CONFLICT DO NOTHING`,
-      [q.title, q.description, q.difficulty, q.question_type, q.starter_query, JSON.stringify(q.expected_output), q.schema_hint, q.hint, q.time_limit_seconds]
+      [rest.title, rest.description, rest.difficulty, rest.question_type, rest.starter_query, JSON.stringify(expected_output), rest.schema_hint, rest.hint, rest.time_limit_seconds]
     )
   }
-  console.log(`Seeded ${questions.length} SQL questions.`)
+  console.log(`Seeded ${questions.length} SQL questions with dynamically computed expected_output.`)
 }
 
 async function seedMonitoringQuestions(client: PoolClient) {
@@ -493,11 +495,377 @@ Why better than simple threshold:
 4. Directly tied to error budget, not arbitrary thresholds`,
         },
       ]
+    },
+    {
+      title: '[SEED] Grafana Alerting — Contact Points & Routing',
+      scenario: `**Scenario:** Your SRE team uses Grafana for alerting. You need to configure contact points and notification routing for a new service you are onboarding.
+
+Requirements:
+- SEV1 alerts → PagerDuty (immediate) + #incidents Slack channel
+- SEV2 alerts → #alerts Slack channel only (no page)
+- All alerts → archive to a webhook for audit logging
+- Business hours alerts only for the on-call Slack DM
+
+Your Grafana version: **10.x** (unified alerting). You have a PagerDuty integration key and Slack bot token.`,
+      difficulty: 'medium',
+      time_limit_seconds: 720,
+      sub_questions: [
+        {
+          id: 'sq1',
+          prompt: 'Write the **Grafana contact point configuration** (YAML format, as used in Grafana provisioning) for the PagerDuty + Slack SEV1 contact point.',
+          type: 'yaml',
+          placeholder: '# grafana/provisioning/alerting/contact-points.yaml\napiVersion: 1\ncontactPoints:\n  - name: ...\n',
+          required_keywords: ['pagerduty', 'slack', 'name', 'receivers'],
+          bonus_keywords: ['integration_key', 'url', 'channel', 'apiVersion', 'title', 'text'],
+          expected_answer: '',
+          reference_answer: `# grafana/provisioning/alerting/contact-points.yaml
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: sev1-critical
+    receivers:
+      - uid: pagerduty-sev1
+        type: pagerduty
+        settings:
+          integrationKey: \${PAGERDUTY_INTEGRATION_KEY}
+          severity: critical
+          title: "{{ .GroupLabels.alertname }}: {{ .CommonAnnotations.summary }}"
+          details: |
+            Service: {{ .CommonLabels.service }}
+            Runbook: {{ .CommonAnnotations.runbook_url }}
+        disableResolveMessage: false
+
+      - uid: slack-incidents
+        type: slack
+        settings:
+          url: \${SLACK_WEBHOOK_URL}
+          channel: '#incidents'
+          title: ':red_circle: SEV1 — {{ .GroupLabels.alertname }}'
+          text: |
+            *Summary:* {{ .CommonAnnotations.summary }}
+            *Service:* {{ .CommonLabels.service }}
+            *Runbook:* {{ .CommonAnnotations.runbook_url }}
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: sev2-warning
+    receivers:
+      - uid: slack-alerts
+        type: slack
+        settings:
+          url: \${SLACK_WEBHOOK_URL}
+          channel: '#alerts'
+          title: ':warning: SEV2 — {{ .GroupLabels.alertname }}'
+          text: "{{ .CommonAnnotations.summary }}"`,
+        },
+        {
+          id: 'sq2',
+          prompt: 'Write the **Alertmanager-compatible routing tree** (YAML) that routes alerts to the correct contact points based on severity label.',
+          type: 'yaml',
+          placeholder: '# Routing configuration\nroute:\n  receiver: ...\n  routes:\n',
+          required_keywords: ['route', 'receiver', 'match', 'severity'],
+          bonus_keywords: ['group_by', 'group_wait', 'group_interval', 'repeat_interval', 'continue'],
+          expected_answer: '',
+          reference_answer: `route:
+  receiver: default-webhook
+  group_by: ['alertname', 'service', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+  routes:
+    # SEV1 — page immediately, also send to Slack
+    - matchers:
+        - severity = "sev1"
+      receiver: sev1-critical
+      group_wait: 10s
+      repeat_interval: 1h
+      continue: true   # also send to audit webhook
+
+    # SEV2 — Slack only
+    - matchers:
+        - severity = "sev2"
+      receiver: sev2-warning
+      repeat_interval: 6h
+      continue: true
+
+    # Audit webhook catches everything
+    - receiver: default-webhook
+      continue: false
+
+receivers:
+  - name: sev1-critical
+  - name: sev2-warning
+  - name: default-webhook
+    webhook_configs:
+      - url: 'https://audit.internal/alerts'
+        send_resolved: true`,
+        },
+        {
+          id: 'sq3',
+          prompt: 'Describe **3 common alerting anti-patterns** you would avoid when setting up this routing, and how Grafana/Alertmanager features help address them.',
+          type: 'text',
+          placeholder: 'Anti-pattern 1: ...\nAnti-pattern 2: ...\nAnti-pattern 3: ...\n',
+          required_keywords: ['alert', 'noise', 'silence'],
+          bonus_keywords: ['inhibition', 'group', 'flapping', 'repeat_interval', 'runbook', 'false positive'],
+          expected_answer: '',
+          reference_answer: `**Common alerting anti-patterns:**
+
+1. **Alert fatigue / noise** — Too many low-priority alerts paging on-call.
+   Fix: Use severity labels + routing to send SEV2 to Slack only. Use repeat_interval (e.g. 4h) so resolved-and-refired alerts don't spam. Use inhibit_rules so child alerts are suppressed when a parent fires.
+
+2. **Missing runbook links** — Alerts with no context slow incident response.
+   Fix: Always include runbook_url in annotations. Grafana templates can render these in Slack/PD messages automatically.
+
+3. **Alert flapping** — Alert fires and resolves repeatedly during a flapping condition.
+   Fix: Use for: duration in Prometheus alert rules (e.g. for: 5m) so a transient spike doesn't page. Use group_wait and group_interval to batch related alerts rather than firing immediately.`,
+        },
+      ]
+    },
+    {
+      title: '[SEED] New Relic Alert Policy Design',
+      scenario: `**Scenario:** Your team is moving from Datadog to **New Relic** for APM. You need to create alert policies and NRQL alert conditions for your payment service.
+
+Service SLOs:
+- Error rate < 1% over any 5-minute window
+- P95 latency < 300ms
+- Throughput > 100 req/min (dead-man's switch)
+
+You need to write NRQL conditions for a New Relic alert policy and configure the appropriate thresholds.`,
+      difficulty: 'hard',
+      time_limit_seconds: 600,
+      sub_questions: [
+        {
+          id: 'sq1',
+          prompt: 'Write the **NRQL alert condition** for error rate exceeding 1%. Include both a WARNING (0.5%) and CRITICAL (1%) threshold. Use a 5-minute sliding window.',
+          type: 'nrql',
+          placeholder: '-- NRQL query\nSELECT ...\nFROM ...\n\n-- Thresholds:\n-- WARNING: ...\n-- CRITICAL: ...',
+          required_keywords: ['SELECT', 'FROM', 'Transaction', 'error'],
+          bonus_keywords: ['percentage', 'TIMESERIES', 'SLIDING', '0.5', '1.0', 'WHERE'],
+          expected_answer: '',
+          reference_answer: `-- NRQL Alert Condition: Error Rate
+SELECT percentage(count(*), WHERE error IS TRUE) AS error_rate
+FROM Transaction
+WHERE appName = 'payment-service'
+TIMESERIES
+
+-- Alert condition config (New Relic API / Terraform):
+-- Type: NRQL
+-- Aggregation method: EVENT_FLOW
+-- Aggregation window: 5 minutes (SLIDING)
+-- Fill option: NONE (to avoid masking gaps)
+
+-- Thresholds:
+-- WARNING:  error_rate > 0.5  for at least 5 minutes
+-- CRITICAL: error_rate > 1.0  for at least 5 minutes
+
+-- Signal: Open violation when query returns no data (detects service outage)`,
+        },
+        {
+          id: 'sq2',
+          prompt: 'Write the **NRQL condition for P95 latency** > 300ms AND a **dead-man\'s switch** condition that fires when throughput drops to zero for 3 minutes.',
+          type: 'nrql',
+          placeholder: '-- P95 latency query\nSELECT ...\n\n-- Dead-man switch query\nSELECT ...\n',
+          required_keywords: ['SELECT', 'FROM', 'percentile', 'Transaction'],
+          bonus_keywords: ['300', 'count', 'throughput', 'SINCE', 'fill', '0'],
+          expected_answer: '',
+          reference_answer: `-- P95 Latency condition
+SELECT percentile(duration * 1000, 95) AS p95_ms
+FROM Transaction
+WHERE appName = 'payment-service'
+TIMESERIES
+
+-- Threshold: CRITICAL when p95_ms > 300 for 5 minutes
+
+---
+
+-- Dead-man switch (throughput = 0)
+SELECT count(*) AS request_count
+FROM Transaction
+WHERE appName = 'payment-service'
+TIMESERIES
+
+-- Threshold: CRITICAL when request_count < 1 for 3 minutes
+-- This fires when the service stops receiving traffic entirely.
+-- Set "fill with last known value" OFF so gaps trigger the alert.`,
+        },
+        {
+          id: 'sq3',
+          prompt: 'Explain the **difference between baseline and static threshold** alert conditions in New Relic, and when you would use each for the payment service.',
+          type: 'text',
+          placeholder: 'Static threshold: ...\nBaseline: ...\nWhen to use each: ...\n',
+          required_keywords: ['baseline', 'static', 'threshold'],
+          bonus_keywords: ['anomaly', 'deviation', 'standard deviation', 'seasonal', 'traffic', 'dynamic'],
+          expected_answer: '',
+          reference_answer: `**Static threshold:**
+A fixed numeric limit (e.g., error rate > 1%). Fires whenever the metric crosses the line.
+- Use for: SLO-driven conditions where you have a hard contractual limit (e.g., error rate > 1% violates SLA).
+- Use for: Dead-man switches where "no data" itself is the problem.
+- Downside: Generates noise during expected traffic spikes (e.g., Black Friday) unless thresholds are tuned.
+
+**Baseline (anomaly) threshold:**
+New Relic learns the metric's normal behavior over time and alerts when it deviates by N standard deviations.
+- Use for: Latency during variable traffic patterns — e.g., P95 spikes 3x above normal at 2 AM even if it's below 300ms absolute.
+- Use for: Throughput drops — a 50% traffic drop is suspicious even if absolute count stays above a fixed threshold.
+- Downside: Requires a learning period (~7 days). Can miss issues during first deployment.
+
+**For payment service:**
+- Error rate → Static (hard SLO: 1%)
+- P95 latency → Baseline (traffic varies by time of day; 300ms may be fine at low traffic but suspicious at peak)
+- Throughput → Both: static dead-man (<100 req/min) + baseline anomaly for sudden drops`,
+        },
+      ]
+    },
+    {
+      title: '[SEED] Grafana Dashboard JSON Design',
+      scenario: `**Scenario:** You are building a Grafana dashboard for your **order processing service**. The service emits the following Prometheus metrics:
+
+- \`orders_total{status="success"|"failed"|"pending"}\` — counter
+- \`order_processing_duration_seconds{quantile}\` — summary metric (p50, p95, p99)
+- \`order_queue_depth\` — gauge
+- \`order_value_dollars_total\` — counter (cumulative revenue)
+
+You need to design and write the JSON for key panels. Use **Grafana 10.x panel JSON format**.`,
+      difficulty: 'hard',
+      time_limit_seconds: 720,
+      sub_questions: [
+        {
+          id: 'sq1',
+          prompt: 'Write the **Grafana panel JSON** for a Stat panel showing the current **order success rate %** (last 5 minutes). Include thresholds: green ≥ 99%, yellow ≥ 95%, red < 95%.',
+          type: 'yaml',
+          placeholder: '{\n  "type": "stat",\n  "title": "...",\n  "targets": [...],\n  "options": {...}\n}',
+          required_keywords: ['type', 'stat', 'targets', 'thresholds'],
+          bonus_keywords: ['expr', 'orders_total', 'rate', 'percentage', '99', '95', 'green', 'red', 'yellow'],
+          expected_answer: '',
+          reference_answer: `{
+  "type": "stat",
+  "title": "Order Success Rate (5m)",
+  "datasource": { "type": "prometheus", "uid": "prometheus" },
+  "targets": [
+    {
+      "expr": "rate(orders_total{status='success'}[5m]) / rate(orders_total[5m]) * 100",
+      "legendFormat": "Success Rate %",
+      "refId": "A"
     }
+  ],
+  "options": {
+    "reduceOptions": { "calcs": ["lastNotNull"] },
+    "orientation": "auto",
+    "textMode": "auto",
+    "colorMode": "background",
+    "unit": "percent"
+  },
+  "fieldConfig": {
+    "defaults": {
+      "unit": "percent",
+      "thresholds": {
+        "mode": "absolute",
+        "steps": [
+          { "color": "red",    "value": null },
+          { "color": "yellow", "value": 95 },
+          { "color": "green",  "value": 99 }
+        ]
+      },
+      "mappings": []
+    }
+  }
+}`,
+        },
+        {
+          id: 'sq2',
+          prompt: 'Write the **Grafana panel JSON** for a Time Series panel showing **P50, P95, P99 order processing latency** over the selected time range.',
+          type: 'yaml',
+          placeholder: '{\n  "type": "timeseries",\n  ...\n}',
+          required_keywords: ['type', 'timeseries', 'targets', 'expr'],
+          bonus_keywords: ['order_processing_duration', 'p50', 'p95', 'p99', 'legendFormat', 'unit', 'ms'],
+          expected_answer: '',
+          reference_answer: `{
+  "type": "timeseries",
+  "title": "Order Processing Latency",
+  "datasource": { "type": "prometheus", "uid": "prometheus" },
+  "targets": [
+    {
+      "expr": "order_processing_duration_seconds{quantile='0.5'} * 1000",
+      "legendFormat": "P50",
+      "refId": "A"
+    },
+    {
+      "expr": "order_processing_duration_seconds{quantile='0.95'} * 1000",
+      "legendFormat": "P95",
+      "refId": "B"
+    },
+    {
+      "expr": "order_processing_duration_seconds{quantile='0.99'} * 1000",
+      "legendFormat": "P99",
+      "refId": "C"
+    }
+  ],
+  "fieldConfig": {
+    "defaults": {
+      "unit": "ms",
+      "custom": {
+        "lineWidth": 2,
+        "fillOpacity": 10,
+        "showPoints": "never"
+      },
+      "thresholds": {
+        "mode": "absolute",
+        "steps": [
+          { "color": "green",  "value": null },
+          { "color": "yellow", "value": 500 },
+          { "color": "red",    "value": 1000 }
+        ]
+      }
+    },
+    "overrides": [
+      { "matcher": { "id": "byName", "options": "P99" },
+        "properties": [{ "id": "custom.lineStyle", "value": { "dash": [10, 10] } }] }
+    ]
+  },
+  "options": {
+    "tooltip": { "mode": "multi" },
+    "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] }
+  }
+}`,
+        },
+        {
+          id: 'sq3',
+          prompt: 'Describe your **overall dashboard layout strategy** for this service: row organization, variable/template variables you would add, and how you would use dashboard links to connect it to related dashboards or runbooks.',
+          type: 'text',
+          placeholder: 'Rows: ...\nVariables: ...\nDashboard links: ...\n',
+          required_keywords: ['row', 'variable', 'link'],
+          bonus_keywords: ['template', 'instance', 'environment', 'annotation', 'runbook', 'drill-down', 'time range'],
+          expected_answer: '',
+          reference_answer: `**Dashboard layout strategy:**
+
+**Rows (top to bottom):**
+1. Overview row — Stat panels: Success Rate %, Error Rate %, Queue Depth, Revenue/min (4 stats in one row)
+2. Latency row — P50/P95/P99 time series + heatmap of latency distribution
+3. Volume row — Orders/min by status (stacked bar), Failed order count
+4. Queue row — Queue depth over time + queue processing rate vs input rate
+5. Revenue row — Cumulative revenue counter, revenue/hour rate
+
+**Template variables:**
+- \`$environment\` — dropdown: prod | staging | dev (filters all metrics by environment label)
+- \`$instance\` — multi-select from \`label_values(orders_total, instance)\` (drill into specific pods)
+- \`$interval\` — interval picker (auto | 1m | 5m) for rate() window
+
+**Annotations:**
+- Deployment events from CI/CD webhook (highlight when releases happened)
+- SEV1/2 incident windows from PagerDuty annotation API
+
+**Dashboard links:**
+- Link to "Order Service Logs" in Grafana Loki (passing \`$__timeRange\`)
+- Link to "Infrastructure — Payment DB" dashboard
+- External link to Runbook: https://wiki.internal/runbooks/order-service
+- Link to New Relic APM trace explorer with \`service=order-service\` pre-filled`,
+        },
+      ]
+    },
   ]
 
   for (const q of questions) {
-    await pool.query(
+    await client.query(
       `INSERT INTO monitoring_questions (title, scenario, difficulty, sub_questions, time_limit_seconds)
        VALUES ($1,$2,$3,$4,$5)
        ON CONFLICT DO NOTHING`,

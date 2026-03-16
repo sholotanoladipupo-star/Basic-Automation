@@ -11,6 +11,9 @@ import {
 // In-memory session store keyed by session_id
 const sessions = new Map<string, SessionState>()
 
+// Track SQL/monitoring session IDs so we can mark them abandoned on disconnect
+const sqlMonitoringSessions = new Set<string>()
+
 // Attach session_id to ws object
 interface SREWebSocket extends WebSocket {
   sessionId?: string
@@ -34,12 +37,20 @@ export function handleConnection(ws: SREWebSocket): void {
     if (ws.sessionId) {
       const session = sessions.get(ws.sessionId)
       if (session && !session.resolved) {
+        // Incident session: clean up ticker and mark abandoned
         if (session.ticker) clearInterval(session.ticker)
         await pool.query(
           'UPDATE sessions SET ended_at = NOW(), status = $1 WHERE id = $2',
           ['abandoned', ws.sessionId]
         )
         sessions.delete(ws.sessionId)
+      } else if (sqlMonitoringSessions.has(ws.sessionId)) {
+        // SQL/monitoring session: mark abandoned if they disconnected before submitting
+        await pool.query(
+          'UPDATE sessions SET ended_at = NOW(), status = $1 WHERE id = $2 AND ended_at IS NULL',
+          ['abandoned', ws.sessionId]
+        )
+        sqlMonitoringSessions.delete(ws.sessionId)
       }
     }
   })
@@ -121,6 +132,8 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
       'INSERT INTO sessions (id, candidate_name, scenario_id, scenario_name, status) VALUES ($1, $2, $3, $4, $5)',
       [sessionId, payload.candidate_name, assignment.scenario_id ?? moduleType, moduleName, 'active']
     )
+    // Track so WS close handler can mark session abandoned if they leave without submitting
+    sqlMonitoringSessions.add(sessionId)
     sendMessage(ws, {
       type: 'session_started',
       payload: {

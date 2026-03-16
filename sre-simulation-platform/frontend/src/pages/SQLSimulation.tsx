@@ -39,6 +39,11 @@ interface ScoreResult {
   }
 }
 
+interface SchemaTable {
+  columns: { name: string; type: string }[]
+  sample_rows: Record<string, unknown>[]
+}
+
 interface Props {
   sessionInfo: SessionInfo
 }
@@ -62,9 +67,13 @@ export default function SQLSimulation({ sessionInfo }: Props) {
   const [running, setRunning] = useState(false)
   const [runResult, setRunResult] = useState<QueryResult | null>(null)
   const [submitted, setSubmitted] = useState(false)
+  const [submitError, setSubmitError] = useState('')
   const [scoreResult, setScoreResult] = useState<ScoreResult | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const [showHint, setShowHint] = useState(false)
+  const [schema, setSchema] = useState<Record<string, SchemaTable> | null>(null)
+  const [activeSchemaTable, setActiveSchemaTable] = useState<string | null>(null)
+  const [schemaOpen, setSchemaOpen] = useState(true)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const timeLimit = question?.time_limit_seconds ?? (sessionInfo.time_limit_minutes * 60)
@@ -82,6 +91,15 @@ export default function SQLSimulation({ sessionInfo }: Props) {
         setQuery(q.starter_query ?? '')
       })
       .catch(() => setLoadError('Failed to load question. Please refresh.'))
+
+    // Load schema browser in background
+    fetch(`${API_BASE}/sql/schema`)
+      .then(r => r.json())
+      .then((s: Record<string, SchemaTable>) => {
+        setSchema(s)
+        setActiveSchemaTable(Object.keys(s)[0] ?? null)
+      })
+      .catch(() => { /* schema browser is optional */ })
   }, [sessionInfo.question_id])
 
   useEffect(() => {
@@ -111,17 +129,22 @@ export default function SQLSimulation({ sessionInfo }: Props) {
     if (!query.trim() || submitted || !question) return
     if (timerRef.current) clearInterval(timerRef.current)
     setRunning(true)
+    setSubmitError('')
     try {
       const res = await fetch(`${API_BASE}/sql/submit`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ session_id: sessionInfo.session_id, question_id: question.id, query })
       })
-      const data = await res.json() as ScoreResult
+      const data = await res.json() as ScoreResult & { error?: string }
+      if (!res.ok || data.error) {
+        setSubmitError(data.error ?? `Server error (${res.status})`)
+        return
+      }
       setScoreResult(data)
       setSubmitted(true)
     } catch (err) {
-      alert('Submit failed: ' + String(err))
+      setSubmitError('Submit failed: ' + String(err))
     } finally {
       setRunning(false)
     }
@@ -163,20 +186,13 @@ export default function SQLSimulation({ sessionInfo }: Props) {
 
       {/* Main split layout */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left: Question */}
+        {/* Left: Question + Schema Browser */}
         <div className="w-2/5 border-r border-[#30363d] overflow-y-auto flex flex-col">
           <div className="p-5 space-y-4">
             <div>
               <div className="text-[#e6edf3] text-sm font-bold mb-2">{question.title}</div>
               <div className="text-[#8b949e] leading-relaxed whitespace-pre-wrap">{question.description}</div>
             </div>
-
-            {question.schema_hint && (
-              <div>
-                <div className="text-[#484f58] uppercase tracking-widest mb-2">Schema Reference</div>
-                <pre className="bg-[#161b22] border border-[#30363d] rounded p-3 text-[#79c0ff] text-[11px] overflow-x-auto whitespace-pre-wrap">{question.schema_hint}</pre>
-              </div>
-            )}
 
             {question.hint && (
               <div>
@@ -194,6 +210,84 @@ export default function SQLSimulation({ sessionInfo }: Props) {
               </div>
             )}
           </div>
+
+          {/* Schema Browser */}
+          {schema && (
+            <div className="border-t border-[#30363d]">
+              <button
+                onClick={() => setSchemaOpen(o => !o)}
+                className="w-full px-5 py-2.5 flex items-center justify-between text-[#484f58] uppercase tracking-widest hover:text-[#8b949e] transition-colors"
+              >
+                <span>Schema Browser</span>
+                <span className="text-[10px]">{schemaOpen ? '▲' : '▼'}</span>
+              </button>
+              {schemaOpen && (
+                <div className="px-3 pb-4">
+                  {/* Table selector tabs */}
+                  <div className="flex gap-1 mb-3 flex-wrap">
+                    {Object.keys(schema).map(t => (
+                      <button
+                        key={t}
+                        onClick={() => setActiveSchemaTable(t)}
+                        className={`px-2 py-1 rounded text-[10px] border transition-colors ${
+                          activeSchemaTable === t
+                            ? 'border-[#58a6ff] text-[#58a6ff] bg-[#1c2128]'
+                            : 'border-[#30363d] text-[#484f58] hover:border-[#8b949e] hover:text-[#8b949e]'
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+
+                  {activeSchemaTable && schema[activeSchemaTable] && (
+                    <div>
+                      {/* Columns */}
+                      <div className="mb-2">
+                        <div className="text-[#484f58] uppercase tracking-widest text-[9px] mb-1">Columns</div>
+                        <div className="flex flex-wrap gap-1">
+                          {schema[activeSchemaTable].columns.map(c => (
+                            <span key={c.name} className="px-1.5 py-0.5 bg-[#1c2128] border border-[#30363d] rounded text-[#79c0ff] text-[10px]">
+                              {c.name} <span className="text-[#484f58]">{c.type.replace('character varying', 'text').replace('timestamp with time zone', 'timestamptz')}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Sample rows */}
+                      {schema[activeSchemaTable].sample_rows.length > 0 && (
+                        <div>
+                          <div className="text-[#484f58] uppercase tracking-widest text-[9px] mb-1">Sample rows (5)</div>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-[10px]">
+                              <thead>
+                                <tr className="text-[#484f58] border-b border-[#30363d]">
+                                  {schema[activeSchemaTable].columns.map(c => (
+                                    <th key={c.name} className="text-left px-1.5 py-1 font-normal whitespace-nowrap">{c.name}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {schema[activeSchemaTable].sample_rows.map((row, i) => (
+                                  <tr key={i} className="border-b border-[#1c2128] hover:bg-[#161b22]">
+                                    {schema[activeSchemaTable].columns.map(c => (
+                                      <td key={c.name} className="px-1.5 py-1 text-[#8b949e] whitespace-nowrap max-w-[100px] overflow-hidden text-ellipsis">
+                                        {String(row[c.name] ?? '')}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Right: Editor + Results */}
@@ -240,7 +334,14 @@ export default function SQLSimulation({ sessionInfo }: Props) {
           <div className="h-64 overflow-auto bg-[#0d1117]">
             {timedOut && !submitted && (
               <div className="p-4 text-[#f85149] text-center">
-                Time's up! Your answers have been automatically submitted.
+                Time's up! Submit your best attempt.
+              </div>
+            )}
+
+            {submitError && (
+              <div className="p-4 bg-[#1c0a0a] border-b border-[#f85149] text-[#f85149]">
+                <div className="font-bold mb-1">Submit Error</div>
+                <div>{submitError}</div>
               </div>
             )}
 
@@ -318,7 +419,7 @@ export default function SQLSimulation({ sessionInfo }: Props) {
               </div>
             )}
 
-            {!submitted && !runResult && (
+            {!submitted && !runResult && !submitError && (
               <div className="p-4 text-[#484f58] text-center">
                 Run your query to see results here
               </div>

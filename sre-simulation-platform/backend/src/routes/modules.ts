@@ -29,6 +29,28 @@ sqlRouter.post('/execute', async (req, res) => {
   }
 })
 
+/** Schema browser — returns table columns + 5 sample rows for each sandbox table */
+sqlRouter.get('/schema', async (_req, res) => {
+  const tables = ['departments', 'employees', 'projects', 'project_assignments', 'incidents']
+  try {
+    const result: Record<string, { columns: { name: string; type: string }[]; sample_rows: Record<string, unknown>[] }> = {}
+    for (const table of tables) {
+      const cols = await pool.query(
+        `SELECT column_name, data_type FROM information_schema.columns
+         WHERE table_schema = 'sql_sandbox' AND table_name = $1
+         ORDER BY ordinal_position`,
+        [table]
+      )
+      const rows = await pool.query(`SELECT * FROM sql_sandbox.${table} LIMIT 5`)
+      result[table] = {
+        columns: cols.rows.map((c: Record<string, string>) => ({ name: c.column_name, type: c.data_type })),
+        sample_rows: rows.rows
+      }
+    }
+    res.json(result)
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
 /** Get a question by id (candidate view — no answer revealed) */
 sqlRouter.get('/questions/:id', async (req, res) => {
   try {
