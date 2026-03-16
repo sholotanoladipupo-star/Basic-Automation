@@ -89,7 +89,7 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
 
   // Look up admin-assigned scenario for this candidate
   const assignmentResult = await pool.query(
-    `SELECT id, scenario_id FROM session_assignments
+    `SELECT id, scenario_id, module_type, question_id FROM session_assignments
      WHERE LOWER(candidate_name) = LOWER($1) AND status = 'pending'
      ORDER BY created_at DESC LIMIT 1`,
     [payload.candidate_name]
@@ -104,12 +104,41 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
     return
   }
 
+  const assignment = assignmentResult.rows[0] as { id: string; scenario_id: string; module_type: string; question_id: string | null }
+  const moduleType = (assignment.module_type ?? 'incident') as 'incident' | 'sql' | 'monitoring'
+  const questionId = assignment.question_id ?? null
+
   // Mark assignment used
   await pool.query(
     `UPDATE session_assignments SET status = 'used', used_at = NOW() WHERE id = $1`,
-    [assignmentResult.rows[0].id]
+    [assignment.id]
   )
 
+  // SQL / Monitoring modules: create session + send start message, no incident ticker
+  if (moduleType === 'sql' || moduleType === 'monitoring') {
+    const moduleName = moduleType === 'sql' ? 'SQL Readiness Assessment' : 'Monitoring & Observability Design'
+    await pool.query(
+      'INSERT INTO sessions (id, candidate_name, scenario_id, scenario_name, status) VALUES ($1, $2, $3, $4, $5)',
+      [sessionId, payload.candidate_name, assignment.scenario_id ?? moduleType, moduleName, 'active']
+    )
+    sendMessage(ws, {
+      type: 'session_started',
+      payload: {
+        session_id: sessionId,
+        scenario_name: moduleName,
+        difficulty: 'senior',
+        time_limit_minutes: 15,
+        module_type: moduleType,
+        question_id: questionId,
+        initial_alerts: [],
+        available_runbooks: [],
+        available_dashboards: []
+      }
+    })
+    return
+  }
+
+  // Incident simulation flow
   // Only one scenario for now; extend here when more are added
   const scenario = getCacheDatabaseCascadeScenario(sessionId)
 
@@ -152,6 +181,8 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
       scenario_name: scenario.name,
       difficulty: scenario.difficulty,
       time_limit_minutes: scenario.time_limit_minutes,
+      module_type: 'incident',
+      question_id: null,
       initial_alerts: initialAlerts,
       available_runbooks: scenario.available_runbooks.map(r => ({ id: r.id, title: r.title })),
       available_dashboards: scenario.available_dashboards.map(d => ({ id: d.id, name: d.name }))

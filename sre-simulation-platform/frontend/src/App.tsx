@@ -5,6 +5,8 @@ import Simulation from './pages/Simulation'
 import ScoreCardPage from './pages/ScoreCardPage'
 import SessionHistory from './pages/SessionHistory'
 import Admin from './pages/Admin'
+import SQLSimulation from './pages/SQLSimulation'
+import MonitoringSimulation from './pages/MonitoringSimulation'
 
 type AppScreen = 'home' | 'history' | 'admin'
 
@@ -17,6 +19,13 @@ export default function App() {
     return <ScoreCardPage scorecard={state.scorecard!} sessionEnded={state.sessionEnded} />
   }
   if (state.screen === 'simulation') {
+    const moduleType = state.sessionInfo?.module_type ?? 'incident'
+    if (moduleType === 'sql') {
+      return <SQLSimulation sessionInfo={state.sessionInfo!} />
+    }
+    if (moduleType === 'monitoring') {
+      return <MonitoringSimulation sessionInfo={state.sessionInfo!} />
+    }
     return <Simulation state={state} actions={actions} />
   }
 

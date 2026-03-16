@@ -74,6 +74,64 @@ export async function initDb(): Promise<void> {
 
     // Add scenario_name column to sessions if it doesn't exist
     await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS scenario_name TEXT NOT NULL DEFAULT 'Redis Cache → DB Cascade'`)
+    // Add module_type to sessions and assignments
+    await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS module_type TEXT NOT NULL DEFAULT 'incident'`)
+    await client.query(`ALTER TABLE session_assignments ADD COLUMN IF NOT EXISTS module_type TEXT NOT NULL DEFAULT 'incident'`)
+    await client.query(`ALTER TABLE session_assignments ADD COLUMN IF NOT EXISTS question_id UUID`)
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS sql_questions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        difficulty TEXT NOT NULL DEFAULT 'medium',
+        question_type TEXT NOT NULL DEFAULT 'write',
+        starter_query TEXT NOT NULL DEFAULT '',
+        expected_output JSONB NOT NULL DEFAULT '{}',
+        schema_hint TEXT NOT NULL DEFAULT '',
+        hint TEXT NOT NULL DEFAULT '',
+        time_limit_seconds INTEGER NOT NULL DEFAULT 300,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS sql_attempts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+        question_id UUID REFERENCES sql_questions(id) ON DELETE CASCADE,
+        candidate_query TEXT NOT NULL,
+        result JSONB,
+        score INTEGER,
+        rating TEXT,
+        submitted_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS monitoring_questions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        title TEXT NOT NULL,
+        scenario TEXT NOT NULL,
+        difficulty TEXT NOT NULL DEFAULT 'medium',
+        sub_questions JSONB NOT NULL DEFAULT '[]',
+        time_limit_seconds INTEGER NOT NULL DEFAULT 600,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS monitoring_attempts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+        question_id UUID REFERENCES monitoring_questions(id) ON DELETE CASCADE,
+        answers JSONB NOT NULL DEFAULT '[]',
+        score INTEGER,
+        rating TEXT,
+        dimension_scores JSONB,
+        submitted_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
 
     await client.query(`CREATE INDEX IF NOT EXISTS idx_event_logs_session ON event_logs(session_id)`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_state_snapshots_session ON state_snapshots(session_id)`)

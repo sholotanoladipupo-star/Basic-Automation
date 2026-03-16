@@ -8,6 +8,7 @@ dotenv.config()
 import { handleConnection } from './orchestrator'
 import { initDb } from './db/init'
 import { pool } from './db/client'
+import { sqlRouter, monitoringRouter } from './routes/modules'
 
 const app = express()
 
@@ -26,6 +27,9 @@ function requireAdmin(req: express.Request, res: express.Response, next: express
   }
   next()
 }
+
+app.use('/sql', sqlRouter)
+app.use('/monitoring', monitoringRouter)
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
@@ -46,7 +50,7 @@ app.get('/sessions', async (_req, res) => {
 app.get('/admin/assignments', requireAdmin, async (_req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, candidate_name, scenario_id, created_at, used_at, status FROM session_assignments ORDER BY created_at DESC LIMIT 100'
+      'SELECT id, candidate_name, scenario_id, module_type, question_id, created_at, used_at, status FROM session_assignments ORDER BY created_at DESC LIMIT 100'
     )
     res.json(result.rows)
   } catch (err) {
@@ -56,15 +60,20 @@ app.get('/admin/assignments', requireAdmin, async (_req, res) => {
 
 // Admin: create assignment
 app.post('/admin/assignments', requireAdmin, async (req, res) => {
-  const { candidate_name, scenario_id } = req.body as { candidate_name?: string; scenario_id?: string }
-  if (!candidate_name || !scenario_id) {
-    res.status(400).json({ error: 'candidate_name and scenario_id required' })
+  const { candidate_name, scenario_id, module_type, question_id } = req.body as Record<string, string | undefined>
+  if (!candidate_name) {
+    res.status(400).json({ error: 'candidate_name required' })
+    return
+  }
+  const mt = module_type ?? 'incident'
+  if (mt !== 'incident' && !question_id) {
+    res.status(400).json({ error: 'question_id required for sql/monitoring modules' })
     return
   }
   try {
     const result = await pool.query(
-      'INSERT INTO session_assignments (candidate_name, scenario_id) VALUES ($1, $2) RETURNING *',
-      [candidate_name.trim(), scenario_id]
+      'INSERT INTO session_assignments (candidate_name, scenario_id, module_type, question_id) VALUES ($1, $2, $3, $4) RETURNING *',
+      [candidate_name.trim(), scenario_id ?? 'cache-db-cascade', mt, question_id ?? null]
     )
     res.json(result.rows[0])
   } catch (err) {

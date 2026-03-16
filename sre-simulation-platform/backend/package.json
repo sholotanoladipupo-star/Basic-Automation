@@ -6,7 +6,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "db:init": "ts-node src/db/init.ts",
-    "db:seed": "ts-node src/db/seed.ts"
+    "db:seed": "ts-node src/db/seed.ts",
+    "db:seed-questions": "ts-node src/db/seed-questions.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.3",

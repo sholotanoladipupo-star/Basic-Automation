@@ -1,0 +1,331 @@
+import { useState, useEffect, useRef } from 'react'
+import { SessionInfo } from '../types'
+
+const API_BASE = (import.meta.env.VITE_WS_URL ?? 'ws://localhost:3001')
+  .replace('ws://', 'http://')
+  .replace('wss://', 'https://')
+
+interface SQLQuestion {
+  id: string
+  title: string
+  description: string
+  difficulty: 'easy' | 'medium' | 'hard'
+  question_type: 'write' | 'fix' | 'identify'
+  starter_query: string
+  schema_hint: string
+  hint: string
+  time_limit_seconds: number
+}
+
+interface QueryResult {
+  columns: string[]
+  rows: Record<string, unknown>[]
+  row_count: number
+  error?: string
+  truncated?: boolean
+}
+
+interface ScoreResult {
+  score: number
+  rating: 'Good' | 'Managing' | 'Learning'
+  scorecard: {
+    dimensions: {
+      query_correctness: { score: number; max: number }
+      syntax_accuracy: { score: number; max: number }
+      result_completeness: { score: number; max: number }
+    }
+    timeline_highlights: string[]
+    postmortem_summary: string
+  }
+}
+
+interface Props {
+  sessionInfo: SessionInfo
+}
+
+function ratingColor(rating: string) {
+  if (rating === 'Good') return 'text-[#3fb950]'
+  if (rating === 'Managing') return 'text-[#d29922]'
+  return 'text-[#f85149]'
+}
+
+function ratingBorder(rating: string) {
+  if (rating === 'Good') return 'border-[#3fb950]'
+  if (rating === 'Managing') return 'border-[#d29922]'
+  return 'border-[#f85149]'
+}
+
+export default function SQLSimulation({ sessionInfo }: Props) {
+  const [question, setQuestion] = useState<SQLQuestion | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const [query, setQuery] = useState('')
+  const [running, setRunning] = useState(false)
+  const [runResult, setRunResult] = useState<QueryResult | null>(null)
+  const [submitted, setSubmitted] = useState(false)
+  const [scoreResult, setScoreResult] = useState<ScoreResult | null>(null)
+  const [elapsed, setElapsed] = useState(0)
+  const [showHint, setShowHint] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const timeLimit = question?.time_limit_seconds ?? (sessionInfo.time_limit_minutes * 60)
+  const remaining = Math.max(0, timeLimit - elapsed)
+  const mins = Math.floor(remaining / 60)
+  const secs = remaining % 60
+  const timedOut = remaining === 0 && !submitted
+
+  useEffect(() => {
+    if (!sessionInfo.question_id) { setLoadError('No question assigned. Contact your assessor.'); return }
+    fetch(`${API_BASE}/sql/questions/${sessionInfo.question_id}`)
+      .then(r => r.json())
+      .then((q: SQLQuestion) => {
+        setQuestion(q)
+        setQuery(q.starter_query ?? '')
+      })
+      .catch(() => setLoadError('Failed to load question. Please refresh.'))
+  }, [sessionInfo.question_id])
+
+  useEffect(() => {
+    if (!question || submitted || timedOut) return
+    timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
+    return () => { if (timerRef.current) clearInterval(timerRef.current) }
+  }, [question, submitted, timedOut])
+
+  async function handleRun() {
+    if (!query.trim() || running) return
+    setRunning(true); setRunResult(null)
+    try {
+      const res = await fetch(`${API_BASE}/sql/execute`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query })
+      })
+      setRunResult(await res.json() as QueryResult)
+    } catch (err) {
+      setRunResult({ columns: [], rows: [], row_count: 0, error: String(err) })
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  async function handleSubmit() {
+    if (!query.trim() || submitted || !question) return
+    if (timerRef.current) clearInterval(timerRef.current)
+    setRunning(true)
+    try {
+      const res = await fetch(`${API_BASE}/sql/submit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionInfo.session_id, question_id: question.id, query })
+      })
+      const data = await res.json() as ScoreResult
+      setScoreResult(data)
+      setSubmitted(true)
+    } catch (err) {
+      alert('Submit failed: ' + String(err))
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
+        <div className="text-[#f85149] font-mono text-sm">{loadError}</div>
+      </div>
+    )
+  }
+
+  if (!question) {
+    return (
+      <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
+        <div className="text-[#8b949e] font-mono text-sm animate-pulse">Loading question…</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0d1117] font-mono text-xs flex flex-col">
+      {/* Header */}
+      <div className="bg-[#161b22] border-b border-[#30363d] px-4 py-2.5 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <span className="text-[#58a6ff] font-bold text-sm">SQL Readiness Assessment</span>
+          <span className={`px-2 py-0.5 rounded border text-[10px] font-bold uppercase ${
+            question.difficulty === 'easy' ? 'border-[#3fb950] text-[#3fb950]'
+            : question.difficulty === 'medium' ? 'border-[#d29922] text-[#d29922]'
+            : 'border-[#f85149] text-[#f85149]'
+          }`}>{question.difficulty}</span>
+          <span className="text-[#484f58] capitalize">{question.question_type === 'fix' ? 'Fix the Query' : question.question_type === 'identify' ? 'Identify the Issue' : 'Write a Query'}</span>
+        </div>
+        <div className={`text-sm font-bold tabular-nums ${remaining < 120 ? 'text-[#f85149] animate-pulse' : remaining < 300 ? 'text-[#d29922]' : 'text-[#3fb950]'}`}>
+          {timedOut ? 'TIME UP' : `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`}
+        </div>
+      </div>
+
+      {/* Main split layout */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left: Question */}
+        <div className="w-2/5 border-r border-[#30363d] overflow-y-auto flex flex-col">
+          <div className="p-5 space-y-4">
+            <div>
+              <div className="text-[#e6edf3] text-sm font-bold mb-2">{question.title}</div>
+              <div className="text-[#8b949e] leading-relaxed whitespace-pre-wrap">{question.description}</div>
+            </div>
+
+            {question.schema_hint && (
+              <div>
+                <div className="text-[#484f58] uppercase tracking-widest mb-2">Schema Reference</div>
+                <pre className="bg-[#161b22] border border-[#30363d] rounded p-3 text-[#79c0ff] text-[11px] overflow-x-auto whitespace-pre-wrap">{question.schema_hint}</pre>
+              </div>
+            )}
+
+            {question.hint && (
+              <div>
+                <button
+                  onClick={() => setShowHint(!showHint)}
+                  className="text-[#d29922] hover:text-[#e3b341] transition-colors underline"
+                >
+                  {showHint ? 'Hide hint' : 'Show hint'}
+                </button>
+                {showHint && (
+                  <div className="mt-2 bg-[#161b22] border border-[#d29922] rounded p-3 text-[#d29922] leading-relaxed">
+                    {question.hint}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right: Editor + Results */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Query Editor */}
+          <div className="flex-1 flex flex-col border-b border-[#30363d] min-h-0">
+            <div className="px-4 py-2 border-b border-[#30363d] flex items-center justify-between bg-[#161b22]">
+              <span className="text-[#8b949e] uppercase tracking-widest">Query Editor</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleRun}
+                  disabled={running || submitted || timedOut || !query.trim()}
+                  className="bg-[#0d419d] hover:bg-[#1158c7] disabled:bg-[#161b22] disabled:text-[#484f58] text-white px-4 py-1 rounded border border-[#388bfd] disabled:border-[#30363d] transition-all"
+                >
+                  {running ? '▶ Running…' : '▶ Run'}
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  disabled={running || submitted || timedOut || !query.trim()}
+                  className="bg-[#238636] hover:bg-[#2ea043] disabled:bg-[#161b22] disabled:text-[#484f58] text-white font-bold px-4 py-1 rounded border border-[#2ea043] disabled:border-[#30363d] transition-all"
+                >
+                  {submitted ? '✓ Submitted' : 'Submit'}
+                </button>
+              </div>
+            </div>
+            <textarea
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              disabled={submitted || timedOut}
+              spellCheck={false}
+              className="flex-1 bg-[#0d1117] text-[#e6edf3] resize-none p-4 text-sm font-mono focus:outline-none disabled:opacity-60"
+              placeholder="-- Write your SQL query here"
+              onKeyDown={e => {
+                if (e.key === 'Tab') { e.preventDefault(); setQuery(q => q + '    ') }
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleRun() }
+              }}
+            />
+            <div className="px-4 py-1.5 bg-[#161b22] text-[#484f58] text-[10px] border-t border-[#30363d]">
+              Ctrl+Enter to run · Submit when ready
+            </div>
+          </div>
+
+          {/* Results */}
+          <div className="h-64 overflow-auto bg-[#0d1117]">
+            {timedOut && !submitted && (
+              <div className="p-4 text-[#f85149] text-center">
+                Time's up! Your answers have been automatically submitted.
+              </div>
+            )}
+
+            {submitted && scoreResult && (
+              <div className="p-4 space-y-4">
+                <div className="flex items-center gap-4">
+                  <div className={`text-3xl font-bold ${ratingColor(scoreResult.rating)}`}>
+                    {scoreResult.rating}
+                  </div>
+                  <div className={`w-16 h-16 rounded-full border-2 flex items-center justify-center font-bold text-lg ${ratingBorder(scoreResult.rating)} ${ratingColor(scoreResult.rating)}`}>
+                    {scoreResult.score}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-[#484f58] uppercase tracking-widest">Score Breakdown</div>
+                  {Object.entries(scoreResult.scorecard.dimensions).map(([key, dim]) => {
+                    const pct = Math.round((dim.score / dim.max) * 100)
+                    const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                    return (
+                      <div key={key}>
+                        <div className="flex justify-between mb-1">
+                          <span className="text-[#8b949e]">{label}</span>
+                          <span className={pct >= 80 ? 'text-[#3fb950]' : pct >= 50 ? 'text-[#d29922]' : 'text-[#f85149]'}>{dim.score}/{dim.max}</span>
+                        </div>
+                        <div className="h-1.5 bg-[#161b22] rounded overflow-hidden">
+                          <div className={`h-full rounded ${pct >= 80 ? 'bg-[#3fb950]' : pct >= 50 ? 'bg-[#d29922]' : 'bg-[#f85149]'}`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <div className="text-[#e6edf3] bg-[#161b22] border border-[#30363d] rounded p-3 leading-relaxed">
+                  {scoreResult.scorecard.postmortem_summary}
+                </div>
+              </div>
+            )}
+
+            {!submitted && runResult && (
+              <div className="p-3">
+                {runResult.error ? (
+                  <div className="text-[#f85149] bg-[#1c0a0a] border border-[#f85149] rounded p-3">
+                    <div className="text-[#f85149] font-bold mb-1">Error</div>
+                    <pre className="whitespace-pre-wrap text-[11px]">{runResult.error}</pre>
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-[#3fb950] mb-2">
+                      {runResult.row_count} row{runResult.row_count !== 1 ? 's' : ''} returned
+                      {runResult.truncated && <span className="text-[#d29922] ml-2">(truncated to 100)</span>}
+                    </div>
+                    {runResult.columns.length > 0 && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-[11px]">
+                          <thead>
+                            <tr className="text-[#484f58] border-b border-[#30363d]">
+                              {runResult.columns.map(c => <th key={c} className="text-left px-2 py-1 font-normal">{c}</th>)}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {runResult.rows.map((row, i) => (
+                              <tr key={i} className="border-b border-[#1c2128] hover:bg-[#161b22]">
+                                {runResult.columns.map(c => (
+                                  <td key={c} className="px-2 py-1 text-[#e6edf3]">{String(row[c] ?? '')}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {!submitted && !runResult && (
+              <div className="p-4 text-[#484f58] text-center">
+                Run your query to see results here
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

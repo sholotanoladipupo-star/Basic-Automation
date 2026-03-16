@@ -158,7 +158,7 @@ export type ClientMessage =
   | { type: 'resolve_incident'; payload: Record<string, never> }
 
 export type ServerMessage =
-  | { type: 'session_started'; payload: { session_id: string; scenario_name: string; difficulty: string; time_limit_minutes: number; initial_alerts: Alert[]; available_runbooks: { id: string; title: string }[]; available_dashboards: { id: string; name: string }[] } }
+  | { type: 'session_started'; payload: { session_id: string; scenario_name: string; difficulty: string; time_limit_minutes: number; module_type: 'incident' | 'sql' | 'monitoring'; question_id: string | null; initial_alerts: Alert[]; available_runbooks: { id: string; title: string }[]; available_dashboards: { id: string; name: string }[] } }
   | { type: 'command_response'; payload: { stdout: string; exit_code: number; latency_ms: number } }
   | { type: 'log_response'; payload: { lines: string[] } }
   | { type: 'dashboard_response'; payload: { dashboard_id: string; name: string; metrics: MetricPoint[] } }
