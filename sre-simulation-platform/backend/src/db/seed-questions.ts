@@ -524,4 +524,7 @@ async function main() {
   await pool.end()
 }
 
-main().catch(err => { console.error(err); process.exit(1) })
+// Only run main() when executed directly (not when imported as a module)
+if (require.main === module) {
+  main().catch(err => { console.error(err); process.exit(1) })
+}
