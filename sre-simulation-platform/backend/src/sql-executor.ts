@@ -56,10 +56,18 @@ export function scoreQueryResult(
     return 45
   }
 
-  const stringify = (row: Record<string, unknown>) =>
-    JSON.stringify(Object.fromEntries(
-      Object.entries(row).map(([k, v]) => [k.toLowerCase(), String(v ?? '').trim().toLowerCase()])
-    ))
+  // Normalize numeric strings so "95000.00" == "95000", sort keys so column order doesn't matter
+  const normalizeVal = (v: unknown): string => {
+    const s = String(v ?? '').trim().toLowerCase()
+    if (/^-?\d+(\.\d+)?$/.test(s)) return String(parseFloat(s))
+    return s
+  }
+  const stringify = (row: Record<string, unknown>) => {
+    const entries = Object.entries(row)
+      .map(([k, v]) => [k.toLowerCase(), normalizeVal(v)] as [string, string])
+      .sort((a, b) => a[0].localeCompare(b[0]))
+    return JSON.stringify(Object.fromEntries(entries))
+  }
 
   const candidateSet = new Set(candidate.rows.map(stringify))
   const expectedSet = new Set(expected.rows.map(stringify))

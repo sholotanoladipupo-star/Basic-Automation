@@ -7,6 +7,7 @@ import SessionHistory from './pages/SessionHistory'
 import Admin from './pages/Admin'
 import SQLSimulation from './pages/SQLSimulation'
 import MonitoringSimulation from './pages/MonitoringSimulation'
+import CognitiveSimulation from './pages/CognitiveSimulation'
 
 type AppScreen = 'home' | 'history' | 'admin'
 
@@ -30,6 +31,9 @@ export default function App() {
     }
     if (moduleType === 'monitoring') {
       return <MonitoringSimulation sessionInfo={state.sessionInfo!} />
+    }
+    if (moduleType === 'cognitive') {
+      return <CognitiveSimulation sessionInfo={state.sessionInfo!} />
     }
     return <Simulation state={state} actions={actions} />
   }

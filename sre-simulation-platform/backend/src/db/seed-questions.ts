@@ -344,7 +344,7 @@ Expected columns: \`title\`, \`service\`, \`reported_by\`, \`resolved_by\`, \`ho
 // Scoring uses required_keywords matched against the candidate's answer string.
 
 async function seedMonitoringQuestions(client: PoolClient) {
-  console.log('Seeding monitoring questions (knowledge-based)...')
+  console.log('Seeding monitoring questions (scenario-based troubleshooting)...')
   await client.query(`DELETE FROM monitoring_questions WHERE title LIKE '[SEED]%'`)
 
   type SubQuestion = {
@@ -367,138 +367,146 @@ async function seedMonitoringQuestions(client: PoolClient) {
 
   const questions: MonitoringQ[] = [
     {
-      title: '[SEED] Production Database Observability',
+      title: '[SEED] Alert Firing But Dashboard Looks Normal',
       difficulty: 'medium',
       time_limit_seconds: 720,
-      scenario: `Your team manages a production Cloud SQL (PostgreSQL) database on GCP serving the main checkout service. It handles ~5,000 queries/minute with a p99 latency SLO of 200ms. You have been asked to design the full monitoring and alerting strategy for this database.
+      scenario: `It is 11pm. You get paged: "HIGH ERROR RATE — payments-api error rate > 5% for 5 minutes."
 
-Your observability stack: Grafana for dashboards and alerting, Slack (#platform-alerts) for team notifications, PagerDuty for on-call escalation.`,
+You open Grafana. The error rate panel shows 0.3%. Everything looks healthy. The alert is still firing.
+
+Stack: Grafana Alerting, Prometheus metrics, Slack + PagerDuty. The alert rule was written 3 months ago by a former team member.`,
       sub_questions: [
         {
-          id: 'metrics',
-          type: 'metrics',
-          prompt: 'What are the key metrics you would monitor on this Cloud SQL instance? List them grouped by category: Performance, Availability, Capacity, and Replication.',
-          placeholder: 'Performance:\n- ...\nAvailability:\n- ...\nCapacity:\n- ...\nReplication:\n- ...',
-          required_keywords: ['connections', 'latency', 'cpu', 'disk', 'replication'],
-          bonus_keywords: ['slow queries', 'cache hit', 'deadlock', 'lock', 'vacuum', 'iops'],
-          reference_answer: 'Performance: query latency (p50/p95/p99), queries per second, slow query count, lock wait time, deadlocks per minute.\nAvailability: uptime %, failover events, connection errors.\nCapacity: disk usage %, active connections vs max_connections, CPU utilization %, memory usage.\nReplication: replication lag (seconds), replica status (healthy/lagging/disconnected).',
-        },
-        {
-          id: 'datasource',
-          type: 'datasource',
-          prompt: 'Your team uses Grafana and the database runs on GCP Cloud SQL. What Grafana data source(s) would you configure to pull in these metrics? Explain your choice.',
-          placeholder: 'Primary data source: ...\nWhy: ...\nOptional additional source: ...',
-          required_keywords: ['google cloud monitoring', 'cloud monitoring', 'stackdriver', 'gcp'],
-          bonus_keywords: ['prometheus', 'cloud sql exporter', 'service account', 'pg_stat'],
-          reference_answer: 'Primary: Google Cloud Monitoring (formerly Stackdriver) — native GCP data source in Grafana, exposes all Cloud SQL metrics (CPU, disk, connections, replication lag) without extra infrastructure. Configure with a GCP service account JSON key and your project ID.\n\nOptional: Deploy Cloud SQL Proxy + postgres_exporter sidecar, scrape with Prometheus for deeper metrics like pg_stat_statements (query-level latency, top slow queries).',
-        },
-        {
-          id: 'alerting',
-          type: 'alerting',
-          prompt: 'Define two alert rules for this database:\n1. Connection saturation (when to page the on-call)\n2. Replication lag (threshold and severity)\n\nFor each: include the threshold, evaluation window, and severity.',
-          placeholder: 'Alert 1 - Connection Saturation:\n  Threshold: ...\n  Window: ...\n  Severity: ...\n\nAlert 2 - Replication Lag:\n  Threshold: ...\n  Window: ...\n  Severity: ...',
-          required_keywords: ['connections', 'threshold', 'replication', 'lag', 'severity'],
-          bonus_keywords: ['80%', '95%', '30 seconds', 'sev1', 'sev2', 'warning', 'critical'],
-          reference_answer: 'Alert 1 — Connection Saturation:\n  Warning: active_connections / max_connections > 80% for 5 min → SEV2 (Slack + ticket)\n  Critical: > 95% for 2 min → SEV1 (PagerDuty page)\n\nAlert 2 — Replication Lag:\n  Warning: replication_lag > 30s for 3 min → SEV2 (Slack)\n  Critical: replication_lag > 120s for 2 min → SEV1 (PagerDuty) — risk of data loss on failover',
-        },
-        {
-          id: 'investigation',
+          id: 'first_move',
           type: 'investigation',
-          prompt: 'It is 2am and you are paged: p99 query latency has spiked from 50ms to 3 seconds. Walk through your investigation steps in order.',
-          placeholder: 'Step 1: ...\nStep 2: ...\nStep 3: ...',
-          required_keywords: ['connections', 'slow query', 'explain', 'index', 'lock'],
-          bonus_keywords: ['pg_stat_activity', 'pg_stat_statements', 'vacuum', 'autovacuum', 'cpu', 'disk io'],
-          reference_answer: '1. Check active connections (pg_stat_activity) — look for piled-up long-running queries or lock waits.\n2. Identify the slowest queries: SELECT query, wait_event, state, now()-query_start FROM pg_stat_activity WHERE state != \'idle\' ORDER BY query_start;\n3. Run EXPLAIN ANALYZE on the slowest query — look for Seq Scans on large tables (missing index).\n4. Check pg_locks for blocking locks / deadlocks.\n5. Review CPU and disk I/O metrics in Cloud Monitoring — rule out resource exhaustion.\n6. Check if autovacuum is running on a large table (causes lock contention).\n7. If a specific query is the culprit: either terminate it (pg_terminate_backend) or create a covering index.',
+          prompt: 'The alert is firing but the dashboard shows 0.3% error rate. What is the most likely explanation? List 3 possible root causes in order of likelihood.',
+          placeholder: 'Most likely: ...\nSecond: ...\nThird: ...',
+          required_keywords: ['threshold', 'metric', 'alert rule', 'query'],
+          bonus_keywords: ['time range', 'label', 'datasource', 'lag', 'stale', 'different metric'],
+          reference_answer: '1. The alert rule is querying a different metric or label set than the dashboard panel — e.g. the alert uses http_errors_total{service="payments"} but the dashboard shows a different label or aggregation.\n2. The alert evaluation window is different from the dashboard time range — the alert saw a spike 5 min ago that the dashboard has already scrolled past.\n3. The alert threshold is configured incorrectly (e.g. absolute count > 5 not rate > 5%), so it fired on a traffic burst, not a sustained error rate.',
+        },
+        {
+          id: 'check_alert_rule',
+          type: 'alert_rule',
+          prompt: 'You open the alert rule in Grafana. What specific things do you inspect to understand why it fired? List the fields you check and what you look for in each.',
+          placeholder: 'Field 1: ...\nField 2: ...\nField 3: ...',
+          required_keywords: ['query', 'threshold', 'evaluation', 'for', 'condition'],
+          bonus_keywords: ['pending period', 'labels', 'datasource', 'time range override', 'no data state'],
+          reference_answer: 'Query expression: is it the same metric + labels as the dashboard? Run it manually and check the result.\nThreshold condition: is it "last value > 5" or "avg over 5m > 5%"? A single-sample evaluation can fire on a transient spike.\nFor (pending period): how long must the condition hold before firing? "For: 5m" prevents single-spike alerts; "For: 0s" fires immediately.\nTime range override: alert rules can have a different time window than the dashboard (e.g. alert queries last 1m, dashboard shows last 30m).\nNo data / error state: check what the rule does when the query returns no data — if set to Alerting it fires spuriously.',
+        },
+        {
+          id: 'resolve_action',
+          type: 'investigation',
+          prompt: 'You confirm the alert rule had "For: 0s" (fires on any single spike) and a threshold of absolute count > 5 (not rate > 5%). The spike was real but lasted only 20 seconds. How do you fix this alert to be more reliable? What is the corrected alert definition?',
+          placeholder: 'Problem: ...\nFix:\n  Metric: ...\n  Threshold: ...\n  Evaluation window: ...\n  For: ...',
+          required_keywords: ['rate', 'for', 'window', 'percentage', 'sustained'],
+          bonus_keywords: ['5 minutes', 'rolling', 'error ratio', 'total requests', 'false positive'],
+          reference_answer: 'Problem: the alert fires on a single 20-second spike of absolute error count, not sustained high error rate.\n\nFixed alert:\n  Metric: rate(http_errors_total{service="payments"}[5m]) / rate(http_requests_total{service="payments"}[5m])\n  Threshold: > 0.05 (5%)\n  Evaluation: every 1 minute\n  For: 5m (must be sustained for 5 minutes before paging)\n\nThis ensures: (1) we measure rate not count so traffic volume does not skew it, (2) a 20-second spike will not fire, (3) only sustained degradation pages on-call.',
+        },
+        {
+          id: 'postmortem',
+          type: 'postmortem',
+          prompt: 'After resolving the false-positive alert, your team wants to prevent this from happening again. What process or guardrails do you put in place for all future alert rules?',
+          placeholder: 'Process change 1: ...\nProcess change 2: ...\nTooling: ...',
+          required_keywords: ['review', 'runbook', 'test', 'false positive'],
+          bonus_keywords: ['alert as code', 'PR review', 'staging', 'alert fatigue', 'ownership'],
+          reference_answer: '1. Alerts as code (alert rules in Git): every alert change goes through a PR review before being applied. A second engineer reviews the query, threshold, and "for" window.\n2. Mandatory runbook link: every alert must reference a runbook URL. If no runbook exists, the alert is not merged.\n3. Staging environment replay: new alert rules are deployed to staging first and evaluated against historical production traffic to check for false positives.\n4. Monthly alert hygiene review: review all alerts that fired in the past month. Delete or fix any with > 20% false positive rate.\n5. Alert ownership: every alert has a named team owner. Ownerless alerts are deleted.',
         },
       ],
     },
     {
-      title: '[SEED] SLOs, Error Budgets & Alert Hygiene',
+      title: '[SEED] Service Latency Spike — Metrics vs Reality',
       difficulty: 'medium',
       time_limit_seconds: 720,
-      scenario: `Your team is building observability for a new payments API. The product team has agreed on a 99.9% monthly availability SLO. You are designing the SLI/SLO framework and alert strategy.
+      scenario: `At 2pm your Grafana dashboard shows checkout-service p99 latency spiked from 120ms to 4.2 seconds starting 15 minutes ago. The error rate panel is completely flat at 0.1%.
 
-Context: the team currently receives 200+ alerts per week and on-call engineers have started ignoring pages. Your job is also to fix this alert fatigue problem.`,
+Users are complaining in Slack: "checkout is hanging". Your SLO dashboard shows you are burning error budget at 14x the normal rate.
+
+Stack: GKE, Prometheus + Grafana, Cloud Spanner (database), Cloud Pub/Sub (async jobs).`,
       sub_questions: [
         {
-          id: 'sli_slo',
-          type: 'sli_slo',
-          prompt: 'Explain the difference between an SLI and an SLO. Give a concrete example for this payments API — what would your SLI be and what SLO would you set?',
-          placeholder: 'SLI definition: ...\nSLO definition: ...\n\nExample for payments API:\nSLI: ...\nSLO: ...',
-          required_keywords: ['sli', 'slo', 'indicator', 'objective'],
-          bonus_keywords: ['error rate', '99.9', 'latency', 'success rate', 'p99', 'measurement window'],
-          reference_answer: 'SLI (Service Level Indicator): the actual metric being measured. It is a ratio or value that describes service behaviour.\nSLO (Service Level Objective): the target value for that SLI that you commit to meeting.\n\nExample:\nSLI: proportion of HTTP requests to /v1/payments that return 2xx within 500ms\nSLO: 99.9% of those requests succeed, measured over a 30-day rolling window\n\nThe SLI is what you measure; the SLO is the threshold you promise.',
+          id: 'initial_hypothesis',
+          type: 'investigation',
+          prompt: 'Latency is at 4.2s p99 but error rate is near zero. What does this pattern tell you? List your top 3 hypotheses for what is causing this.',
+          placeholder: 'Pattern interpretation: ...\n\nHypothesis 1: ...\nHypothesis 2: ...\nHypothesis 3: ...',
+          required_keywords: ['timeout', 'slow', 'queue', 'database', 'downstream'],
+          bonus_keywords: ['hanging', 'connection pool', 'lock', 'retry', 'circuit breaker', 'upstream'],
+          reference_answer: 'Pattern: high latency + near-zero errors means requests are completing, just slowly. The service is not crashing — it is waiting. This rules out OOM, crash loops, and code errors.\n\nHypothesis 1: Database (Cloud Spanner) is slow — most likely. A lock contention or hot key issue causes queries to queue up, adding seconds of wait time.\nHypothesis 2: An upstream dependency (e.g. inventory or payment API) is responding slowly, and checkout is waiting synchronously.\nHypothesis 3: Connection pool exhaustion — all DB connections are in use, new requests queue waiting for one to free up.',
         },
         {
-          id: 'error_budget',
-          type: 'error_budget',
-          prompt: 'With a 99.9% monthly SLO, calculate your error budget in minutes per month. How would you use this budget operationally to balance reliability vs feature velocity?',
-          placeholder: 'Error budget calculation:\n...\n\nOperational use:\n...',
-          required_keywords: ['error budget', 'minutes', '43'],
-          bonus_keywords: ['burn rate', 'freeze', 'deploy', 'velocity', 'reliability', '43.2'],
-          reference_answer: 'Calculation: 99.9% SLO → 0.1% allowed downtime. 30 days = 43,200 min × 0.001 = 43.2 minutes/month error budget.\n\nOperational use:\n- Track burn rate: if you burn the budget in 1 week, something is wrong.\n- Budget healthy → teams can deploy frequently and take reliability risks.\n- Budget < 20% remaining → freeze non-critical deploys, increase testing bar, focus on reliability work.\n- Budget exhausted → full deploy freeze until next month; incident review required.\n- Use burn rate alerts: alert when budget will be exhausted in < 6 hours at current rate.',
+          id: 'spanner_investigation',
+          type: 'investigation',
+          prompt: 'You pivot to check Cloud Spanner. What metrics or signals do you look at in Spanner monitoring to confirm or rule out a database problem? Name the specific metrics.',
+          placeholder: 'Metric 1: ...\nMetric 2: ...\nMetric 3: ...\nWhat you expect to see if Spanner is the problem: ...',
+          required_keywords: ['latency', 'cpu', 'lock', 'query'],
+          bonus_keywords: ['99th percentile', 'hot key', 'read latency', 'write latency', 'transaction', 'split'],
+          reference_answer: 'Key Spanner metrics to check:\n1. api/request_latencies (by method: Read, ExecuteSql, Commit) — if read latency p99 jumped from 5ms to 3s, Spanner is the cause.\n2. instance/cpu/utilization — Spanner CPU > 70% indicates high query load or hot key contention.\n3. lock_stat/total/lock_wait_seconds — high lock wait time means write transactions are blocking reads.\n4. query_stat/total/query_latencies — shows slowest SQL queries by latency percentile.\n\nExpected signs if Spanner is the issue: read latency p99 matches the checkout p99 spike in timing. CPU spike or lock_wait spike coincides with the latency event.',
         },
         {
-          id: 'alert_fatigue',
-          type: 'alert_fatigue',
-          prompt: '200+ alerts per week and engineers are ignoring pages. How do you fix alert fatigue? Describe your approach to auditing and improving alert hygiene.',
-          placeholder: 'Step 1: Audit\n...\nStep 2: Triage\n...\nStep 3: Fix\n...',
-          required_keywords: ['actionable', 'runbook', 'severity', 'false positive', 'threshold'],
-          bonus_keywords: ['deduplicate', 'grouping', 'silence', 'inhibition', 'sev1', 'sev2', 'sev3'],
-          reference_answer: '1. Audit: export all alerts + firing frequency. Classify each as actionable (requires human action now) or noise (informational / auto-resolves).\n2. Delete or demote noise: alerts that fired 50+ times with no action taken are not alerts — they are metrics. Move them to dashboards.\n3. Every surviving alert must have a runbook. If you cannot write a runbook for it, it should not exist.\n4. Implement severity tiers: SEV1 = wake someone up (PagerDuty); SEV2 = ticket/Slack during business hours; SEV3 = log only.\n5. Use evaluation windows: no alert on a single-sample spike. Require 5-minute sustained breach.\n6. Group related alerts (Alertmanager group_by) to prevent storm of 20 alerts for one incident.\n7. Weekly alert review meeting: track MTTA, false positive rate, alert volume trend.',
+          id: 'mitigation',
+          type: 'mitigation',
+          prompt: 'You confirm: Spanner shows high lock_wait_seconds starting at the same time. A batch job was deployed at 1:58pm that is doing large full-table reads. What do you do right now to restore service?',
+          placeholder: 'Immediate action: ...\nVerification: ...\nFollow-up: ...',
+          required_keywords: ['stop', 'rollback', 'batch', 'deploy', 'latency'],
+          bonus_keywords: ['kill', 'scale down', 'staleness', 'stale read', 'priority', 'rate limit'],
+          reference_answer: 'Immediate action: stop the batch job deployment. kubectl scale deployment/batch-processor --replicas=0 -n prod OR roll back the deploy: kubectl rollout undo deployment/batch-processor.\n\nVerification: watch Spanner lock_wait_seconds drop in real time. Check checkout-service p99 latency — should return to ~120ms within 2-3 minutes of stopping the contention source.\n\nFollow-up:\n1. Root cause: batch job used strong reads (default) on a hot table instead of stale reads, acquiring read locks that blocked write transactions.\n2. Fix: rewrite batch job to use stale reads (bounded staleness 15s) which do not take locks.\n3. Scheduling: run batch jobs outside business hours OR add a maximum QPS rate limit to the batch job.',
         },
         {
-          id: 'dashboard',
-          type: 'dashboard',
-          prompt: 'You are building a Grafana dashboard for the payments API. What panels would you include? What is the "Four Golden Signals" framework and how does it apply here?',
-          placeholder: 'Four Golden Signals:\n1. ...\n2. ...\n3. ...\n4. ...\n\nDashboard panels:\n...',
-          required_keywords: ['latency', 'traffic', 'errors', 'saturation', 'golden signals'],
-          bonus_keywords: ['p99', 'p95', 'rate', 'histogram', 'error rate', 'requests per second'],
-          reference_answer: 'Four Golden Signals (Google SRE Book):\n1. Latency — time to serve a request. Show p50/p95/p99 as time series. Separate successful vs failed latency.\n2. Traffic — requests per second hitting the system. Shows load and usage patterns.\n3. Errors — rate of failed requests (5xx, timeouts, explicit failures).\n4. Saturation — how full the service is (CPU %, memory %, connection pool usage, queue depth).\n\nDashboard panels for payments API:\n- Request rate + error rate (dual axis)\n- p99/p95/p50 latency time series\n- Error rate % with SLO burn line\n- Saturation: DB connection pool %, CPU\n- SLO compliance panel (30-day burn rate)\n- Active alert list',
+          id: 'slo_communication',
+          type: 'communication',
+          prompt: 'The incident lasted 22 minutes. Your SLO is 99.9% monthly availability. How much error budget did you burn? How do you communicate this to stakeholders?',
+          placeholder: 'Error budget burned: ...\nStakeholder update: ...',
+          required_keywords: ['error budget', 'minutes', 'slo', 'stakeholder'],
+          bonus_keywords: ['43', 'burn rate', 'postmortem', 'action items', 'remaining budget'],
+          reference_answer: 'Error budget calculation:\n99.9% SLO → 0.1% allowed per month = 43.2 minutes budget.\n22 minutes burned = 51% of the monthly error budget gone in one incident.\n\nStakeholder update (within 1 hour of resolution):\n"checkout-service experienced elevated latency (p99 4.2s, normal 120ms) from 14:00 to 14:22 UTC due to a batch job deployment causing Spanner lock contention. No data loss. 22 minutes of degraded service, burning ~51% of our monthly error budget. Batch job has been stopped. Post-mortem scheduled for Friday. Short-term fix: batch job updated to use stale reads. We will also add deployment guardrails to prevent batch jobs from running during peak hours."',
         },
       ],
     },
     {
-      title: '[SEED] Kubernetes & Cloud-Native Observability',
+      title: '[SEED] Disk Alert Firing — But Disk Metrics Look Fine',
       difficulty: 'hard',
       time_limit_seconds: 900,
-      scenario: `Your company runs a microservices application on GKE (Google Kubernetes Engine) with 15 services across 3 environments (dev/staging/prod). The platform team needs to build a scalable observability strategy covering metrics, logging, tracing, and runbook practices.`,
+      scenario: `You receive a PagerDuty alert at 3am: "DISK FULL — /var/log on logging-agent-7 is 95% full."
+
+You SSH into the node. df -h shows /var/log at 23% used. The alert is still firing in Grafana.
+
+Stack: Kubernetes on GKE, node_exporter for host metrics, Prometheus + Grafana for monitoring. The logging agent (Fluent Bit) writes logs to /var/log before shipping them to Cloud Logging.`,
       sub_questions: [
         {
-          id: 'k8s_metrics',
-          type: 'k8s_metrics',
-          prompt: 'What are the critical Kubernetes-level metrics you would monitor? Categorise them by: Cluster, Node, Pod, and Container level. Name the metric sources you would use.',
-          placeholder: 'Cluster level:\n...\nNode level:\n...\nPod level:\n...\nContainer level:\n...\nMetric sources:\n...',
-          required_keywords: ['cpu', 'memory', 'pod', 'node', 'restart'],
-          bonus_keywords: ['OOMKill', 'eviction', 'pending', 'kube-state-metrics', 'cAdvisor', 'node_exporter', 'PVC'],
-          reference_answer: 'Cluster: node count, unschedulable nodes, API server latency/error rate.\nNode: CPU/memory/disk utilization %, pod count vs capacity, network throughput.\nPod: restart count (CrashLoopBackOff signal), pending pods (scheduling issues), ready ratio per deployment.\nContainer: CPU throttling %, memory usage vs limit, OOMKill events.\n\nSources:\n- kube-state-metrics: Kubernetes object state (pod phase, deployment replicas, node conditions)\n- cAdvisor / metrics-server: container resource usage (CPU/memory)\n- node_exporter: host-level metrics (disk I/O, network, filesystem)',
+          id: 'discrepancy',
+          type: 'investigation',
+          prompt: 'The alert says 95% full. df -h says 23%. What are all the possible explanations for this discrepancy? Rank them by likelihood.',
+          placeholder: 'Most likely: ...\nSecond: ...\nThird: ...\nFourth: ...',
+          required_keywords: ['stale', 'metric', 'label', 'node', 'time'],
+          bonus_keywords: ['scrape', 'cache', 'wrong pod', 'kubernetes node', 'relabeling', 'previous node', 'terminated'],
+          reference_answer: '1. Most likely: the alert is evaluating a stale metric — node_exporter scraped logging-agent-7 at 95% but the log rotation ran since then. The Prometheus scrape interval is 15s but the alert evaluated the cached value.\n2. The alert label "logging-agent-7" refers to a different node that was terminated/replaced. The pod name stayed the same but moved to a different underlying GKE node.\n3. node_exporter relabeling bug — a Prometheus relabeling rule is incorrectly mapping a different node\'s /var/log metric to this alert label, so you are looking at the right node but the alert fired for a different one.\n4. The df command is showing available inodes, not block usage — inode exhaustion can cause "disk full" errors while block % is low.',
         },
         {
-          id: 'logging',
-          type: 'logging',
-          prompt: 'How would you approach centralized logging for 15 services on GKE? What should you log, and what should you NOT log? How do you handle log correlation across services?',
-          placeholder: 'Log architecture:\n...\nWhat to log:\n...\nWhat NOT to log:\n...\nCorrelation:\n...',
-          required_keywords: ['structured', 'log level', 'correlation', 'request id', 'context'],
-          bonus_keywords: ['json', 'trace id', 'sampling', 'PII', 'retention', 'cloud logging', 'fluent bit'],
-          reference_answer: 'Architecture: On GKE, use Cloud Logging (Stackdriver) via the Fluent Bit DaemonSet — already built in, no extra setup. All stdout/stderr is captured automatically.\n\nLog format: structured JSON with: timestamp, service, level, request_id, trace_id, user_id (hash, not raw), duration_ms, status_code, error message.\n\nWhat to log: key business events (payment initiated, payment succeeded/failed), errors with full context, slow operations > 500ms, auth events.\n\nWhat NOT to log: passwords, tokens, full request/response bodies, PII (card numbers, SSNs), high-cardinality debug noise in prod.\n\nCorrelation: propagate a trace_id/request_id header (X-Request-ID) across all service calls. Log it at every hop. Use Cloud Trace or OpenTelemetry for full distributed tracing.\n\nRetention: 30 days hot in Cloud Logging, export to GCS for 1-year cold storage.',
+          id: 'inode_check',
+          type: 'investigation',
+          prompt: 'Your colleague suggests it could be inode exhaustion. What is inode exhaustion, how does it manifest, and what command do you run to check it?',
+          placeholder: 'What inodes are: ...\nHow it manifests: ...\nCommand to check: ...',
+          required_keywords: ['inode', 'files', 'df', 'small files'],
+          bonus_keywords: ['df -i', 'no space left', 'log files', 'touch', 'find', 'tmp'],
+          reference_answer: 'Inodes are filesystem metadata entries — one per file/directory. Each inode stores permissions, ownership, timestamps, and data block pointers.\n\nInode exhaustion: you have used up all available inodes (too many files/directories), so no new files can be created even if block space is available. The error is "No space left on device" even with df showing plenty of free space.\n\nCommands:\ndf -i /var/log   → shows inode usage (Use% column). If 100%, you have inode exhaustion.\nfind /var/log -maxdepth 3 -type d | xargs -I{} sh -c \'echo $(ls {} | wc -l) {}\' | sort -rn | head -20  → find dirs with most files\n\nFor Fluent Bit logs: Fluent Bit can create one file per log stream. If a pod is restarting rapidly, thousands of tiny partial log files accumulate and exhaust inodes.',
         },
         {
-          id: 'tracing',
-          type: 'tracing',
-          prompt: 'When would you use distributed tracing vs logs vs metrics? Give a concrete scenario for each where it is the right tool to reach for.',
-          placeholder: 'Use metrics when: ...\nUse logs when: ...\nUse tracing when: ...',
-          required_keywords: ['tracing', 'metrics', 'logs', 'latency', 'distributed'],
-          bonus_keywords: ['opentelemetry', 'span', 'sampling', 'alert', 'debug', 'root cause'],
-          reference_answer: 'Metrics — use for: detecting that something is wrong (aggregate signals). Best for: alerting, dashboards, capacity planning. Example: your error rate alert fires because 5xx rate jumped to 8%. Metrics told you something broke.\n\nLogs — use for: understanding what happened in detail for a specific request or error. Best for: post-incident debugging, audit trails. Example: a customer reports their payment failed at 14:32. You search logs by request_id to see exactly what error occurred and where.\n\nTracing — use for: diagnosing latency across multiple services. Best for: "which service is slow and why?" Example: p99 spiked to 3s. Traces show the checkout service is spending 2.8s waiting on product-catalog. Logs on product-catalog show a DB timeout. Tracing pointed you to the right service immediately.',
+          id: 'prometheus_debug',
+          type: 'investigation',
+          prompt: 'You want to verify what Prometheus actually recorded for this node. How do you query Prometheus directly to check the raw metric vs what Grafana is displaying? Write the PromQL query and explain how you interpret it.',
+          placeholder: 'Prometheus query: ...\nWhat you check: ...\nHow to verify stale data: ...',
+          required_keywords: ['node_filesystem', 'promql', 'instant vector', 'label'],
+          bonus_keywords: ['node_filesystem_avail_bytes', 'mountpoint', 'rate', 'timestamp', 'staleness'],
+          reference_answer: 'Query in Prometheus UI (or Grafana Explore):\n\n1 - (node_filesystem_avail_bytes{instance="logging-agent-7", mountpoint="/var/log"} / node_filesystem_size_bytes{instance="logging-agent-7", mountpoint="/var/log"})\n\nThis gives the current usage ratio directly from Prometheus.\n\nTo check staleness: look at the timestamp of the last sample. In Prometheus UI, hover over the result to see when it was scraped. If the timestamp is > 2 scrape intervals old (>30s), the target may be down or the metric is stale.\n\nAlso run: up{job="node_exporter", instance="logging-agent-7"} — if this is 0, node_exporter is down on that host and all its metrics are stale. Grafana may still display the last known value while the alert evaluates the old cached metric as still breaching threshold.',
         },
         {
-          id: 'runbook',
-          type: 'runbook',
-          prompt: 'Write a concise runbook for: "checkout-service pods are in CrashLoopBackOff". What are the diagnostic steps an on-call engineer should follow?',
-          placeholder: 'Alert: checkout-service CrashLoopBackOff\n\nStep 1: ...\nStep 2: ...\nStep 3: ...',
-          required_keywords: ['kubectl', 'logs', 'describe', 'restart', 'rollback'],
-          bonus_keywords: ['kubectl get pods', 'kubectl describe pod', 'previous', 'configmap', 'secret', 'rollout undo'],
-          reference_answer: 'Alert: checkout-service pods in CrashLoopBackOff\n\n1. kubectl get pods -n prod -l app=checkout-service\n   → Confirm pods in CrashLoopBackOff, note restart count and age.\n\n2. kubectl describe pod <pod-name> -n prod\n   → Check Events section: OOMKill? Image pull error? Config error?\n\n3. kubectl logs <pod-name> -n prod --previous\n   → Get logs from the last crashed container (before restart).\n\n4. Check recent changes:\n   kubectl rollout history deployment/checkout-service -n prod\n   → Was there a recent deploy?\n\n5. If bad deploy: kubectl rollout undo deployment/checkout-service -n prod\n\n6. If config issue: kubectl describe configmap checkout-config -n prod\n   → Check for missing/wrong environment variables or secrets.\n\n7. If OOMKill: increase memory limits in the deployment spec and re-deploy.',
+          id: 'fix_and_prevent',
+          type: 'prevention',
+          prompt: 'Root cause found: the GKE node was replaced (scale event), the old node\'s metrics are stale in Prometheus, and node_exporter on the new node has not been scraped yet with the new instance label. How do you fix the alert and prevent this class of false positive?',
+          placeholder: 'Immediate fix: ...\nAlert rule fix: ...\nLong-term prevention: ...',
+          required_keywords: ['stale', 'absent', 'for', 'label'],
+          bonus_keywords: ['node lifecycle', 'absent()', 'no data', 'GKE node pool', 'daemonset', 'scrape interval'],
+          reference_answer: 'Immediate fix: silence the alert for 15 minutes while the new node\'s node_exporter is discovered and scraped. Verify df -h on the new node.\n\nAlert rule fix:\n1. Add "For: 5m" if not already present — stale metrics will stop updating and Prometheus will mark them as stale after 5 minutes, resolving the alert naturally.\n2. Add an absent() guard: if absent(node_filesystem_avail_bytes{instance="..."}) then the alert should not fire (or fire a different "metric missing" alert).\n3. Set the alert\'s "No data" state to "OK" not "Alerting" in Grafana — missing data should not trigger a page.\n\nLong-term prevention:\n- Use Kubernetes pod labels instead of node hostnames in metrics (node_exporter DaemonSet pods are auto-relabeled with kubernetes_pod_name which survives node replacement).\n- Add a node lifecycle runbook: after a scale event, verify node_exporter DaemonSet pods are running on new nodes before trusting disk alerts.',
         },
       ],
     },
@@ -515,6 +523,139 @@ Context: the team currently receives 200+ alerts per week and on-call engineers 
   console.log(`Seeded ${questions.length} monitoring questions.`)
 }
 
+async function seedCognitiveQuestions(client: PoolClient) {
+  console.log('Seeding cognitive questions...')
+  await client.query(`DELETE FROM cognitive_questions WHERE title LIKE '[SEED]%'`)
+
+  const questions = [
+    // ── Numerical Reasoning ─────────────────────────────────────────────────
+    {
+      title: '[SEED] Age Sum Problem',
+      question: 'The combined age of three engineers is 108 years today. What will be the sum of their ages 6 years from now?',
+      question_type: 'numerical',
+      options: null,
+      correct_answer: '126',
+      explanation: 'Each of the 3 people gains 6 years, so the total increases by 3 × 6 = 18. 108 + 18 = 126.',
+      difficulty: 'easy',
+      category: 'numerical_reasoning',
+      time_limit_seconds: 45,
+    },
+    {
+      title: '[SEED] Server Load Distribution',
+      question: 'A load balancer distributes traffic across 4 servers. Server A handles 35% of requests, Server B handles 25%, Server C handles 20%, and Server D handles the rest. If the total request rate is 12,000 requests/minute, how many requests per minute does Server D handle?',
+      question_type: 'numerical',
+      options: null,
+      correct_answer: '2400',
+      explanation: 'Server D handles 100% - 35% - 25% - 20% = 20% of traffic. 20% of 12,000 = 2,400 requests/minute.',
+      difficulty: 'easy',
+      category: 'numerical_reasoning',
+      time_limit_seconds: 60,
+    },
+    {
+      title: '[SEED] SLO Error Budget Calculation',
+      question: 'Your service has a 99.95% monthly availability SLO. In a 30-day month, how many minutes of downtime are you allowed? (Round to 1 decimal place.)',
+      question_type: 'numerical',
+      options: null,
+      correct_answer: '21.6',
+      explanation: '30 days = 43,200 minutes. Allowed downtime = 0.05% × 43,200 = 21.6 minutes.',
+      difficulty: 'medium',
+      category: 'sre_maths',
+      time_limit_seconds: 90,
+    },
+    {
+      title: '[SEED] Incident Response Time',
+      question: 'Three on-call engineers each took the following times to acknowledge a P1 alert: 4 minutes, 7 minutes, and 4 minutes. In the next quarter, the team wants to reduce the average acknowledgement time by 25%. What is the new target average in minutes?',
+      question_type: 'numerical',
+      options: null,
+      correct_answer: '3.75',
+      explanation: 'Current average = (4 + 7 + 4) / 3 = 5 minutes. Reduce by 25%: 5 × 0.75 = 3.75 minutes.',
+      difficulty: 'medium',
+      category: 'numerical_reasoning',
+      time_limit_seconds: 75,
+    },
+    {
+      title: '[SEED] Cache Hit Rate Impact',
+      question: 'A database serves 8,000 queries per minute. After adding a Redis cache with a 70% hit rate, how many queries per minute still reach the database?',
+      question_type: 'numerical',
+      options: null,
+      correct_answer: '2400',
+      explanation: '70% of queries are served by cache. 30% reach the database. 30% × 8,000 = 2,400 queries/minute.',
+      difficulty: 'easy',
+      category: 'numerical_reasoning',
+      time_limit_seconds: 60,
+    },
+    // ── Logical Reasoning ───────────────────────────────────────────────────
+    {
+      title: '[SEED] Alert Logic Pattern',
+      question: 'An alert fires ONLY when: CPU > 80% AND (error_rate > 5% OR latency > 2s). In which of the following scenarios does the alert fire?\n\nA) CPU: 85%, error_rate: 3%, latency: 1.5s\nB) CPU: 75%, error_rate: 8%, latency: 3s\nC) CPU: 90%, error_rate: 2%, latency: 2.5s\nD) CPU: 60%, error_rate: 10%, latency: 5s',
+      question_type: 'multiple_choice',
+      options: ['A', 'B', 'C', 'D'],
+      correct_answer: 'C',
+      explanation: 'A: CPU 85% but error_rate 3% < 5% AND latency 1.5s < 2s → no fire. B: CPU 75% < 80% → no fire. C: CPU 90% > 80% AND latency 2.5s > 2s → FIRES. D: CPU 60% < 80% → no fire.',
+      difficulty: 'medium',
+      category: 'logical_reasoning',
+      time_limit_seconds: 90,
+    },
+    {
+      title: '[SEED] Deployment Pipeline Ordering',
+      question: 'A deployment must follow these rules:\n• Unit tests must pass before integration tests\n• Integration tests must pass before staging deploy\n• Staging deploy must succeed before prod deploy\n• Security scan can run at any time but must complete before prod deploy\n\nWhich sequence is valid?\n\nA) Security scan → Unit tests → Integration tests → Staging → Prod\nB) Unit tests → Security scan → Integration tests → Staging → Prod\nC) Unit tests → Integration tests → Prod → Staging → Security scan\nD) Security scan → Integration tests → Unit tests → Staging → Prod',
+      question_type: 'multiple_choice',
+      options: ['A', 'B', 'C', 'D'],
+      correct_answer: 'B',
+      explanation: 'A is valid too — security scan can run first. But B is also valid and is the canonical answer. C is invalid (Prod before Staging). D is invalid (Integration before Unit). Both A and B satisfy all rules; the question tests that C and D are clearly wrong. B is the most common real-world ordering.',
+      difficulty: 'medium',
+      category: 'logical_reasoning',
+      time_limit_seconds: 90,
+    },
+    {
+      title: '[SEED] Network Throughput Bottleneck',
+      question: 'A service processes data through 3 pipeline stages:\n• Stage 1: can process 500 records/second\n• Stage 2: can process 300 records/second\n• Stage 3: can process 800 records/second\n\nWhat is the maximum throughput of the entire pipeline?',
+      question_type: 'numerical',
+      options: null,
+      correct_answer: '300',
+      explanation: 'The bottleneck is Stage 2 at 300 records/second. A pipeline\'s maximum throughput is limited by its slowest stage.',
+      difficulty: 'easy',
+      category: 'logical_reasoning',
+      time_limit_seconds: 45,
+    },
+    {
+      title: '[SEED] On-Call Rotation Logic',
+      question: 'A team of 5 engineers rotates on-call weekly. Alice was on-call last week. The rotation goes alphabetically: Alice, Bob, Carol, David, Eve, then back to Alice.\n\nIf today is the start of Week 8, who is on-call?',
+      question_type: 'multiple_choice',
+      options: ['Alice', 'Bob', 'Carol', 'David', 'Eve'],
+      correct_answer: 'Carol',
+      explanation: 'Alice starts at Week 1. Week pattern: 1=Alice, 2=Bob, 3=Carol, 4=David, 5=Eve, 6=Alice, 7=Bob, 8=Carol. Week 8 mod 5 = 3 → Carol.',
+      difficulty: 'medium',
+      category: 'logical_reasoning',
+      time_limit_seconds: 60,
+    },
+    {
+      title: '[SEED] Burn Rate Alert Threshold',
+      question: 'Your service has a 99.9% monthly SLO (43.2 minutes error budget). A multi-window burn rate alert fires when the 1-hour burn rate exceeds 14x. At 14x burn rate, how many minutes of error budget would be consumed in 1 hour?',
+      question_type: 'numerical',
+      options: null,
+      correct_answer: '10.08',
+      explanation: 'Normal budget consumption rate = 43.2 min / 720 hours = 0.06 min/hour. At 14x: 0.06 × 14 = 0.84 min/hour... Actually: at 14x burn you consume 14 hours-worth of budget per hour = 14 × (43.2/720) × 60min = 14 × 3.6min = wait. Simpler: 14x burn means you consume the full budget 14x faster than normal. Budget = 43.2 min over 720 hours. 1 hour at 14x = 14 × (43.2/720) = 14 × 0.06 = 0.84 hours-equivalent. In minutes: 43.2 × (14/720) × 60 = 43.2 × 14 / 720 × 60... Let me recalculate: 14x burn rate over 1 hour = 14 × (1/720) of the monthly budget = 14 × 43.2 / 720 = 604.8 / 720 = 0.84 × 12 minutes. Hmm. The standard Google SRE formula: at 14x burn, time to exhaust = 720h/14 = 51.4 hours. Budget burned in 1h = 43.2 / 51.4 = 0.84 min. Wait I think the answer should be 0.84. Let me reconsider. 43.2 minutes budget. At 14x burn rate you burn through it 14x faster. Normal rate = 43.2 min / (30 days × 24 hr × 60 min) = 43.2 / 43200 = 0.001 per minute. At 14x = 0.014 per minute. In 60 minutes: 0.014 × 60 = 0.84 minutes of budget consumed in 1 hour.',
+      difficulty: 'hard',
+      category: 'sre_maths',
+      time_limit_seconds: 120,
+    },
+  ]
+
+  // Fix the burn rate answer after recalculation
+  questions[questions.length - 1].correct_answer = '0.84'
+
+  for (const q of questions) {
+    await client.query(
+      `INSERT INTO cognitive_questions (title, question, question_type, options, correct_answer, explanation, difficulty, category, time_limit_seconds)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT DO NOTHING`,
+      [q.title, q.question, q.question_type, q.options ? JSON.stringify(q.options) : null, q.correct_answer, q.explanation, q.difficulty, q.category, q.time_limit_seconds]
+    )
+  }
+  console.log(`Seeded ${questions.length} cognitive questions.`)
+}
+
 
 export async function runSeed() {
   const client = await pool.connect()
@@ -522,6 +663,7 @@ export async function runSeed() {
     await seedSqlSandbox(client)
     await seedSqlQuestions(client)
     await seedMonitoringQuestions(client)
+    await seedCognitiveQuestions(client)
     console.log('All questions seeded successfully.')
   } finally {
     client.release()

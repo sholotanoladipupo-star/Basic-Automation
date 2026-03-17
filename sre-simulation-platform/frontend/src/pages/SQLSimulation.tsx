@@ -76,7 +76,23 @@ export default function SQLSimulation({ sessionInfo }: Props) {
   const [schema, setSchema] = useState<Record<string, SchemaTable> | null>(null)
   const [activeSchemaTable, setActiveSchemaTable] = useState<string | null>(null)
   const [schemaOpen, setSchemaOpen] = useState(true)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {})
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {})
+    }
+  }
+
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', handler)
+    return () => document.removeEventListener('fullscreenchange', handler)
+  }, [])
 
   const timeLimit = question?.time_limit_seconds ?? (sessionInfo.time_limit_minutes * 60)
   const remaining = Math.max(0, timeLimit - elapsed)
@@ -169,7 +185,7 @@ export default function SQLSimulation({ sessionInfo }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-[#0d1117] font-mono text-xs flex flex-col">
+    <div ref={containerRef} className="min-h-screen bg-[#0d1117] font-mono text-xs flex flex-col">
       {/* Submission confirmation banner */}
       {submitted && (
         <div className="bg-[#0f2a1a] border-b border-[#3fb950] px-4 py-2.5 flex items-center gap-3 flex-shrink-0">
@@ -189,8 +205,14 @@ export default function SQLSimulation({ sessionInfo }: Props) {
           }`}>{question.difficulty}</span>
           <span className="text-[#484f58] capitalize">{question.question_type === 'fix' ? 'Fix the Query' : question.question_type === 'identify' ? 'Identify the Issue' : 'Write a Query'}</span>
         </div>
-        <div className={`text-sm font-bold tabular-nums ${remaining < 120 ? 'text-[#f85149] animate-pulse' : remaining < 300 ? 'text-[#d29922]' : 'text-[#3fb950]'}`}>
-          {timedOut ? 'TIME UP' : `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`}
+        <div className="flex items-center gap-3">
+          <div className={`text-sm font-bold tabular-nums ${remaining < 120 ? 'text-[#f85149] animate-pulse' : remaining < 300 ? 'text-[#d29922]' : 'text-[#3fb950]'}`}>
+            {timedOut ? 'TIME UP' : `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`}
+          </div>
+          <button onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            className="text-[#484f58] hover:text-[#8b949e] transition-colors text-sm px-1">
+            {isFullscreen ? '✕FS' : '⛶'}
+          </button>
         </div>
       </div>
 

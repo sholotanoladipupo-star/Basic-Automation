@@ -15,7 +15,7 @@ interface Assignment {
   id: string
   candidate_name: string
   scenario_id: string
-  module_type: 'incident' | 'sql' | 'monitoring'
+  module_type: 'incident' | 'sql' | 'monitoring' | 'cognitive'
   question_id: string | null
   created_at: string
   used_at: string | null
@@ -72,7 +72,7 @@ export default function Admin({ onBack }: AdminProps) {
   // Assign tab
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [candidateName, setCandidateName] = useState('')
-  const [moduleType, setModuleType] = useState<'incident' | 'sql' | 'monitoring'>('incident')
+  const [moduleType, setModuleType] = useState<'incident' | 'sql' | 'monitoring' | 'cognitive'>('incident')
   const [scenarioId, setScenarioId] = useState('cache-db-cascade')
   const [selectedQuestionId, setSelectedQuestionId] = useState('')
   const [creating, setCreating] = useState(false)
@@ -176,7 +176,8 @@ export default function Admin({ onBack }: AdminProps) {
         setCandidateName(''); setSelectedQuestionId('')
         const modLabel = moduleType === 'incident' ? SCENARIOS.find(s => s.id === scenarioId)?.name
           : moduleType === 'sql' ? sqlQuestions.find(q => q.id === selectedQuestionId)?.title
-          : monitoringQuestions.find(q => q.id === selectedQuestionId)?.title
+          : moduleType === 'monitoring' ? monitoringQuestions.find(q => q.id === selectedQuestionId)?.title
+          : 'Cognitive Test'
         setCreateSuccess(`✓ Assigned "${candidateName.trim()}" → ${modLabel ?? moduleType}`)
         await loadAssignments()
       }
@@ -251,6 +252,7 @@ export default function Admin({ onBack }: AdminProps) {
   function moduleLabel(mt: string) {
     if (mt === 'sql') return 'SQL'
     if (mt === 'monitoring') return 'MONITORING'
+    if (mt === 'cognitive') return 'COGNITIVE'
     return 'INCIDENT'
   }
 
@@ -311,10 +313,10 @@ export default function Admin({ onBack }: AdminProps) {
                     <div>
                       <label className={labelCls}>Module Type</label>
                       <div className="flex gap-2 flex-wrap">
-                        {(['incident', 'sql', 'monitoring'] as const).map(m => (
+                        {(['incident', 'sql', 'monitoring', 'cognitive'] as const).map(m => (
                           <button key={m} type="button" onClick={() => { setModuleType(m); setSelectedQuestionId('') }}
                             className={`px-4 py-1.5 rounded border text-xs font-bold transition-colors ${moduleType === m ? 'border-[#3fb950] text-[#3fb950] bg-[#0d1117]' : 'border-[#30363d] text-[#8b949e] hover:border-[#484f58]'}`}>
-                            {m === 'incident' ? 'Incident Simulation' : m === 'sql' ? 'SQL Readiness' : 'Monitoring Design'}
+                            {m === 'incident' ? 'Incident Simulation' : m === 'sql' ? 'SQL Readiness' : m === 'monitoring' ? 'Monitoring Design' : 'Cognitive Test'}
                           </button>
                         ))}
                       </div>
@@ -375,6 +377,15 @@ export default function Admin({ onBack }: AdminProps) {
                       </div>
                     )}
 
+                    {moduleType === 'cognitive' && (
+                      <div className="bg-[#0d1117] border border-[#e3b341] rounded p-4">
+                        <div className="text-[#e3b341] font-bold mb-1">Cognitive Assessment</div>
+                        <div className="text-[#8b949e] leading-relaxed">
+                          The candidate will be shown all available cognitive questions (logical reasoning and numerical problems). No specific question selection is needed — the full question bank is used automatically.
+                        </div>
+                      </div>
+                    )}
+
                     {createError && <div className="text-[#f85149]">✗ {createError}</div>}
                     {createSuccess && <div className="text-[#3fb950]">{createSuccess}</div>}
                     <button type="submit" disabled={!candidateName.trim() || creating}
@@ -402,7 +413,7 @@ export default function Admin({ onBack }: AdminProps) {
                           <tr key={a.id} className="border-b border-[#30363d] last:border-0 hover:bg-[#1c2128] transition-colors">
                             <td className="px-4 py-2.5 text-[#e6edf3] font-bold">{a.candidate_name}</td>
                             <td className="px-4 py-2.5">
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${a.module_type === 'sql' ? 'border-[#58a6ff] text-[#58a6ff]' : a.module_type === 'monitoring' ? 'border-[#bc8cff] text-[#bc8cff]' : 'border-[#d29922] text-[#d29922]'}`}>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${a.module_type === 'sql' ? 'border-[#58a6ff] text-[#58a6ff]' : a.module_type === 'monitoring' ? 'border-[#bc8cff] text-[#bc8cff]' : a.module_type === 'cognitive' ? 'border-[#e3b341] text-[#e3b341]' : 'border-[#d29922] text-[#d29922]'}`}>
                                 {moduleLabel(a.module_type ?? 'incident')}
                               </span>
                             </td>

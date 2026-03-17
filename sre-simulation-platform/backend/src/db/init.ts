@@ -136,6 +136,33 @@ export async function initDb(): Promise<void> {
     // Add solution_query column to sql_questions if not present
     await client.query(`ALTER TABLE sql_questions ADD COLUMN IF NOT EXISTS solution_query TEXT NOT NULL DEFAULT ''`)
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS cognitive_questions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        title TEXT NOT NULL,
+        question TEXT NOT NULL,
+        question_type TEXT NOT NULL DEFAULT 'numerical',
+        options JSONB,
+        correct_answer TEXT NOT NULL,
+        explanation TEXT NOT NULL DEFAULT '',
+        difficulty TEXT NOT NULL DEFAULT 'medium',
+        category TEXT NOT NULL DEFAULT 'numerical_reasoning',
+        time_limit_seconds INTEGER NOT NULL DEFAULT 60,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS cognitive_attempts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+        answers JSONB NOT NULL DEFAULT '[]',
+        score INTEGER,
+        rating TEXT,
+        submitted_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+
     await client.query(`CREATE INDEX IF NOT EXISTS idx_event_logs_session ON event_logs(session_id)`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_state_snapshots_session ON state_snapshots(session_id)`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_scorecards_session ON scorecards(session_id)`)

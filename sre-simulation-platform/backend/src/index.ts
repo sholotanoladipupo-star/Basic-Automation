@@ -9,13 +9,23 @@ import { handleConnection } from './orchestrator'
 import { initDb } from './db/init'
 import { pool } from './db/client'
 import { sqlRouter, monitoringRouter } from './routes/modules'
+import { cognitiveRouter } from './routes/cognitive'
 import { runSeed } from './db/seed-questions'
 
 const app = express()
 
+const allowedOrigins = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(',').map(s => s.trim())
+  : null
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
-  credentials: true
+  origin: allowedOrigins
+    ? (origin, cb) => {
+        if (!origin || allowedOrigins.includes(origin)) cb(null, true)
+        else cb(new Error('Not allowed by CORS'))
+      }
+    : '*',
+  credentials: !!allowedOrigins
 }))
 app.use(express.json())
 
@@ -31,6 +41,7 @@ function requireAdmin(req: express.Request, res: express.Response, next: express
 
 app.use('/sql', sqlRouter)
 app.use('/monitoring', monitoringRouter)
+app.use('/cognitive', cognitiveRouter)
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
@@ -67,7 +78,7 @@ app.post('/admin/assignments', requireAdmin, async (req, res) => {
     return
   }
   const mt = module_type ?? 'incident'
-  if (mt !== 'incident' && !question_id) {
+  if (mt !== 'incident' && mt !== 'cognitive' && !question_id) {
     res.status(400).json({ error: 'question_id required for sql/monitoring modules' })
     return
   }

@@ -172,7 +172,9 @@ export function useSimulation(): [SimulationState, SimulationActions] {
           timerRef.current = setInterval(() => setState(prev => ({ ...prev, elapsedSeconds: prev.elapsedSeconds + 1 })), 1000)
           const moduleType = msg.payload.module_type ?? 'incident'
           const info: SessionInfo = {
-            session_id: msg.payload.session_id, scenario_name: msg.payload.scenario_name,
+            session_id: msg.payload.session_id,
+            candidate_name: msg.payload.candidate_name ?? '',
+            scenario_name: msg.payload.scenario_name,
             difficulty: msg.payload.difficulty, time_limit_minutes: msg.payload.time_limit_minutes,
             module_type: moduleType, question_id: msg.payload.question_id ?? null,
             available_runbooks: msg.payload.available_runbooks, available_dashboards: msg.payload.available_dashboards

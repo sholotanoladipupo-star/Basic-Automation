@@ -119,7 +119,7 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
   }
 
   const assignment = assignmentResult.rows[0] as { id: string; scenario_id: string; module_type: string; question_id: string | null }
-  const moduleType = (assignment.module_type ?? 'incident') as 'incident' | 'sql' | 'monitoring'
+  const moduleType = (assignment.module_type ?? 'incident') as 'incident' | 'sql' | 'monitoring' | 'cognitive'
   const questionId = assignment.question_id ?? null
 
   // Mark assignment used
@@ -128,9 +128,11 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
     [assignment.id]
   )
 
-  // SQL / Monitoring modules: create session + send start message, no incident ticker
-  if (moduleType === 'sql' || moduleType === 'monitoring') {
-    const moduleName = moduleType === 'sql' ? 'SQL Readiness Assessment' : 'Monitoring & Observability Design'
+  // SQL / Monitoring / Cognitive modules: create session + send start message, no incident ticker
+  if (moduleType === 'sql' || moduleType === 'monitoring' || moduleType === 'cognitive') {
+    const moduleName = moduleType === 'sql' ? 'SQL Readiness Assessment'
+      : moduleType === 'monitoring' ? 'Monitoring & Observability Design'
+      : 'Cognitive Assessment'
     await pool.query(
       'INSERT INTO sessions (id, candidate_name, scenario_id, scenario_name, status) VALUES ($1, $2, $3, $4, $5)',
       [sessionId, payload.candidate_name, assignment.scenario_id ?? moduleType, moduleName, 'active']
@@ -141,6 +143,7 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
       type: 'session_started',
       payload: {
         session_id: sessionId,
+        candidate_name: payload.candidate_name,
         scenario_name: moduleName,
         difficulty: 'senior',
         time_limit_minutes: 15,
@@ -198,6 +201,7 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
     type: 'session_started',
     payload: {
       session_id: sessionId,
+      candidate_name: payload.candidate_name,
       scenario_name: scenario.name,
       difficulty: scenario.difficulty,
       time_limit_minutes: scenario.time_limit_minutes,
