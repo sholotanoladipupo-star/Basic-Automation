@@ -47,6 +47,17 @@ const STEP_META: Record<string, { icon: string; label: string }> = {
   alert_rule:            { icon: '⚡', label: 'Alert Rules' },
   contact_point:         { icon: '📣', label: 'Contact Points' },
   notification_policy:   { icon: '🔀', label: 'Notification Policies' },
+  metrics:               { icon: '📊', label: 'Key Metrics' },
+  alerting:              { icon: '🔔', label: 'Alerting Strategy' },
+  investigation:         { icon: '🔍', label: 'Investigation Steps' },
+  sli_slo:               { icon: '🎯', label: 'SLI / SLO' },
+  error_budget:          { icon: '⏱', label: 'Error Budget' },
+  alert_fatigue:         { icon: '🧹', label: 'Alert Hygiene' },
+  dashboard:             { icon: '📈', label: 'Dashboard Design' },
+  k8s_metrics:           { icon: '☸', label: 'K8s Metrics' },
+  logging:               { icon: '📋', label: 'Logging Strategy' },
+  tracing:               { icon: '🔗', label: 'Distributed Tracing' },
+  runbook:               { icon: '📖', label: 'Runbook' },
 }
 
 function ratingColor(rating: string) {
@@ -161,6 +172,14 @@ export default function MonitoringSimulation({ sessionInfo }: Props) {
 
   return (
     <div className="min-h-screen bg-[#111217] font-mono text-xs flex flex-col">
+      {/* Submission confirmation banner */}
+      {submitted && (
+        <div className="bg-[#0f2a1a] border-b border-[#3fb950] px-4 py-2.5 flex items-center gap-3 flex-shrink-0">
+          <span className="text-[#3fb950] font-bold">✓ Assessment submitted</span>
+          <span className="text-[#8b949e] text-xs">Your answers have been recorded. Click each step in the sidebar to review your results.</span>
+        </div>
+      )}
+
       {/* Time-up modal */}
       {showTimeUpModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">

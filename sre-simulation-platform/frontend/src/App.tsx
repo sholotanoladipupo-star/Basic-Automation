@@ -16,7 +16,12 @@ export default function App() {
 
   // Simulation screens take over when active
   if (state.screen === 'scorecard') {
-    return <ScoreCardPage scorecard={state.scorecard!} sessionEnded={state.sessionEnded} />
+    if (!state.scorecard) return (
+      <div className="min-h-screen bg-[#0d1117] flex items-center justify-center font-mono text-[#8b949e] text-sm animate-pulse">
+        Loading results…
+      </div>
+    )
+    return <ScoreCardPage scorecard={state.scorecard} sessionEnded={state.sessionEnded} />
   }
   if (state.screen === 'simulation') {
     const moduleType = state.sessionInfo?.module_type ?? 'incident'

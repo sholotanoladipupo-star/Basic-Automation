@@ -71,9 +71,19 @@ sqlRouter.post('/submit', async (req, res) => {
     const qr = await pool.query(`SELECT expected_output, solution_query FROM sql_questions WHERE id = $1`, [question_id])
     if (!qr.rows[0]) { res.status(404).json({ error: 'Question not found' }); return }
 
-    const expected = qr.rows[0].expected_output as { columns: string[]; rows: Record<string, unknown>[] }
     const solutionQuery = (qr.rows[0].solution_query ?? '') as string
-    const result = await executeQuery(query)
+    const storedExpected = qr.rows[0].expected_output as { columns: string[]; rows: Record<string, unknown>[] }
+
+    // Run candidate and solution queries in parallel
+    const [result, solutionResult] = await Promise.all([
+      executeQuery(query),
+      solutionQuery.trim() ? executeQuery(solutionQuery) : Promise.resolve(null)
+    ])
+
+    // Score against live solution result if available, fall back to stored expected_output
+    const expected = (solutionResult && !solutionResult.error)
+      ? { columns: solutionResult.columns, rows: solutionResult.rows }
+      : storedExpected
     const score = scoreQueryResult(result, expected)
     const rating = sqlRating(score)
 

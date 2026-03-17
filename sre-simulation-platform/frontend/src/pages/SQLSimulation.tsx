@@ -170,6 +170,14 @@ export default function SQLSimulation({ sessionInfo }: Props) {
 
   return (
     <div className="min-h-screen bg-[#0d1117] font-mono text-xs flex flex-col">
+      {/* Submission confirmation banner */}
+      {submitted && (
+        <div className="bg-[#0f2a1a] border-b border-[#3fb950] px-4 py-2.5 flex items-center gap-3 flex-shrink-0">
+          <span className="text-[#3fb950] font-bold">✓ Assessment submitted</span>
+          <span className="text-[#8b949e] text-xs">Your answers have been recorded. Review your results below.</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-[#161b22] border-b border-[#30363d] px-4 py-2.5 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">

@@ -344,7 +344,7 @@ Expected columns: \`title\`, \`service\`, \`reported_by\`, \`resolved_by\`, \`ho
 // Scoring uses required_keywords matched against the candidate's answer string.
 
 async function seedMonitoringQuestions(client: PoolClient) {
-  console.log('Seeding monitoring questions (Grafana-style)...')
+  console.log('Seeding monitoring questions (knowledge-based)...')
   await client.query(`DELETE FROM monitoring_questions WHERE title LIKE '[SEED]%'`)
 
   type SubQuestion = {
@@ -367,158 +367,138 @@ async function seedMonitoringQuestions(client: PoolClient) {
 
   const questions: MonitoringQ[] = [
     {
-      title: '[SEED] API Gateway Error Rate Alerting',
+      title: '[SEED] Production Database Observability',
       difficulty: 'medium',
-      time_limit_seconds: 900,
-      scenario: `**Scenario:** You are the SRE on-call for an e-commerce platform. The API gateway has had intermittent spikes in 5xx error rates. The SEV1 threshold is >10% for >2 minutes. Configure Grafana monitoring so the on-call team is paged before users notice.
+      time_limit_seconds: 720,
+      scenario: `Your team manages a production Cloud SQL (PostgreSQL) database on GCP serving the main checkout service. It handles ~5,000 queries/minute with a p99 latency SLO of 200ms. You have been asked to design the full monitoring and alerting strategy for this database.
 
-**Stack:** Prometheus (metrics), Grafana (dashboards + alerts), Alertmanager (routing), Slack (#alerts-prod), PagerDuty (on-call).
-
-**Available Prometheus metrics:**
-- \`http_requests_total{service="api-gateway", status_code="5xx"}\`
-- \`http_requests_total{service="api-gateway"}\`
-- \`http_request_duration_seconds_bucket{service="api-gateway"}\`
-- \`up{job="api-gateway"}\``,
+Your observability stack: Grafana for dashboards and alerting, Slack (#platform-alerts) for team notifications, PagerDuty for on-call escalation.`,
       sub_questions: [
+        {
+          id: 'metrics',
+          type: 'metrics',
+          prompt: 'What are the key metrics you would monitor on this Cloud SQL instance? List them grouped by category: Performance, Availability, Capacity, and Replication.',
+          placeholder: 'Performance:\n- ...\nAvailability:\n- ...\nCapacity:\n- ...\nReplication:\n- ...',
+          required_keywords: ['connections', 'latency', 'cpu', 'disk', 'replication'],
+          bonus_keywords: ['slow queries', 'cache hit', 'deadlock', 'lock', 'vacuum', 'iops'],
+          reference_answer: 'Performance: query latency (p50/p95/p99), queries per second, slow query count, lock wait time, deadlocks per minute.\nAvailability: uptime %, failover events, connection errors.\nCapacity: disk usage %, active connections vs max_connections, CPU utilization %, memory usage.\nReplication: replication lag (seconds), replica status (healthy/lagging/disconnected).',
+        },
         {
           id: 'datasource',
           type: 'datasource',
-          prompt: 'Configure the data source for your Grafana instance. What type of data source would you add for Prometheus metrics, and what is the typical connection URL?',
-          placeholder: 'Type: Prometheus\nURL: http://prometheus:9090',
-          required_keywords: ['prometheus'],
-          bonus_keywords: ['9090', 'server', '15s'],
-          reference_answer: 'Type: Prometheus\nURL: http://prometheus:9090\nAccess: Server (default)\nScrape interval: 15s',
+          prompt: 'Your team uses Grafana and the database runs on GCP Cloud SQL. What Grafana data source(s) would you configure to pull in these metrics? Explain your choice.',
+          placeholder: 'Primary data source: ...\nWhy: ...\nOptional additional source: ...',
+          required_keywords: ['google cloud monitoring', 'cloud monitoring', 'stackdriver', 'gcp'],
+          bonus_keywords: ['prometheus', 'cloud sql exporter', 'service account', 'pg_stat'],
+          reference_answer: 'Primary: Google Cloud Monitoring (formerly Stackdriver) — native GCP data source in Grafana, exposes all Cloud SQL metrics (CPU, disk, connections, replication lag) without extra infrastructure. Configure with a GCP service account JSON key and your project ID.\n\nOptional: Deploy Cloud SQL Proxy + postgres_exporter sidecar, scrape with Prometheus for deeper metrics like pg_stat_statements (query-level latency, top slow queries).',
         },
         {
-          id: 'alert_rule',
-          type: 'alert_rule',
-          prompt: 'Create an alert rule for high API gateway error rate. Write the PromQL expression, set threshold at 10%, and configure a 2-minute pending period.',
-          placeholder: 'rate(http_requests_total{status_code="5xx"}[5m]) / rate(http_requests_total[5m]) > 0.1',
-          required_keywords: ['http_requests_total', 'rate', '5xx'],
-          bonus_keywords: ['0.1', '2m', 'for', 'api-gateway', 'critical'],
-          reference_answer: 'Alert: HighAPIGatewayErrorRate\nExpr: rate(http_requests_total{service="api-gateway",status_code="5xx"}[5m]) / rate(http_requests_total{service="api-gateway"}[5m]) > 0.1\nFor: 2m\nSeverity: critical\nSummary: API gateway error rate above 10%',
+          id: 'alerting',
+          type: 'alerting',
+          prompt: 'Define two alert rules for this database:\n1. Connection saturation (when to page the on-call)\n2. Replication lag (threshold and severity)\n\nFor each: include the threshold, evaluation window, and severity.',
+          placeholder: 'Alert 1 - Connection Saturation:\n  Threshold: ...\n  Window: ...\n  Severity: ...\n\nAlert 2 - Replication Lag:\n  Threshold: ...\n  Window: ...\n  Severity: ...',
+          required_keywords: ['connections', 'threshold', 'replication', 'lag', 'severity'],
+          bonus_keywords: ['80%', '95%', '30 seconds', 'sev1', 'sev2', 'warning', 'critical'],
+          reference_answer: 'Alert 1 — Connection Saturation:\n  Warning: active_connections / max_connections > 80% for 5 min → SEV2 (Slack + ticket)\n  Critical: > 95% for 2 min → SEV1 (PagerDuty page)\n\nAlert 2 — Replication Lag:\n  Warning: replication_lag > 30s for 3 min → SEV2 (Slack)\n  Critical: replication_lag > 120s for 2 min → SEV1 (PagerDuty) — risk of data loss on failover',
         },
         {
-          id: 'contact_point',
-          type: 'contact_point',
-          prompt: 'Configure contact points for the on-call team. Set up a Slack channel for team awareness and PagerDuty for on-call escalation.',
-          placeholder: 'Slack: channel=#alerts-prod, webhook=https://hooks.slack.com/...\nPagerDuty: integration key=<routing-key>',
-          required_keywords: ['slack', 'pagerduty'],
-          bonus_keywords: ['webhook', '#alerts-prod', 'integration key', 'channel'],
-          reference_answer: 'Contact Point 1 - Slack:\n  Channel: #alerts-prod\n  Webhook URL: https://hooks.slack.com/services/...\n\nContact Point 2 - PagerDuty:\n  Integration Key: <your-routing-key>\n  Severity: critical',
-        },
-        {
-          id: 'notification_policy',
-          type: 'notification_policy',
-          prompt: 'Set up the notification routing policy. Critical alerts should go to both Slack and PagerDuty. Configure grouping to avoid alert storms.',
-          placeholder: 'Default: Slack\nRoute: severity=critical -> Slack + PagerDuty\nGroup by: [alertname, service]\nGroup wait: 30s',
-          required_keywords: ['critical', 'slack'],
-          bonus_keywords: ['group_by', 'group_wait', 'pagerduty', 'repeat_interval'],
-          reference_answer: 'Default policy:\n  Contact point: Slack (#alerts-prod)\n  Group by: [alertname, service]\n  Group wait: 30s\n  Repeat interval: 4h\n\nNested route (severity=critical):\n  Contact point: PagerDuty\n  Continue matching: true (also notifies Slack)',
+          id: 'investigation',
+          type: 'investigation',
+          prompt: 'It is 2am and you are paged: p99 query latency has spiked from 50ms to 3 seconds. Walk through your investigation steps in order.',
+          placeholder: 'Step 1: ...\nStep 2: ...\nStep 3: ...',
+          required_keywords: ['connections', 'slow query', 'explain', 'index', 'lock'],
+          bonus_keywords: ['pg_stat_activity', 'pg_stat_statements', 'vacuum', 'autovacuum', 'cpu', 'disk io'],
+          reference_answer: '1. Check active connections (pg_stat_activity) — look for piled-up long-running queries or lock waits.\n2. Identify the slowest queries: SELECT query, wait_event, state, now()-query_start FROM pg_stat_activity WHERE state != \'idle\' ORDER BY query_start;\n3. Run EXPLAIN ANALYZE on the slowest query — look for Seq Scans on large tables (missing index).\n4. Check pg_locks for blocking locks / deadlocks.\n5. Review CPU and disk I/O metrics in Cloud Monitoring — rule out resource exhaustion.\n6. Check if autovacuum is running on a large table (causes lock contention).\n7. If a specific query is the culprit: either terminate it (pg_terminate_backend) or create a covering index.',
         },
       ],
     },
     {
-      title: '[SEED] Cloud Spanner High CPU Alerting (Google Cloud Monitoring)',
+      title: '[SEED] SLOs, Error Budgets & Alert Hygiene',
       difficulty: 'medium',
-      time_limit_seconds: 900,
-      scenario: `**Scenario:** Your team runs a product catalog on Cloud Spanner. A hot key issue drove CPU to 92% and took down the catalog service for 45 minutes before anyone noticed. Set up proactive monitoring.
+      time_limit_seconds: 720,
+      scenario: `Your team is building observability for a new payments API. The product team has agreed on a 99.9% monthly availability SLO. You are designing the SLI/SLO framework and alert strategy.
 
-**Stack:** Google Cloud Monitoring (GCM) as a Grafana data source, Slack #platform-alerts, PagerDuty for on-call.
-
-**Available GCM metrics:**
-- \`spanner.googleapis.com/instance/cpu/utilization\`
-- \`spanner.googleapis.com/instance/query_count\`
-- \`spanner.googleapis.com/instance/storage/used_bytes\`
-- \`spanner.googleapis.com/instance/api/request_latencies\``,
+Context: the team currently receives 200+ alerts per week and on-call engineers have started ignoring pages. Your job is also to fix this alert fatigue problem.`,
       sub_questions: [
         {
-          id: 'datasource',
-          type: 'datasource',
-          prompt: 'Your metrics are in Google Cloud Monitoring (formerly Stackdriver). What Grafana data source type would you configure, and what authentication does it require?',
-          placeholder: 'Type: Google Cloud Monitoring\nAuth: Service Account JSON key\nProject ID: your-gcp-project-id',
-          required_keywords: ['google cloud monitoring', 'cloud monitoring', 'gcm', 'stackdriver'],
-          bonus_keywords: ['service account', 'json', 'oauth', 'project id', 'gcp'],
-          reference_answer: 'Data source type: Google Cloud Monitoring (Stackdriver)\nAuthentication: GCP Service Account JSON key (or Workload Identity on GKE)\nProject ID: your-gcp-project-id',
+          id: 'sli_slo',
+          type: 'sli_slo',
+          prompt: 'Explain the difference between an SLI and an SLO. Give a concrete example for this payments API — what would your SLI be and what SLO would you set?',
+          placeholder: 'SLI definition: ...\nSLO definition: ...\n\nExample for payments API:\nSLI: ...\nSLO: ...',
+          required_keywords: ['sli', 'slo', 'indicator', 'objective'],
+          bonus_keywords: ['error rate', '99.9', 'latency', 'success rate', 'p99', 'measurement window'],
+          reference_answer: 'SLI (Service Level Indicator): the actual metric being measured. It is a ratio or value that describes service behaviour.\nSLO (Service Level Objective): the target value for that SLI that you commit to meeting.\n\nExample:\nSLI: proportion of HTTP requests to /v1/payments that return 2xx within 500ms\nSLO: 99.9% of those requests succeed, measured over a 30-day rolling window\n\nThe SLI is what you measure; the SLO is the threshold you promise.',
         },
         {
-          id: 'alert_rule',
-          type: 'alert_rule',
-          prompt: 'Create an alert rule for Spanner high CPU utilization. The metric is spanner.googleapis.com/instance/cpu/utilization. Alert when CPU exceeds 70% for more than 5 minutes.',
-          placeholder: 'Metric: spanner.googleapis.com/instance/cpu/utilization\nFilter: resource.type="spanner_instance"\nThreshold: > 0.70\nFor: 5m',
-          required_keywords: ['cpu', 'utilization', '70'],
-          bonus_keywords: ['0.7', 'spanner', '5m', 'instance', 'node'],
-          reference_answer: 'Alert: SpannerHighCPU\nMetric: spanner.googleapis.com/instance/cpu/utilization\nFilter: resource.type="spanner_instance"\nThreshold: > 0.70 (70%)\nFor: 5m\nSeverity: warning (>70%) / critical (>85%)\nSummary: Spanner CPU above 70% - check for hot key patterns',
+          id: 'error_budget',
+          type: 'error_budget',
+          prompt: 'With a 99.9% monthly SLO, calculate your error budget in minutes per month. How would you use this budget operationally to balance reliability vs feature velocity?',
+          placeholder: 'Error budget calculation:\n...\n\nOperational use:\n...',
+          required_keywords: ['error budget', 'minutes', '43'],
+          bonus_keywords: ['burn rate', 'freeze', 'deploy', 'velocity', 'reliability', '43.2'],
+          reference_answer: 'Calculation: 99.9% SLO → 0.1% allowed downtime. 30 days = 43,200 min × 0.001 = 43.2 minutes/month error budget.\n\nOperational use:\n- Track burn rate: if you burn the budget in 1 week, something is wrong.\n- Budget healthy → teams can deploy frequently and take reliability risks.\n- Budget < 20% remaining → freeze non-critical deploys, increase testing bar, focus on reliability work.\n- Budget exhausted → full deploy freeze until next month; incident review required.\n- Use burn rate alerts: alert when budget will be exhausted in < 6 hours at current rate.',
         },
         {
-          id: 'contact_point',
-          type: 'contact_point',
-          prompt: 'Configure contact points. The team uses Slack #platform-alerts for warnings. Critical issues also need a PagerDuty page. Optionally add a webhook for runbook automation.',
-          placeholder: 'Slack: #platform-alerts\nPagerDuty: routing key\nWebhook (optional): https://automation.internal/runbooks/spanner',
-          required_keywords: ['slack', 'pagerduty'],
-          bonus_keywords: ['webhook', '#platform-alerts', 'runbook', 'integration key'],
-          reference_answer: 'Contact Point 1 - Slack:\n  Channel: #platform-alerts\n  Include dashboard link: yes\n\nContact Point 2 - PagerDuty:\n  Integration Key: <routing-key>\n  Severity mapping: warning->warning, critical->critical\n\nOptional Webhook: https://automation.internal/runbooks/spanner-high-cpu',
+          id: 'alert_fatigue',
+          type: 'alert_fatigue',
+          prompt: '200+ alerts per week and engineers are ignoring pages. How do you fix alert fatigue? Describe your approach to auditing and improving alert hygiene.',
+          placeholder: 'Step 1: Audit\n...\nStep 2: Triage\n...\nStep 3: Fix\n...',
+          required_keywords: ['actionable', 'runbook', 'severity', 'false positive', 'threshold'],
+          bonus_keywords: ['deduplicate', 'grouping', 'silence', 'inhibition', 'sev1', 'sev2', 'sev3'],
+          reference_answer: '1. Audit: export all alerts + firing frequency. Classify each as actionable (requires human action now) or noise (informational / auto-resolves).\n2. Delete or demote noise: alerts that fired 50+ times with no action taken are not alerts — they are metrics. Move them to dashboards.\n3. Every surviving alert must have a runbook. If you cannot write a runbook for it, it should not exist.\n4. Implement severity tiers: SEV1 = wake someone up (PagerDuty); SEV2 = ticket/Slack during business hours; SEV3 = log only.\n5. Use evaluation windows: no alert on a single-sample spike. Require 5-minute sustained breach.\n6. Group related alerts (Alertmanager group_by) to prevent storm of 20 alerts for one incident.\n7. Weekly alert review meeting: track MTTA, false positive rate, alert volume trend.',
         },
         {
-          id: 'notification_policy',
-          type: 'notification_policy',
-          prompt: 'Define routing: warnings go to Slack only; critical alerts (CPU > 85%) go to Slack and PagerDuty. Explain how you would silence alerts during a planned maintenance window.',
-          placeholder: 'Route warning -> Slack\nRoute critical -> Slack + PagerDuty\nSilence: create Grafana silence covering maintenance window',
-          required_keywords: ['warning', 'critical', 'slack'],
-          bonus_keywords: ['silence', 'maintenance', 'inhibit', 'pagerduty', 'group_by'],
-          reference_answer: 'Route 1 (severity=warning): Slack #platform-alerts, repeat 1h\nRoute 2 (severity=critical): Slack + PagerDuty, repeat 30m until ack\nMaintenance window: Create a Grafana silence or Alertmanager time_intervals block',
+          id: 'dashboard',
+          type: 'dashboard',
+          prompt: 'You are building a Grafana dashboard for the payments API. What panels would you include? What is the "Four Golden Signals" framework and how does it apply here?',
+          placeholder: 'Four Golden Signals:\n1. ...\n2. ...\n3. ...\n4. ...\n\nDashboard panels:\n...',
+          required_keywords: ['latency', 'traffic', 'errors', 'saturation', 'golden signals'],
+          bonus_keywords: ['p99', 'p95', 'rate', 'histogram', 'error rate', 'requests per second'],
+          reference_answer: 'Four Golden Signals (Google SRE Book):\n1. Latency — time to serve a request. Show p50/p95/p99 as time series. Separate successful vs failed latency.\n2. Traffic — requests per second hitting the system. Shows load and usage patterns.\n3. Errors — rate of failed requests (5xx, timeouts, explicit failures).\n4. Saturation — how full the service is (CPU %, memory %, connection pool usage, queue depth).\n\nDashboard panels for payments API:\n- Request rate + error rate (dual axis)\n- p99/p95/p50 latency time series\n- Error rate % with SLO burn line\n- Saturation: DB connection pool %, CPU\n- SLO compliance panel (30-day burn rate)\n- Active alert list',
         },
       ],
     },
     {
-      title: '[SEED] Kubernetes Pod CrashLoopBackOff Detection',
+      title: '[SEED] Kubernetes & Cloud-Native Observability',
       difficulty: 'hard',
       time_limit_seconds: 900,
-      scenario: `**Scenario:** A service pod entered CrashLoopBackOff and went undetected for 20 minutes because there was no alert. Build monitoring to catch pods in degraded states within 2 minutes.
-
-**Stack:** Prometheus + kube-state-metrics, Grafana, Alertmanager, Slack.
-
-**Available metrics:**
-- \`kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"}\`
-- \`kube_pod_container_status_restarts_total\`
-- \`kube_pod_status_phase{phase="Failed"}\`
-- \`kube_deployment_status_replicas_unavailable\``,
+      scenario: `Your company runs a microservices application on GKE (Google Kubernetes Engine) with 15 services across 3 environments (dev/staging/prod). The platform team needs to build a scalable observability strategy covering metrics, logging, tracing, and runbook practices.`,
       sub_questions: [
         {
-          id: 'datasource',
-          type: 'datasource',
-          prompt: 'kube-state-metrics exposes Kubernetes object metrics scraped by Prometheus. What data source would you configure in Grafana, and what namespace does kube-state-metrics typically run in?',
-          placeholder: 'Type: Prometheus\nURL: http://prometheus-server.monitoring.svc.cluster.local\nkube-state-metrics runs in: kube-system',
-          required_keywords: ['prometheus'],
-          bonus_keywords: ['kube-state-metrics', 'kube-system', 'monitoring', 'scrape'],
-          reference_answer: 'Data source: Prometheus\nURL: http://prometheus-server.monitoring.svc.cluster.local\nkube-state-metrics namespace: kube-system\nScrape interval: 15s',
+          id: 'k8s_metrics',
+          type: 'k8s_metrics',
+          prompt: 'What are the critical Kubernetes-level metrics you would monitor? Categorise them by: Cluster, Node, Pod, and Container level. Name the metric sources you would use.',
+          placeholder: 'Cluster level:\n...\nNode level:\n...\nPod level:\n...\nContainer level:\n...\nMetric sources:\n...',
+          required_keywords: ['cpu', 'memory', 'pod', 'node', 'restart'],
+          bonus_keywords: ['OOMKill', 'eviction', 'pending', 'kube-state-metrics', 'cAdvisor', 'node_exporter', 'PVC'],
+          reference_answer: 'Cluster: node count, unschedulable nodes, API server latency/error rate.\nNode: CPU/memory/disk utilization %, pod count vs capacity, network throughput.\nPod: restart count (CrashLoopBackOff signal), pending pods (scheduling issues), ready ratio per deployment.\nContainer: CPU throttling %, memory usage vs limit, OOMKill events.\n\nSources:\n- kube-state-metrics: Kubernetes object state (pod phase, deployment replicas, node conditions)\n- cAdvisor / metrics-server: container resource usage (CPU/memory)\n- node_exporter: host-level metrics (disk I/O, network, filesystem)',
         },
         {
-          id: 'alert_rule',
-          type: 'alert_rule',
-          prompt: 'Write two alert rules: (1) Alert when any pod is in CrashLoopBackOff for > 2 minutes. (2) Alert when a deployment has unavailable replicas for > 5 minutes.',
-          placeholder: 'Alert 1: kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1, for: 2m\nAlert 2: kube_deployment_status_replicas_unavailable > 0, for: 5m',
-          required_keywords: ['kube_pod_container_status_waiting_reason', 'CrashLoopBackOff'],
-          bonus_keywords: ['kube_deployment_status_replicas_unavailable', '5m', '2m', 'for'],
-          reference_answer: 'Alert 1 - CrashLoopBackOff:\n  expr: kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1\n  for: 2m, severity: critical\n\nAlert 2 - Unavailable replicas:\n  expr: kube_deployment_status_replicas_unavailable > 0\n  for: 5m, severity: warning',
+          id: 'logging',
+          type: 'logging',
+          prompt: 'How would you approach centralized logging for 15 services on GKE? What should you log, and what should you NOT log? How do you handle log correlation across services?',
+          placeholder: 'Log architecture:\n...\nWhat to log:\n...\nWhat NOT to log:\n...\nCorrelation:\n...',
+          required_keywords: ['structured', 'log level', 'correlation', 'request id', 'context'],
+          bonus_keywords: ['json', 'trace id', 'sampling', 'PII', 'retention', 'cloud logging', 'fluent bit'],
+          reference_answer: 'Architecture: On GKE, use Cloud Logging (Stackdriver) via the Fluent Bit DaemonSet — already built in, no extra setup. All stdout/stderr is captured automatically.\n\nLog format: structured JSON with: timestamp, service, level, request_id, trace_id, user_id (hash, not raw), duration_ms, status_code, error message.\n\nWhat to log: key business events (payment initiated, payment succeeded/failed), errors with full context, slow operations > 500ms, auth events.\n\nWhat NOT to log: passwords, tokens, full request/response bodies, PII (card numbers, SSNs), high-cardinality debug noise in prod.\n\nCorrelation: propagate a trace_id/request_id header (X-Request-ID) across all service calls. Log it at every hop. Use Cloud Trace or OpenTelemetry for full distributed tracing.\n\nRetention: 30 days hot in Cloud Logging, export to GCS for 1-year cold storage.',
         },
         {
-          id: 'contact_point',
-          type: 'contact_point',
-          prompt: 'Configure a Slack contact point for the platform team. Template the message to include the pod name, namespace, and a link to logs.',
-          placeholder: 'Type: Slack\nChannel: #platform-alerts\nTitle template: [{{ .Status }}] {{ .CommonLabels.alertname }}\nBody: Pod: {{ .CommonLabels.pod }} in {{ .CommonLabels.namespace }}',
-          required_keywords: ['slack'],
-          bonus_keywords: ['template', 'namespace', 'pod', 'annotations', 'channel', '#platform'],
-          reference_answer: 'Contact Point - Slack:\n  Channel: #platform-alerts\n  Title: [{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}\n  Body: Pod: {{ .CommonLabels.pod }}\n  Namespace: {{ .CommonLabels.namespace }}\n  Summary: {{ .CommonAnnotations.summary }}',
+          id: 'tracing',
+          type: 'tracing',
+          prompt: 'When would you use distributed tracing vs logs vs metrics? Give a concrete scenario for each where it is the right tool to reach for.',
+          placeholder: 'Use metrics when: ...\nUse logs when: ...\nUse tracing when: ...',
+          required_keywords: ['tracing', 'metrics', 'logs', 'latency', 'distributed'],
+          bonus_keywords: ['opentelemetry', 'span', 'sampling', 'alert', 'debug', 'root cause'],
+          reference_answer: 'Metrics — use for: detecting that something is wrong (aggregate signals). Best for: alerting, dashboards, capacity planning. Example: your error rate alert fires because 5xx rate jumped to 8%. Metrics told you something broke.\n\nLogs — use for: understanding what happened in detail for a specific request or error. Best for: post-incident debugging, audit trails. Example: a customer reports their payment failed at 14:32. You search logs by request_id to see exactly what error occurred and where.\n\nTracing — use for: diagnosing latency across multiple services. Best for: "which service is slow and why?" Example: p99 spiked to 3s. Traces show the checkout service is spending 2.8s waiting on product-catalog. Logs on product-catalog show a DB timeout. Tracing pointed you to the right service immediately.',
         },
         {
-          id: 'notification_policy',
-          type: 'notification_policy',
-          prompt: 'Route alerts so that CrashLoopBackOff in the "prod" namespace pages the on-call engineer immediately, but the same alert in "staging" only posts to Slack.',
-          placeholder: 'Route: namespace=prod -> PagerDuty + Slack (group_wait: 0s)\nRoute: namespace=staging -> Slack only (group_wait: 5m)',
-          required_keywords: ['prod', 'staging', 'namespace'],
-          bonus_keywords: ['pagerduty', 'match', 'label', 'continue'],
-          reference_answer: 'Route 1 (namespace=prod, alertname=PodCrashLoopBackOff):\n  -> PagerDuty + Slack #platform-alerts\n  group_wait: 0s, repeat_interval: 30m\n\nRoute 2 (namespace=staging):\n  -> Slack #platform-staging-alerts only\n  group_wait: 5m, repeat_interval: 2h',
+          id: 'runbook',
+          type: 'runbook',
+          prompt: 'Write a concise runbook for: "checkout-service pods are in CrashLoopBackOff". What are the diagnostic steps an on-call engineer should follow?',
+          placeholder: 'Alert: checkout-service CrashLoopBackOff\n\nStep 1: ...\nStep 2: ...\nStep 3: ...',
+          required_keywords: ['kubectl', 'logs', 'describe', 'restart', 'rollback'],
+          bonus_keywords: ['kubectl get pods', 'kubectl describe pod', 'previous', 'configmap', 'secret', 'rollout undo'],
+          reference_answer: 'Alert: checkout-service pods in CrashLoopBackOff\n\n1. kubectl get pods -n prod -l app=checkout-service\n   → Confirm pods in CrashLoopBackOff, note restart count and age.\n\n2. kubectl describe pod <pod-name> -n prod\n   → Check Events section: OOMKill? Image pull error? Config error?\n\n3. kubectl logs <pod-name> -n prod --previous\n   → Get logs from the last crashed container (before restart).\n\n4. Check recent changes:\n   kubectl rollout history deployment/checkout-service -n prod\n   → Was there a recent deploy?\n\n5. If bad deploy: kubectl rollout undo deployment/checkout-service -n prod\n\n6. If config issue: kubectl describe configmap checkout-config -n prod\n   → Check for missing/wrong environment variables or secrets.\n\n7. If OOMKill: increase memory limits in the deployment spec and re-deploy.',
         },
       ],
     },
