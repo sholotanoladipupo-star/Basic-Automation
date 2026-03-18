@@ -278,9 +278,6 @@ export default function Admin({ onBack }: AdminProps) {
               {authError && <div className="text-[#f85149]">✗ {authError}</div>}
               <button type="submit" className="w-full bg-[#238636] hover:bg-[#2ea043] text-white font-bold py-2 rounded border border-[#2ea043] transition-colors">Sign In</button>
             </form>
-            <div className="text-[#484f58] mt-3 text-center">
-              Default key: <code className="text-[#8b949e]">sre-admin-2024</code>
-            </div>
           </div>
         ) : (
           <div className="space-y-5">
