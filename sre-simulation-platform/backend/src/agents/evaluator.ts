@@ -1,4 +1,7 @@
+import Anthropic from '@anthropic-ai/sdk'
 import { SessionEvent, ScenarioTemplate, Scorecard } from '../types'
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export async function runEvaluator(
   sessionId: string,
@@ -7,7 +10,108 @@ export async function runEvaluator(
   eventLog: SessionEvent[],
   durationMinutes: number
 ): Promise<Scorecard> {
-  return scoreLocally(sessionId, candidateName, scenario, eventLog, durationMinutes)
+  const base = scoreLocally(sessionId, candidateName, scenario, eventLog, durationMinutes)
+  try {
+    return await enhanceWithAI(base, candidateName, scenario, eventLog, durationMinutes)
+  } catch (err) {
+    console.error('AI evaluation failed, using deterministic scorecard:', err)
+    return base
+  }
+}
+
+async function enhanceWithAI(
+  base: Scorecard,
+  candidateName: string,
+  scenario: ScenarioTemplate,
+  events: SessionEvent[],
+  durationMinutes: number
+): Promise<Scorecard> {
+  const ofType = (t: string) => events.filter(e => e.type === t)
+
+  const commands = ofType('command_run').map(e => String((e.payload as Record<string, unknown>).cmd ?? ''))
+  const slacks = ofType('slack_sent').map(e => ({
+    channel: String((e.payload as Record<string, unknown>).channel ?? ''),
+    message: String((e.payload as Record<string, unknown>).message ?? '')
+  }))
+  const dashboards = ofType('dashboard_viewed').map(e => String((e.payload as Record<string, unknown>).dashboard_id ?? ''))
+  const logs = ofType('logs_queried').map(e => String((e.payload as Record<string, unknown>).service ?? ''))
+  const runbooks = ofType('runbook_called').map(e => String((e.payload as Record<string, unknown>).id ?? ''))
+  const escalations = ofType('escalation_triggered').map(e => String((e.payload as Record<string, unknown>).to ?? ''))
+  const severityEvent = ofType('severity_declared')[0]
+  const resolved = ofType('incident_resolved').length > 0
+
+  const eventSummary = [
+    `Commands run (${commands.length}): ${commands.join(', ') || 'none'}`,
+    `Slack messages (${slacks.length}): ${slacks.map(s => `[${s.channel}] ${s.message}`).join(' | ') || 'none'}`,
+    `Dashboards viewed (${dashboards.length}): ${dashboards.join(', ') || 'none'}`,
+    `Log queries (${logs.length}): ${logs.join(', ') || 'none'}`,
+    `Runbooks used (${runbooks.length}): ${runbooks.join(', ') || 'none'}`,
+    `Escalations (${escalations.length}): ${escalations.join(', ') || 'none'}`,
+    severityEvent
+      ? `Severity declared: ${String((severityEvent.payload as Record<string, unknown>).severity ?? '')} at ${String((severityEvent.payload as Record<string, unknown>).minutes_elapsed ?? '?')} minutes`
+      : 'No severity declared',
+    `Incident resolved: ${resolved ? `Yes, in ${durationMinutes} minutes` : 'No — time limit reached'}`,
+    `Overall score: ${base.overall_score}/100`
+  ].join('\n')
+
+  const prompt = `You are an expert SRE assessor writing a post-incident evaluation for a candidate's technical assessment.
+
+Scenario: ${scenario.name}
+Description: ${scenario.description}
+Expected root cause: ${scenario.expected_root_cause}
+Expected resolution steps: ${scenario.expected_resolution_steps.join('; ')}
+
+Candidate: ${candidateName}
+Session duration: ${durationMinutes} minutes (limit: ${scenario.time_limit_minutes} minutes)
+
+What the candidate did:
+${eventSummary}
+
+Deterministic dimension scores:
+- Coordination: ${base.dimensions.coordination.score}/100
+- Resolution: ${base.dimensions.resolution.score}/100
+- Technical Depth: ${base.dimensions.technical_depth.score}/100
+- Observability: ${base.dimensions.observability.score}/100
+
+Write a JSON response with this exact structure:
+{
+  "coordination_notes": "2-3 sentences of specific, honest feedback on their coordination and communication actions",
+  "resolution_notes": "2-3 sentences on whether they found the root cause and executed the right fix",
+  "technical_depth_notes": "2-3 sentences on the quality and breadth of their technical investigation",
+  "observability_notes": "2-3 sentences on how well they used dashboards, logs, and monitoring signals",
+  "postmortem": "A 150-200 word postmortem narrative covering: what the scenario was, what the candidate did well, what they missed, and one key takeaway for their SRE growth. Be direct and specific — reference actual commands or actions they took or didn't take."
+}
+
+Be honest and specific. Reference actual commands and actions. Do not be generic.`
+
+  const response = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 1024,
+    messages: [{ role: 'user', content: prompt }]
+  })
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  const jsonMatch = text.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error('No JSON in AI response')
+
+  const ai = JSON.parse(jsonMatch[0]) as {
+    coordination_notes: string
+    resolution_notes: string
+    technical_depth_notes: string
+    observability_notes: string
+    postmortem: string
+  }
+
+  return {
+    ...base,
+    dimensions: {
+      coordination: { score: base.dimensions.coordination.score, notes: ai.coordination_notes },
+      resolution: { score: base.dimensions.resolution.score, notes: ai.resolution_notes },
+      technical_depth: { score: base.dimensions.technical_depth.score, notes: ai.technical_depth_notes },
+      observability: { score: base.dimensions.observability.score, notes: ai.observability_notes }
+    },
+    postmortem: ai.postmortem
+  }
 }
 
 // ─── Deterministic scoring — baselines start at 0, every point must be earned ─
@@ -210,7 +314,7 @@ function buildResolutionNotes(redisCmds: number, remediated: boolean, resolved: 
   return parts.join(' ')
 }
 
-function buildTechnicalNotes(kubectl: number, redis: number, runbooks: number, total: number, remediated: boolean): string {
+function buildTechnicalNotes(kubectl: number, redis: number, runbooks: number, total: number, _remediated: boolean): string {
   const parts: string[] = []
   if (kubectl >= 3) parts.push('Strong kubectl usage — pods, events, and logs were checked systematically.')
   else if (kubectl >= 1) parts.push(`${kubectl} kubectl command(s) run. Checking pods, events (-n cache), and logs is the baseline investigation.`)
