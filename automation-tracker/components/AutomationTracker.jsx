@@ -62,6 +62,20 @@ const isoToday = () => new Date().toISOString().slice(0,10);
 const avg      = arr => { const s=(arr||[]).filter(c=>c.score>0); return s.length?(s.reduce((a,c)=>a+c.score,0)/s.length).toFixed(1):null; };
 const scColor  = v => v===null?"#9ca3af":v>=4?"#16a34a":v>=3?"#1d4ed8":v>=2?"#f59e0b":"#dc2626";
 
+// Mirror of the same calc used in manual-tasks-tracker
+function calcWeeklyHours(task) {
+  const rate = task.occurrenceRate;
+  const time = Number(task.execTimeMins);
+  if (!rate || !time || isNaN(time) || time <= 0) return null;
+  if (rate === "On Request") return "Variable";
+  const rateNum = parseInt(rate);
+  const freq = task.frequency;
+  if (freq === "Daily")   return +(rateNum * time * 5 / 60).toFixed(2);
+  if (freq === "Weekly")  return +(rateNum * time / 60).toFixed(2);
+  if (freq === "Monthly") return +(rateNum * time / 60 / 4.33).toFixed(2);
+  return `~${+(rateNum * time / 60).toFixed(1)} hr/occ`;
+}
+
 function inferType(name, types) {
   const n=name.toLowerCase();
   if (n.includes("playbook")&&(n.includes("db")||n.includes("aptent")||n.includes("card bin")||n.includes("bank")||n.includes("interchange")||n.includes("tid")||n.includes("terminal")||n.includes("ptsp")||n.includes("nibss")||n.includes("isw"))) return types.find(t=>t.name==="DB Operational Playbook")?.name||types[0]?.name||"";
@@ -583,8 +597,9 @@ async function apiSet(key, value) {
 
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 export default function AutomationTracker() {
-  const [lookups,    setLookups]   = useState({types:DEFAULT_TYPES,teams:DEFAULT_TEAMS,statuses:DEFAULT_STATUSES,impacts:DEFAULT_IMPACTS});
-  const [items,      setItems]     = useState([]);
+  const [lookups,      setLookups]      = useState({types:DEFAULT_TYPES,teams:DEFAULT_TEAMS,statuses:DEFAULT_STATUSES,impacts:DEFAULT_IMPACTS});
+  const [items,        setItems]        = useState([]);
+  const [manualTasks,  setManualTasks]  = useState([]);
   const [loaded,     setLoaded]    = useState(false);
   const [expanded,   setExpanded]  = useState(null);
   const [tabMap,     setTabMap]    = useState({});
@@ -639,11 +654,13 @@ export default function AutomationTracker() {
   useEffect(()=>{
     (async()=>{
       try {
-        const [lkData, itData, jbData] = await Promise.all([
+        const [lkData, itData, jbData, mtData] = await Promise.all([
           apiGet("auto-lookups"),
           apiGet("auto-v5"),
           apiGet("auto-jira"),
+          apiGet("mt-items-v1"),
         ]);
+        if (Array.isArray(mtData)) setManualTasks(mtData);
         const fl = lkData || {types:DEFAULT_TYPES,teams:DEFAULT_TEAMS,statuses:DEFAULT_STATUSES,impacts:DEFAULT_IMPACTS};
         if (lkData) setLookups(lkData);
         if (itData) setItems(itData);
@@ -721,6 +738,24 @@ export default function AutomationTracker() {
   },[items,filterStatus,filterTeam,filterImpact,filterType,filterAssignee,search,sortBy]);
 
   const stats={total:items.length,done:items.filter(i=>i.status==="Done").length,active:items.filter(i=>!["Done","Backlog"].includes(i.status)).length,backlog:items.filter(i=>i.status==="Backlog").length,high:items.filter(i=>i.impact==="High").length};
+
+  // Hours freed up: for each manual task, attribute weekly hours proportional to how many of its linked automations are Done
+  const hoursFreed = useMemo(()=>{
+    if (!manualTasks.length) return null;
+    let totalNumeric = 0, freedNumeric = 0, hasData = false;
+    manualTasks.forEach(task=>{
+      const wh = calcWeeklyHours(task);
+      if (typeof wh !== "number") return;
+      hasData = true;
+      totalNumeric += wh;
+      const linked = task.linkedAutomations || [];
+      if (!linked.length) return;
+      const doneCount = linked.filter(id=>items.find(i=>i.id===id&&i.status==="Done")).length;
+      freedNumeric += wh * (doneCount / linked.length);
+    });
+    if (!hasData) return null;
+    return { freed:+freedNumeric.toFixed(1), total:+totalNumeric.toFixed(1), pct:totalNumeric>0?Math.round(freedNumeric/totalNumeric*100):0 };
+  },[items, manualTasks]);
   const hasFilter=filterStatus!=="All"||filterTeam!=="All"||filterImpact!=="All"||filterType!=="All"||filterAssignee!=="All"||search;
   const allFilteredSelected=filtered.length>0&&filtered.every(i=>selected.has(i.id));
   const getTab=id=>tabMap[id]||"Details";
@@ -800,6 +835,16 @@ export default function AutomationTracker() {
           <Stat label="In Flight" value={stats.active} color="#7c3aed"/>
           <Stat label="Backlog" value={stats.backlog} color="#6b7280"/>
           <Stat label="High Impact" value={stats.high} color="#dc2626"/>
+          {/* Hours freed up by completed automations */}
+          <div style={{background:"white",border:"1.5px solid #e5e7eb",borderRadius:10,padding:"13px 17px",flex:1,minWidth:120,borderTop:"3px solid #0369a1"}}>
+            <div style={{fontSize:25,fontWeight:800,color:"#0369a1",lineHeight:1}}>
+              {hoursFreed ? `${hoursFreed.freed}` : "—"}
+            </div>
+            <div style={{fontSize:11,color:"#6b7280",marginTop:4,fontWeight:500}}>Hrs/Wk Freed Up</div>
+            {hoursFreed
+              ? <div style={{fontSize:10,color:"#0369a1",marginTop:2,fontWeight:600}}>{hoursFreed.pct}% of {hoursFreed.total} tracked hrs</div>
+              : <div style={{fontSize:10,color:"#9ca3af",marginTop:2}}>Add effort data in Manual Register</div>}
+          </div>
         </div>
 
         {/* FILTERS */}

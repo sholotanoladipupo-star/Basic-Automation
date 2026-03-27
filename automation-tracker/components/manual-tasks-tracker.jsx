@@ -45,11 +45,14 @@ const COLOR_PRESETS = [
   { color:"#b45309", bg:"#fef3c7", border:"#fde68a" },
 ];
 
-// ── SEED MANUAL TASKS (from voice note) ──────────────────────────────────────
+const OCCURRENCE_RATE_OPTIONS = ["1×/day","2×/day","3×/day","4×/day","5×/day","On Request"];
+
+// ── SEED MANUAL TASKS ──────────────────────────────────────────────────────────
 const SEED_TASKS = [
   {
     id:"MT-001", task:"Routing Config Switching",
     category:"Routing & Config", frequency:"Daily", effort:"High", status:"Partially Automated",
+    occurrenceRate:"2×/day", execTimeMins:20, occurrenceNotes:"",
     whyManual:"No automated detection of processor degradation — engineer must notice failure and manually toggle routes.",
     whatHappens:"When a processor degrades, SRE manually identifies the failing route, turns it off or switches it to a backup config. Requires direct system access and judgment under pressure.",
     riskIfMissed:"Continued routing to degraded processor causes transaction failures for customers.",
@@ -59,6 +62,7 @@ const SEED_TASKS = [
   {
     id:"MT-002", task:"Requeue Pending Business Settlements",
     category:"Settlement Operations", frequency:"Daily", effort:"Medium", status:"Fully Manual",
+    occurrenceRate:"2×/day", execTimeMins:25, occurrenceNotes:"",
     whyManual:"No automatic detection or retry of stuck settlements. Engineer must log into Back Office portal and manually trigger requeue.",
     whatHappens:"Business owner transactions get stuck on 'Pending'. SRE logs into the Back Office web portal, identifies stuck records, and clicks Requeue. Transactions that have fixable issues process; others remain and need further investigation.",
     riskIfMissed:"Merchants not credited for transactions. Complaints and financial impact.",
@@ -68,6 +72,7 @@ const SEED_TASKS = [
   {
     id:"MT-003", task:"Manual Escalation to Processors",
     category:"Incident & Escalation", frequency:"Daily", effort:"High", status:"Fully Manual",
+    occurrenceRate:"1×/day", execTimeMins:45, occurrenceNotes:"Triggered per active incident; can spike to 3–4×/day during major outages.",
     whyManual:"No automated sample collection or escalation pipeline. SRE manually spools transaction samples and formats them for processor escalation.",
     whatHappens:"When a processor is failing and interchange is turned off, SRE manually queries transaction logs to gather failing samples, compiles an escalation email or ticket, and sends to the processor's support team. This delays resolution and occupies engineer time during active incidents.",
     riskIfMissed:"Delayed resolution of processor issues. Prolonged customer-facing transaction failures.",
@@ -77,6 +82,7 @@ const SEED_TASKS = [
   {
     id:"MT-004", task:"Update / Insert Dispute & Refund Records",
     category:"Dispute Operations", frequency:"Per Request", effort:"Medium", status:"Partially Automated",
+    occurrenceRate:"On Request", execTimeMins:30, occurrenceNotes:"Comes in batches from Disputes team — can be several times a week or not at all for 2–3 weeks.",
     whyManual:"No automated workflow for dispute record corrections. SRE cooks up SQL to update status of stopped disputes or insert corrective refund records.",
     whatHappens:"Disputes team requests status updates on stopped disputes (e.g. pending → failed). SRE writes and executes SQL UPDATE queries on dispute tables. Separately, wrong Settlement Report UIDs require detection and SQL-based correction.",
     riskIfMissed:"Incorrect dispute records. Reconciliation failures. Merchant over/under payments.",
@@ -86,6 +92,7 @@ const SEED_TASKS = [
   {
     id:"MT-005", task:"Upload Terminal IDs for Swapping",
     category:"Terminal Management", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
+    occurrenceRate:"On Request", execTimeMins:40, occurrenceNotes:"Happens before scheduled hardware swap events — may not occur for months then arrive as large batches.",
     whyManual:"No self-service terminal upload tool. SRE manually writes INSERT SQL queries to add terminal records before hardware swap events.",
     whatHappens:"SRE receives a list of terminal IDs to be swapped. They cook up an INSERT query for the terminals table, inserting each record manually. An automated downstream process then picks them up. The insert step itself depends on DB access and manual query writing.",
     riskIfMissed:"Terminals not registered in time for swap. Hardware swap event fails or is delayed.",
@@ -95,6 +102,7 @@ const SEED_TASKS = [
   {
     id:"MT-006", task:"Clear / Update ISW PTSA TID Mapping",
     category:"DB Operations", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
+    occurrenceRate:"On Request", execTimeMins:20, occurrenceNotes:"",
     whyManual:"No tooling for TID mapping management. SRE manually writes UPDATE SQL to set source_terminal_id = NULL so fresh TIDs become available for Interswitch transaction mapping.",
     whatHappens:"For every transaction to Interswitch, the system needs to translate the logical terminal ID (on physical device) to a mapped TID stored on the isw_ptsa_tid table. When new terminals start transacting to Interswitch for the first time, TIDs must be made available. SRE sets source_terminal_id = NULL on the relevant records.",
     riskIfMissed:"New terminals cannot transact to Interswitch. TID translation fails causing transaction rejections.",
@@ -104,6 +112,7 @@ const SEED_TASKS = [
   {
     id:"MT-007", task:"Reset Terminals for NIBSS Key Download",
     category:"Terminal Management", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
+    occurrenceRate:"On Request", execTimeMins:15, occurrenceNotes:"",
     whyManual:"No playbook or tooling. SRE writes SQL to reset terminal key download state by setting card_acceptor_id_state = NULL on the destination interchange status table.",
     whatHappens:"Terminals get stuck waiting for NIBSS key download. SRE identifies the affected terminal IDs, writes UPDATE SQL targeting destination_interchange_status table, sets card_acceptor_id_state = NULL for the specific terminal. This resets the state so the key download can be re-attempted.",
     riskIfMissed:"Terminals remain stuck. POS endpoint transaction failures until manually resolved.",
@@ -113,6 +122,7 @@ const SEED_TASKS = [
   {
     id:"MT-008", task:"Insert into Destination Interchange Keys Table",
     category:"DB Operations", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
+    occurrenceRate:"On Request", execTimeMins:15, occurrenceNotes:"",
     whyManual:"No tooling for interchange key record creation. SRE manually writes INSERT SQL with terminal_id and destination_interchange_id values.",
     whatHappens:"When adding new terminals to an interchange, SRE needs to insert records into the destination interchange keys table. This is a simple two-value INSERT (terminal_id, destination_interchange_id) but requires direct DB access, writing the query manually, and coordinating with the DBA team for access.",
     riskIfMissed:"New terminals cannot be mapped to destination interchange. Transactions fail to route.",
@@ -122,6 +132,7 @@ const SEED_TASKS = [
   {
     id:"MT-009", task:"Update Interchange Specific Data",
     category:"DB Operations", frequency:"Per Request", effort:"High", status:"Fully Manual",
+    occurrenceRate:"On Request", execTimeMins:60, occurrenceNotes:"Rare but high-stakes — incorrect config breaks all transactions for that interchange.",
     whyManual:"Interchange-specific data is stored as JSON in the interchange_config table. Values are scattered and easily misconfigured. SRE must manually cook up an UPDATE query for the correct interchange ID.",
     whatHappens:"When onboarding or reconfiguring an interchange, SRE executes: UPDATE interchange_config SET interchange_specific_data = '{...json...}' WHERE id = <interchange_id>. The JSON structure is complex, varies per interchange, and has no validation. A single mistake can break all transactions for that interchange.",
     riskIfMissed:"Wrong interchange config causes widespread transaction failures for affected processor.",
@@ -131,6 +142,7 @@ const SEED_TASKS = [
   {
     id:"MT-010", task:"Create New Banks on Aptent DB",
     category:"DB Operations", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
+    occurrenceRate:"On Request", execTimeMins:45, occurrenceNotes:"",
     whyManual:"No self-service bank onboarding tool. SRE manually writes INSERT queries for all required bank configuration records across multiple tables.",
     whatHappens:"When onboarding a new bank, SRE writes INSERT SQL across the Aptent DB bank tables, creating all required records in the correct dependency order. Missing a step or inserting with wrong values causes configuration gaps that block transactions for that bank.",
     riskIfMissed:"Incomplete bank configuration causes transaction failures for that bank's cards/channels.",
@@ -140,6 +152,7 @@ const SEED_TASKS = [
   {
     id:"MT-011", task:"Create Card BIN Records on Aptent DB",
     category:"DB Operations", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
+    occurrenceRate:"On Request", execTimeMins:30, occurrenceNotes:"",
     whyManual:"No BIN management tool. SRE manually writes INSERT SQL for new BIN ranges. Format errors or duplicate inserts cause transaction routing failures.",
     whatHappens:"When a new card BIN range needs to be registered, SRE writes INSERT SQL targeting the card_bin table on Aptent DB. The insert requires specific formatting and must pass validation. Errors here cause all cards in that BIN range to fail at the routing step.",
     riskIfMissed:"Cards in the new BIN range fail to transact until the correct record is inserted.",
@@ -149,6 +162,7 @@ const SEED_TASKS = [
   {
     id:"MT-012", task:"Reset Settlement Status",
     category:"Settlement Operations", frequency:"Per Request", effort:"High", status:"Fully Manual",
+    occurrenceRate:"On Request", execTimeMins:35, occurrenceNotes:"Happens intermittently — can go weeks without occurring, or hit multiple times in one day during settlement issues.",
     whyManual:"No tooling for settlement status correction. SRE writes and runs SQL UPDATE under time pressure, risking broader data corruption if wrong records are updated.",
     whatHappens:"A settlement batch shows processor status = 'Completed' but the downstream business or DNS settlement was never actually created. SRE manually writes UPDATE SQL to reset the stuck status so the system re-attempts settlement creation. Requires identifying the exact affected records and correct status values.",
     riskIfMissed:"Merchants not paid. Settlement batch remains stuck indefinitely.",
@@ -158,6 +172,7 @@ const SEED_TASKS = [
   {
     id:"MT-013", task:"Move Terminals Between PTSP Key Configs",
     category:"Terminal Management", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
+    occurrenceRate:"On Request", execTimeMins:25, occurrenceNotes:"",
     whyManual:"No migration tooling. SRE manually writes UPDATE SQL to change PTSP key config IDs for a batch of terminals.",
     whatHappens:"When terminal routing or key configuration changes, SRE writes UPDATE SQL to change the ptsp_key_config_id column for the affected terminal records. Errors cause terminals to use the wrong encryption keys, breaking transactions.",
     riskIfMissed:"Terminals transact with wrong key config causing encryption failures and declined transactions.",
@@ -167,6 +182,7 @@ const SEED_TASKS = [
   {
     id:"MT-014", task:"CS Downtime Communication",
     category:"Communication", frequency:"Per Incident", effort:"Medium", status:"Partially Automated",
+    occurrenceRate:"1×/day", execTimeMins:20, occurrenceNotes:"Per incident — during major outages this can happen multiple times across the day.",
     whyManual:"Communication to CS when there is a processor downtime or trading bank issue is still largely manual — composing messages, identifying affected parties, and notifying the right channels.",
     whatHappens:"When a processor goes down or a trading bank is fully offline, SRE needs to notify Customer Support teams so they can communicate to merchants and manage inbound complaints. This involves identifying the scope, drafting a notification, and sending to the right Slack channels or email lists.",
     riskIfMissed:"CS not aware of outage. Merchants and customers get inconsistent or delayed responses.",
@@ -176,6 +192,7 @@ const SEED_TASKS = [
   {
     id:"MT-015", task:"Port Management (Add / Delete / Resync)",
     category:"Port & Network", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
+    occurrenceRate:"On Request", execTimeMins:30, occurrenceNotes:"Irregular — may not happen for months, then arrive as a batch of port changes for a new processor onboarding.",
     whyManual:"Port additions, deletions, and resyncs require manual Nginx / proxy server configuration changes. No change management tool exists — errors can misconfigure ports silently.",
     whatHappens:"When a processor requests a new port or an existing port needs to be deleted or resynced, SRE manually edits the Nginx / proxy configuration files, applies the change, and verifies the port is active. Mistakes can delete wrong ports or introduce silent misconfigurations.",
     riskIfMissed:"Wrong port config causes routing failures for affected processor. Misconfigured ports may not be caught until transactions fail.",
@@ -205,17 +222,47 @@ function deriveTaskStatus(task, initMap) {
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
-const uid     = () => Math.random().toString(36).slice(2,8);
-const newMTId = () => "MT-" + String(Math.floor(Math.random()*900)+100);
-const today   = () => new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
-const isoToday= () => new Date().toISOString().slice(0,10);
+const uid      = () => Math.random().toString(36).slice(2,8);
+const newMTId  = () => "MT-" + String(Math.floor(Math.random()*900)+100);
+const today    = () => new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
+const isoToday = () => new Date().toISOString().slice(0,10);
+
+// Calculate estimated weekly hours for a task
+function calcWeeklyHours(task) {
+  const rate = task.occurrenceRate;
+  const time = Number(task.execTimeMins);
+  if (!rate || !time || isNaN(time) || time <= 0) return null;
+  if (rate === "On Request") return "Variable";
+  const rateNum = parseInt(rate); // extracts 1,2,3,4,5 from "N×/day"
+  const freq = task.frequency;
+  if (freq === "Daily")        return +(rateNum * time * 5 / 60).toFixed(2);
+  if (freq === "Weekly")       return +(rateNum * time / 60).toFixed(2);
+  if (freq === "Monthly")      return +(rateNum * time / 60 / 4.33).toFixed(2);
+  // Per Incident / Per Request — show per-occurrence cost
+  return `~${+(rateNum * time / 60).toFixed(1)} hr/occ`;
+}
+
+function fmtHrs(val) {
+  if (val === null || val === undefined) return "—";
+  if (val === "Variable") return <span style={{fontSize:10,color:"#92400e",fontWeight:600}}>Variable</span>;
+  if (typeof val === "string") return <span style={{fontSize:10,color:"#6b7280"}}>{val}</span>;
+  return <span style={{fontWeight:700,color:"#1d4ed8"}}>{val} <span style={{fontSize:10,fontWeight:400,color:"#6b7280"}}>hrs</span></span>;
+}
 
 function exportCSV(items) {
-  const esc = v=>`"${String(v||"").replace(/"/g,'""')}"`;
-  const hdr = ["ID","Task","Category","Frequency","Effort","Status","Why Manual","What Happens","Risk If Missed","Linked Automations","Notes"];
-  const rows = items.map(i=>[i.id,i.task,i.category,i.frequency,i.effort,i.status,i.whyManual,i.whatHappens,i.riskIfMissed,(i.linkedAutomations||[]).join("; "),i.notes].map(esc).join(","));
-  const csv  = [hdr.map(esc).join(","),...rows].join("\n");
-  const blob = new Blob([csv],{type:"text/csv"});
+  const esc = v => `"${String(v||"").replace(/"/g,'""')}"`;
+  const hdr = ["ID","Task","Category","Frequency","Effort","Status","Occurrence Rate","Exec Time (min)","Weekly Hrs Est.","Why Manual","What Happens","Risk If Missed","Linked Automations","Notes"];
+  const rows = items.map(i => {
+    const wh = calcWeeklyHours(i);
+    const whStr = wh === null ? "" : wh === "Variable" ? "Variable" : String(wh);
+    return [i.id, i.task, i.category, i.frequency, i.effort, i.status,
+      i.occurrenceRate||"", i.execTimeMins||"", whStr,
+      i.whyManual, i.whatHappens, i.riskIfMissed,
+      (i.linkedAutomations||[]).join("; "), i.notes
+    ].map(esc).join(",");
+  });
+  const csv  = [hdr.map(esc).join(","), ...rows].join("\n");
+  const blob = new Blob([csv], {type:"text/csv"});
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
   a.href=url; a.download=`manual-tasks-${isoToday()}.csv`; a.click(); URL.revokeObjectURL(url);
@@ -225,8 +272,46 @@ function exportCSV(items) {
 function Badge({ text, color, bg, border, small }) {
   return <span style={{display:"inline-flex",alignItems:"center",padding:small?"2px 8px":"3px 10px",borderRadius:20,fontSize:small?10:11,fontWeight:600,background:bg||"#f3f4f6",color:color||"#374151",border:`1px solid ${border||"#e5e7eb"}`,whiteSpace:"nowrap",lineHeight:1.5}}>{text}</span>;
 }
-function Stat({ label, value, color, note }) {
-  return <div style={{background:"white",border:"1.5px solid #e5e7eb",borderRadius:10,padding:"13px 17px",flex:1,minWidth:88,borderTop:`3px solid ${color}`}}><div style={{fontSize:25,fontWeight:800,color,lineHeight:1}}>{value}</div><div style={{fontSize:11,color:"#6b7280",marginTop:4,fontWeight:500}}>{label}</div>{note&&<div style={{fontSize:10,color,marginTop:2,fontWeight:600}}>{note}</div>}</div>;
+function Stat({ label, value, color, note, sub }) {
+  return (
+    <div style={{background:"white",border:"1.5px solid #e5e7eb",borderRadius:10,padding:"13px 17px",flex:1,minWidth:100,borderTop:`3px solid ${color}`}}>
+      <div style={{fontSize:25,fontWeight:800,color,lineHeight:1}}>{value}</div>
+      <div style={{fontSize:11,color:"#6b7280",marginTop:4,fontWeight:500}}>{label}</div>
+      {note&&<div style={{fontSize:10,color,marginTop:2,fontWeight:600}}>{note}</div>}
+      {sub&&<div style={{fontSize:10,color:"#9ca3af",marginTop:2}}>{sub}</div>}
+    </div>
+  );
+}
+
+// ── FIELD (extracted outside EditModal to prevent remounting on keystroke) ────
+function Field({ label, k, type="input", opts, placeholder, f, onChange }) {
+  const baseInput = {
+    border:"1.5px solid #e5e7eb", borderRadius:8, padding:"9px 12px",
+    fontSize:13, fontFamily:"'DM Sans',sans-serif", color:"#111827", outline:"none",
+  };
+  const handleFocus = e => { e.target.style.borderColor = "#3b82f6"; };
+  const handleBlur  = e => { e.target.style.borderColor = "#e5e7eb"; };
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:5}}>
+      <label style={{fontSize:11,fontWeight:700,color:"#374151"}}>{label}</label>
+      {type==="textarea"
+        ? <textarea value={f[k]||""} onChange={e=>onChange(k,e.target.value)} rows={3} placeholder={placeholder||""}
+            style={{...baseInput,resize:"vertical",lineHeight:1.55}}
+            onFocus={handleFocus} onBlur={handleBlur}/>
+        : type==="select"
+        ? <select value={f[k]||""} onChange={e=>onChange(k,e.target.value)}
+            style={{...baseInput,background:"white",cursor:"pointer"}}>
+            {opts.map(o=><option key={o}>{o}</option>)}
+          </select>
+        : type==="number"
+        ? <input type="number" min={0} value={f[k]||""} onChange={e=>onChange(k,e.target.value===""?"":Number(e.target.value))}
+            placeholder={placeholder||""} style={baseInput}
+            onFocus={handleFocus} onBlur={handleBlur}/>
+        : <input value={f[k]||""} onChange={e=>onChange(k,e.target.value)} placeholder={placeholder||""}
+            style={baseInput} onFocus={handleFocus} onBlur={handleBlur}/>
+      }
+    </div>
+  );
 }
 
 // ── MANAGE MODAL ──────────────────────────────────────────────────────────────
@@ -287,22 +372,18 @@ function ManageModal({ onClose, lookups, setLookups }) {
 
 // ── EDIT MODAL ────────────────────────────────────────────────────────────────
 function EditModal({ item, onSave, onClose, lookups, jiraBase }) {
-  const blank = { id:newMTId(), task:"", category:lookups.categories[0]?.name||"", frequency:lookups.frequencies[0]?.name||"", effort:lookups.efforts[0]?.name||"", status:"Fully Manual", whyManual:"", whatHappens:"", riskIfMissed:"", linkedAutomations:[], notes:"" };
-  const [f,setF] = useState(item?{...item, linkedAutomations:[...(item.linkedAutomations||[])]}:blank);
-  const [carInput,setCarInput] = useState("");
-  const set=(k,v)=>setF(p=>({...p,[k]:v}));
-  const addCAR=()=>{const c=carInput.trim().toUpperCase();if(!c||f.linkedAutomations.includes(c))return;set("linkedAutomations",[...f.linkedAutomations,c]);setCarInput("");};
-  const removeCAR=c=>set("linkedAutomations",f.linkedAutomations.filter(x=>x!==c));
-  const isNew=!item;
-
-  const Field=({label,k,type="input",opts,placeholder})=>(
-    <div style={{display:"flex",flexDirection:"column",gap:5}}>
-      <label style={{fontSize:11,fontWeight:700,color:"#374151"}}>{label}</label>
-      {type==="textarea"?<textarea value={f[k]||""} onChange={e=>set(k,e.target.value)} rows={3} placeholder={placeholder||""} style={{border:"1.5px solid #e5e7eb",borderRadius:8,padding:"9px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#111827",resize:"vertical",outline:"none",lineHeight:1.55}} onFocus={e=>e.target.style.borderColor="#3b82f6"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>
-      :type==="select"?<select value={f[k]||""} onChange={e=>set(k,e.target.value)} style={{border:"1.5px solid #e5e7eb",borderRadius:8,padding:"9px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#111827",outline:"none",background:"white",cursor:"pointer"}}>{opts.map(o=><option key={o}>{o}</option>)}</select>
-      :<input value={f[k]||""} onChange={e=>set(k,e.target.value)} placeholder={placeholder||""} style={{border:"1.5px solid #e5e7eb",borderRadius:8,padding:"9px 12px",fontSize:13,fontFamily:"'DM Sans',sans-serif",color:"#111827",outline:"none"}} onFocus={e=>e.target.style.borderColor="#3b82f6"} onBlur={e=>e.target.style.borderColor="#e5e7eb"}/>}
-    </div>
-  );
+  const blank = {
+    id:newMTId(), task:"", category:lookups.categories[0]?.name||"", frequency:lookups.frequencies[0]?.name||"",
+    effort:lookups.efforts[0]?.name||"", status:"Fully Manual",
+    occurrenceRate:"", execTimeMins:"", occurrenceNotes:"",
+    whyManual:"", whatHappens:"", riskIfMissed:"", linkedAutomations:[], notes:"",
+  };
+  const [f, setF] = useState(item ? {...item, linkedAutomations:[...(item.linkedAutomations||[])]} : blank);
+  const [carInput, setCarInput] = useState("");
+  const set = (k, v) => setF(p => ({...p, [k]:v}));
+  const addCAR = () => { const c=carInput.trim().toUpperCase(); if(!c||f.linkedAutomations.includes(c))return; set("linkedAutomations",[...f.linkedAutomations,c]); setCarInput(""); };
+  const removeCAR = c => set("linkedAutomations", f.linkedAutomations.filter(x=>x!==c));
+  const isNew = !item;
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20,backdropFilter:"blur(3px)"}}>
@@ -312,19 +393,42 @@ function EditModal({ item, onSave, onClose, lookups, jiraBase }) {
           <button onClick={onClose} style={{background:"#f1f5f9",border:"none",borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:18,color:"#6b7280",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
         </div>
         <div style={{padding:"18px 24px",display:"flex",flexDirection:"column",gap:14}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}><Field label="Task ID" k="id"/><Field label="Task Name" k="task"/></div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
-            <Field label="Category" k="category" type="select" opts={lookups.categories.map(c=>c.name)}/>
-            <Field label="Frequency" k="frequency" type="select" opts={lookups.frequencies.map(f=>f.name)}/>
-            <Field label="Effort / Risk" k="effort" type="select" opts={lookups.efforts.map(e=>e.name)}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Field label="Task ID" k="id" f={f} onChange={set}/>
+            <Field label="Task Name" k="task" f={f} onChange={set}/>
           </div>
-          <Field label="Automation Status" k="status" type="select" opts={lookups.statuses.map(s=>s.name)}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+            <Field label="Category" k="category" type="select" opts={lookups.categories.map(c=>c.name)} f={f} onChange={set}/>
+            <Field label="Frequency" k="frequency" type="select" opts={lookups.frequencies.map(f=>f.name)} f={f} onChange={set}/>
+            <Field label="Effort / Risk" k="effort" type="select" opts={lookups.efforts.map(e=>e.name)} f={f} onChange={set}/>
+          </div>
+          <Field label="Automation Status" k="status" type="select" opts={lookups.statuses.map(s=>s.name)} f={f} onChange={set}/>
+
+          {/* Occurrence Rate & Exec Time */}
+          <div style={{background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:10,padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#0369a1"}}>⏱ EFFORT METRICS</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <Field label="Occurrence Rate (per frequency period)" k="occurrenceRate" type="select"
+                opts={["", ...OCCURRENCE_RATE_OPTIONS]} f={f} onChange={set}/>
+              <Field label="Time to Execute Manually (minutes)" k="execTimeMins" type="number"
+                placeholder="e.g. 30" f={f} onChange={set}/>
+            </div>
+            <Field label="Occurrence Notes (optional — describe variability or context)" k="occurrenceNotes"
+              type="textarea" placeholder="e.g. Can happen 3–4× during major incidents, otherwise once a day. Unpredictable during settlement windows." f={f} onChange={set}/>
+            {/* Live preview of weekly hours */}
+            {f.occurrenceRate && f.execTimeMins ? (
+              <div style={{background:"white",border:"1px solid #bae6fd",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#0369a1"}}>
+                <strong>Estimated weekly hours: </strong>
+                {(()=>{ const wh=calcWeeklyHours(f); if(wh===null)return "—"; if(wh==="Variable")return "Variable (On Request)"; if(typeof wh==="string")return wh; return `${wh} hrs/week`; })()}
+              </div>
+            ) : null}
+          </div>
 
           <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:10,padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
             <div style={{fontSize:11,fontWeight:700,color:"#991b1b"}}>📋 TASK DETAILS</div>
-            <Field label="Why is this manual today?" k="whyManual" type="textarea" placeholder="What's missing that forces someone to do this by hand?"/>
-            <Field label="What exactly happens? (step by step)" k="whatHappens" type="textarea" placeholder="Describe the manual steps, systems touched, and who does it."/>
-            <Field label="Risk if missed or done incorrectly?" k="riskIfMissed" type="textarea" placeholder="What breaks if this isn't done, or is done wrong?"/>
+            <Field label="Why is this manual today?" k="whyManual" type="textarea" placeholder="What's missing that forces someone to do this by hand?" f={f} onChange={set}/>
+            <Field label="What exactly happens? (step by step)" k="whatHappens" type="textarea" placeholder="Describe the manual steps, systems touched, and who does it." f={f} onChange={set}/>
+            <Field label="Risk if missed or done incorrectly?" k="riskIfMissed" type="textarea" placeholder="What breaks if this isn't done, or is done wrong?" f={f} onChange={set}/>
           </div>
 
           {/* Linked automations */}
@@ -346,7 +450,7 @@ function EditModal({ item, onSave, onClose, lookups, jiraBase }) {
             </div>
           </div>
 
-          <Field label="Notes" k="notes" type="textarea" placeholder="Any additional context, workarounds, or future plans…"/>
+          <Field label="Notes" k="notes" type="textarea" placeholder="Any additional context, workarounds, or future plans…" f={f} onChange={set}/>
 
           <div style={{display:"flex",gap:10,justifyContent:"flex-end",paddingTop:2}}>
             <button onClick={onClose} style={{padding:"9px 20px",borderRadius:8,border:"1.5px solid #e5e7eb",background:"white",color:"#6b7280",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancel</button>
@@ -360,9 +464,21 @@ function EditModal({ item, onSave, onClose, lookups, jiraBase }) {
 
 // ── EXPANDED DETAIL ───────────────────────────────────────────────────────────
 function ExpandedDetail({ item, jiraBase, lookups }) {
-  const getCat = name=>lookups.categories.find(c=>c.name===name)||{color:"#374151",bg:"#f3f4f6",border:"#e5e7eb"};
+  const wh = calcWeeklyHours(item);
   return (
     <div style={{borderTop:"1px solid #e5e7eb",background:"#f8fafc",padding:"16px 20px",display:"flex",flexDirection:"column",gap:14}}>
+      {/* Effort metrics summary */}
+      {(item.occurrenceRate || item.execTimeMins) && (
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          {item.occurrenceRate&&<span style={{fontSize:11,background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:7,padding:"3px 10px",color:"#1d4ed8",fontWeight:600}}>⏱ Rate: {item.occurrenceRate}</span>}
+          {item.execTimeMins&&<span style={{fontSize:11,background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:7,padding:"3px 10px",color:"#1d4ed8",fontWeight:600}}>🕐 Exec: {item.execTimeMins} min/occ</span>}
+          {wh!==null&&<span style={{fontSize:11,background:wh==="Variable"?"#fffbeb":"#f0fdf4",border:`1px solid ${wh==="Variable"?"#fde68a":"#bbf7d0"}`,borderRadius:7,padding:"3px 10px",color:wh==="Variable"?"#92400e":"#16a34a",fontWeight:600}}>
+            📅 ~{wh==="Variable"?"Variable":typeof wh==="string"?wh:`${wh} hrs`}/week
+          </span>}
+          {item.occurrenceNotes&&<span style={{fontSize:11,color:"#6b7280",fontStyle:"italic",padding:"3px 0"}}>ℹ {item.occurrenceNotes}</span>}
+        </div>
+      )}
+
       {/* Three columns */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
         {[["🔧 Why Manual",item.whyManual,"#f59e0b"],["📋 What Happens",item.whatHappens,"#3b82f6"],["⚠️ Risk If Missed",item.riskIfMissed,"#ef4444"]].map(([lbl,val,clr])=>(
@@ -389,7 +505,7 @@ function ExpandedDetail({ item, jiraBase, lookups }) {
       )}
       {(item.linkedAutomations||[]).length===0&&(
         <div style={{background:"#fef9c3",border:"1.5px solid #fde68a",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#92400e"}}>
-          ⚠️ No automation initiative linked yet — this task is not covered by any planned automation. Consider adding it to the initiatives tracker.
+          ⚠️ No automation initiative linked yet — this task is not covered by any planned automation.
         </div>
       )}
 
@@ -414,27 +530,27 @@ async function apiSet(key, value) {
 
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 export default function ManualTasksTracker() {
-  const [lookups,  setLookups]  = useState({categories:DEFAULT_CATEGORIES,frequencies:DEFAULT_FREQUENCIES,statuses:DEFAULT_STATUSES,efforts:DEFAULT_EFFORTS});
-  const [items,    setItems]    = useState([]);
-  const [loaded,   setLoaded]   = useState(false);
-  const [expanded, setExpanded] = useState(null);
-  const [editing,  setEditing]  = useState(null);
-  const [manageOpen,setManageOpen]=useState(false);
+  const [lookups,   setLookups]   = useState({categories:DEFAULT_CATEGORIES,frequencies:DEFAULT_FREQUENCIES,statuses:DEFAULT_STATUSES,efforts:DEFAULT_EFFORTS});
+  const [items,     setItems]     = useState([]);
+  const [loaded,    setLoaded]    = useState(false);
+  const [expanded,  setExpanded]  = useState(null);
+  const [editing,   setEditing]   = useState(null);
+  const [manageOpen,setManageOpen]= useState(false);
   const [editMode,  setEditMode]  = useState(false);
   const [pinModal,  setPinModal]  = useState(false);
   const [pinInput,  setPinInput]  = useState("");
   const [pinError,  setPinError]  = useState("");
-  const [jiraBase, setJiraBase] = useState("https://your-org.atlassian.net/browse");
-  const [saveMsg,  setSaveMsg]  = useState("");
-  const [selected, setSelected] = useState(new Set());
-  const [bulkStatus,setBulkStatus]=useState("");
-  const [filterCat,    setFilterCat]    = useState("All");
-  const [filterFreq,   setFilterFreq]   = useState("All");
-  const [filterStatus, setFilterStatus] = useState("All");
-  const [filterEffort, setFilterEffort] = useState("All");
-  const [filterLinked, setFilterLinked] = useState("All"); // "All" | "linked" | "unlinked"
-  const [search,   setSearch]   = useState("");
-  const [sortBy,   setSortBy]   = useState("id");
+  const [jiraBase,  setJiraBase]  = useState("https://your-org.atlassian.net/browse");
+  const [saveMsg,   setSaveMsg]   = useState("");
+  const [selected,  setSelected]  = useState(new Set());
+  const [bulkStatus,setBulkStatus]= useState("");
+  const [filterCat,     setFilterCat]     = useState("All");
+  const [filterFreq,    setFilterFreq]    = useState("All");
+  const [filterStatus,  setFilterStatus]  = useState("All");
+  const [filterEffort,  setFilterEffort]  = useState("All");
+  const [filterLinked,  setFilterLinked]  = useState("All");
+  const [search,    setSearch]    = useState("");
+  const [sortBy,    setSortBy]    = useState("id");
 
   useEffect(()=>{
     (async()=>{
@@ -447,16 +563,12 @@ export default function ManualTasksTracker() {
         ]);
         if(lk) setLookups(lk);
         let tasks = it || SEED_TASKS;
-        // Auto-upgrade task statuses based on linked initiative progress
         if (Array.isArray(initiatives) && initiatives.length) {
           const initMap = Object.fromEntries(initiatives.map(i=>[i.id, i]));
           const synced  = tasks.map(t => ({ ...t, status: deriveTaskStatus(t, initMap) }));
           const changed = synced.some((u, i) => u.status !== tasks[i]?.status);
           tasks = synced;
-          // Persist silently if anything changed (only when loaded from DB)
-          if (changed && it) {
-            try { await apiSet("mt-items-v1", tasks); } catch {}
-          }
+          if (changed && it) { try { await apiSet("mt-items-v1", tasks); } catch {} }
         }
         setItems(tasks);
         if(jb) setJiraBase(jb);
@@ -473,18 +585,18 @@ export default function ManualTasksTracker() {
   };
   const lockEdit = () => { sessionStorage.removeItem("editMode"); setEditMode(false); };
 
-  const persistItems  = async next=>{ setItems(next); try{ await apiSet("mt-items-v1",next); setSaveMsg("Saved ✓"); setTimeout(()=>setSaveMsg(""),2000); }catch{ setSaveMsg("⚠ Save failed"); }};
-  const persistLookups= async next=>{ setLookups(next); try{ await apiSet("mt-lookups",next); }catch{}};
-  const saveItem  = form=>{ persistItems(items.findIndex(i=>i.id===form.id)>=0?items.map(i=>i.id===form.id?form:i):[...items,form]); setEditing(null); };
-  const deleteItem= id=>{ if(window.confirm("Delete this task?")) persistItems(items.filter(i=>i.id!==id)); setSelected(s=>{const ns=new Set(s);ns.delete(id);return ns;}); };
-  const applyBulk = ()=>{ if(!bulkStatus)return; persistItems(items.map(i=>selected.has(i.id)?{...i,status:bulkStatus}:i)); setSelected(new Set()); setBulkStatus(""); };
+  const persistItems   = async next=>{ setItems(next); try{ await apiSet("mt-items-v1",next); setSaveMsg("Saved ✓"); setTimeout(()=>setSaveMsg(""),2000); }catch{ setSaveMsg("⚠ Save failed"); }};
+  const persistLookups = async next=>{ setLookups(next); try{ await apiSet("mt-lookups",next); }catch{}};
+  const saveItem   = form=>{ persistItems(items.findIndex(i=>i.id===form.id)>=0?items.map(i=>i.id===form.id?form:i):[...items,form]); setEditing(null); };
+  const deleteItem = id=>{ if(window.confirm("Delete this task?")) persistItems(items.filter(i=>i.id!==id)); setSelected(s=>{const ns=new Set(s);ns.delete(id);return ns;}); };
+  const applyBulk  = ()=>{ if(!bulkStatus)return; persistItems(items.map(i=>selected.has(i.id)?{...i,status:bulkStatus}:i)); setSelected(new Set()); setBulkStatus(""); };
 
-  const getCat   = name=>lookups.categories.find(c=>c.name===name)||{color:"#374151",bg:"#f3f4f6",border:"#e5e7eb"};
-  const getFreq  = name=>lookups.frequencies.find(f=>f.name===name)||{color:"#374151",bg:"#f9fafb",border:"#e5e7eb"};
-  const getStatus= name=>lookups.statuses.find(s=>s.name===name)||{color:"#374151",bg:"#f9fafb",border:"#e5e7eb"};
-  const getEffort= name=>lookups.efforts.find(e=>e.name===name)||{color:"#374151",bg:"#f9fafb",border:"#e5e7eb"};
+  const getCat    = name=>lookups.categories.find(c=>c.name===name)||{color:"#374151",bg:"#f3f4f6",border:"#e5e7eb"};
+  const getFreq   = name=>lookups.frequencies.find(f=>f.name===name)||{color:"#374151",bg:"#f9fafb",border:"#e5e7eb"};
+  const getStatus = name=>lookups.statuses.find(s=>s.name===name)||{color:"#374151",bg:"#f9fafb",border:"#e5e7eb"};
+  const getEffort = name=>lookups.efforts.find(e=>e.name===name)||{color:"#374151",bg:"#f9fafb",border:"#e5e7eb"};
 
-  const filtered=useMemo(()=>{
+  const filtered = useMemo(()=>{
     let r=[...items];
     if(filterCat!=="All")    r=r.filter(i=>i.category===filterCat);
     if(filterFreq!=="All")   r=r.filter(i=>i.frequency===filterFreq);
@@ -497,34 +609,59 @@ export default function ManualTasksTracker() {
     return r;
   },[items,filterCat,filterFreq,filterStatus,filterEffort,filterLinked,search,sortBy]);
 
-  const stats = {
-    total:   items.length,
-    manual:  items.filter(i=>i.status==="Fully Manual").length,
-    partial: items.filter(i=>i.status==="Partially Automated").length,
-    automated: items.filter(i=>i.status==="Automated").length,
-    unlinked:items.filter(i=>(i.linkedAutomations||[]).length===0).length,
-    highEffort:items.filter(i=>i.effort==="High").length,
-  };
-  const hasFilter=filterCat!=="All"||filterFreq!=="All"||filterStatus!=="All"||filterEffort!=="All"||filterLinked!=="All"||search;
-  const allSel=filtered.length>0&&filtered.every(i=>selected.has(i.id));
+  // ── STATS ────────────────────────────────────────────────────────────────
+  const stats = useMemo(()=>{
+    const total     = items.length;
+    const manual    = items.filter(i=>i.status==="Fully Manual").length;
+    const partial   = items.filter(i=>i.status==="Partially Automated").length;
+    const automated = items.filter(i=>i.status==="Automated").length;
+    const unlinked  = items.filter(i=>(i.linkedAutomations||[]).length===0).length;
+    const highEffort= items.filter(i=>i.effort==="High").length;
+    const pctManual = total ? Math.round((manual+partial)/total*100) : 0;
 
-  // Auto-sized column widths based on data content
-  const mtGridCols = useMemo(() => {
-    const ch = 7.5;
-    const badge = s => (s || "").length * ch + 24;
-    const text  = s => (s || "").length * ch + 16;
-    const maxLinked = items.reduce((m, i) => Math.max(m, (i.linkedAutomations||[]).length * 62), 60);
+    // Calculate total weekly hours (only numeric values)
+    let totalWklyHrs = 0;
+    let wklyHrsCount = 0;
+    items.forEach(i=>{
+      const wh = calcWeeklyHours(i);
+      if(typeof wh === "number") { totalWklyHrs += wh; wklyHrsCount++; }
+    });
+
+    // Automation "mode"
+    let mode, modeColor;
+    if (total === 0)                    { mode="No Tasks";          modeColor="#9ca3af"; }
+    else if (automated/total >= 0.7)    { mode="Mostly Automated";  modeColor="#16a34a"; }
+    else if ((automated+partial)/total >= 0.5) { mode="Partially Automated"; modeColor="#f59e0b"; }
+    else if (manual/total >= 0.7)       { mode="Mostly Manual";     modeColor="#dc2626"; }
+    else                                { mode="Mixed Coverage";    modeColor="#7c3aed"; }
+
+    return { total, manual, partial, automated, unlinked, highEffort, pctManual, totalWklyHrs, wklyHrsCount, mode, modeColor };
+  },[items]);
+
+  const hasFilter = filterCat!=="All"||filterFreq!=="All"||filterStatus!=="All"||filterEffort!=="All"||filterLinked!=="All"||search;
+  const allSel    = filtered.length>0&&filtered.every(i=>selected.has(i.id));
+
+  // ── TABLE COLUMN WIDTHS ──────────────────────────────────────────────────
+  const mtGridCols = useMemo(()=>{
+    const ch=7.5;
+    const badge=s=>(s||"").length*ch+24;
+    const text=s=>(s||"").length*ch+16;
+    const maxLinked=items.reduce((m,i)=>Math.max(m,(i.linkedAutomations||[]).length*62),60);
     return [
-      36,
-      72,
-      Math.max(150, ...items.map(i => text(i.task) + badge(i.effort) + 10)),
-      Math.max(90,  ...items.map(i => badge(i.category))),
-      Math.max(80,  ...items.map(i => badge(i.frequency))),
-      Math.max(80,  ...items.map(i => badge(i.status))),
-      Math.max(120, maxLinked),
-      80,
-    ].map(w => w + "px").join(" ");
-  }, [items]);
+      36,                                                           // checkbox
+      72,                                                           // ID
+      Math.max(150,...items.map(i=>text(i.task))),                  // task (no effort badge)
+      Math.max(90, ...items.map(i=>badge(i.category))),             // category
+      Math.max(80, ...items.map(i=>badge(i.frequency))),            // frequency
+      Math.max(70, ...items.map(i=>badge(i.effort))),               // effort (own column)
+      Math.max(80, ...items.map(i=>badge(i.status))),               // status
+      96,                                                           // occurrence rate
+      86,                                                           // exec time (min)
+      88,                                                           // weekly hrs
+      Math.max(120,maxLinked),                                      // linked
+      80,                                                           // actions
+    ].map(w=>w+"px").join(" ");
+  },[items]);
 
   if(!loaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",fontFamily:"'DM Sans',sans-serif",color:"#6b7280",fontSize:14}}>Loading…</div>;
 
@@ -551,8 +688,7 @@ export default function ManualTasksTracker() {
             <div style={{fontSize:18,fontWeight:800,color:"#111827",marginBottom:4}}>🔐 Editor Access</div>
             <div style={{fontSize:13,color:"#6b7280",marginBottom:18}}>Enter your PIN to enable editing.</div>
             <input autoFocus type="password" value={pinInput} onChange={e=>{setPinInput(e.target.value);setPinError("");}}
-              onKeyDown={e=>e.key==="Enter"&&unlockEdit()}
-              placeholder="Enter PIN…"
+              onKeyDown={e=>e.key==="Enter"&&unlockEdit()} placeholder="Enter PIN…"
               style={{width:"100%",border:`1.5px solid ${pinError?"#fca5a5":"#e5e7eb"}`,borderRadius:8,padding:"10px 13px",fontSize:14,outline:"none",marginBottom:8,boxSizing:"border-box"}}/>
             {pinError&&<div style={{fontSize:12,color:"#dc2626",marginBottom:10}}>{pinError}</div>}
             <div style={{display:"flex",gap:8,marginTop:4}}>
@@ -588,14 +724,38 @@ export default function ManualTasksTracker() {
 
       <div style={{maxWidth:1440,margin:"0 auto",padding:"20px 28px 48px"}}>
 
-        {/* STATS */}
+        {/* ── STATS ── */}
         <div style={{display:"flex",gap:10,marginBottom:18,flexWrap:"wrap"}}>
+          {/* Total */}
           <Stat label="Total Tasks" value={stats.total} color="#374151"/>
-          <Stat label="Fully Manual" value={stats.manual} color="#dc2626" note={`${Math.round(stats.manual/stats.total*100)}%`}/>
-          <Stat label="Partial Automation" value={stats.partial} color="#f59e0b"/>
-          <Stat label="Automated" value={stats.automated} color="#16a34a"/>
-          <Stat label="No Automation Linked" value={stats.unlinked} color="#7c3aed" note="gap"/>
-          <Stat label="High Effort/Risk" value={stats.highEffort} color="#991b1b"/>
+
+          {/* % Manual Records with mode badge */}
+          <div style={{background:"white",border:"1.5px solid #e5e7eb",borderRadius:10,padding:"13px 17px",flex:1,minWidth:130,borderTop:`3px solid ${stats.modeColor}`}}>
+            <div style={{display:"flex",alignItems:"baseline",gap:6}}>
+              <div style={{fontSize:25,fontWeight:800,color:stats.modeColor,lineHeight:1}}>{stats.pctManual}%</div>
+              <div style={{fontSize:11,color:"#9ca3af"}}>manual</div>
+            </div>
+            <div style={{fontSize:11,color:"#6b7280",marginTop:4,fontWeight:500}}>% Manually Operated</div>
+            <div style={{marginTop:6,display:"flex",alignItems:"center",gap:5}}>
+              <span style={{display:"inline-block",width:7,height:7,borderRadius:"50%",background:stats.modeColor,flexShrink:0}}/>
+              <span style={{fontSize:10,fontWeight:700,color:stats.modeColor}}>{stats.mode}</span>
+            </div>
+          </div>
+
+          <Stat label="Partial Automation" value={stats.partial} color="#f59e0b" note={stats.total?`${Math.round(stats.partial/stats.total*100)}% of tasks`:""}/>
+          <Stat label="Automated" value={stats.automated} color="#16a34a" note={stats.total?`${Math.round(stats.automated/stats.total*100)}% of tasks`:""}/>
+          <Stat label="No Automation Linked" value={stats.unlinked} color="#7c3aed" note="coverage gap" sub={`${stats.highEffort} high-effort tasks`}/>
+
+          {/* Weekly hours */}
+          <div style={{background:"white",border:"1.5px solid #e5e7eb",borderRadius:10,padding:"13px 17px",flex:1,minWidth:120,borderTop:"3px solid #0369a1"}}>
+            <div style={{fontSize:25,fontWeight:800,color:"#0369a1",lineHeight:1}}>
+              {stats.wklyHrsCount>0?`${stats.totalWklyHrs.toFixed(1)}`:"—"}
+            </div>
+            <div style={{fontSize:11,color:"#6b7280",marginTop:4,fontWeight:500}}>Wkly Manual Hours</div>
+            <div style={{fontSize:10,color:"#0369a1",marginTop:2,fontWeight:600}}>
+              {stats.wklyHrsCount>0?`across ${stats.wklyHrsCount} tasks with metrics`:"Add occurrence & time data"}
+            </div>
+          </div>
         </div>
 
         {/* COVERAGE BANNER */}
@@ -661,7 +821,7 @@ export default function ManualTasksTracker() {
           {/* Header */}
           <div style={{display:"grid",gridTemplateColumns:mtGridCols,background:"#f8fafc",borderBottom:"2px solid #e5e7eb",padding:"10px 18px",alignItems:"center",minWidth:"max-content"}}>
             <div>{editMode&&<input type="checkbox" checked={allSel} onChange={e=>setSelected(e.target.checked?new Set(filtered.map(i=>i.id)):new Set())} style={{cursor:"pointer",width:14,height:14,accentColor:"#dc2626"}}/>}</div>
-            {["ID","Manual Task","Category","Frequency","Status","Linked Automations",""].map((h,i)=>(
+            {["ID","Manual Task","Category","Frequency","Effort","Status","Occurrence","Exec (min)","Wkly Hrs","Linked Automations",""].map((h,i)=>(
               <div key={i} style={{fontSize:10,fontWeight:700,color:"#6b7280",letterSpacing:"1px",textTransform:"uppercase",paddingLeft:i===0?0:8}}>{h}</div>
             ))}
           </div>
@@ -674,7 +834,9 @@ export default function ManualTasksTracker() {
               const cs=getCat(item.category);
               const fs=getFreq(item.frequency);
               const ss=getStatus(item.status);
+              const es=getEffort(item.effort);
               const linked=item.linkedAutomations||[];
+              const wh=calcWeeklyHours(item);
               return (
                 <div key={item.id} style={{borderBottom:idx<filtered.length-1?"1px solid #f1f5f9":"none",background:isSel?"#fff7ed":undefined}}>
                   <div className="trow" onClick={()=>setExpanded(isExp?null:item.id)}
@@ -684,16 +846,37 @@ export default function ManualTasksTracker() {
 
                     <div style={{paddingLeft:0}}><span style={{fontSize:10,fontFamily:"'DM Mono',monospace",fontWeight:700,color:"#9ca3af"}}>{item.id}</span></div>
 
+                    {/* Task name — effort badge now in separate column */}
                     <div style={{paddingLeft:8,whiteSpace:"nowrap"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:7}}>
-                        <span style={{fontSize:13,fontWeight:600,color:"#111827"}}>{item.task}</span>
-                        <Badge text={item.effort} color={getEffort(item.effort).color} bg={getEffort(item.effort).bg} border={getEffort(item.effort).border} small/>
-                      </div>
+                      <span style={{fontSize:13,fontWeight:600,color:"#111827"}}>{item.task}</span>
                     </div>
 
                     <div style={{paddingLeft:8,whiteSpace:"nowrap"}}><Badge text={item.category} color={cs.color} bg={cs.bg} border={cs.border} small/></div>
                     <div style={{paddingLeft:8,whiteSpace:"nowrap"}}><Badge text={item.frequency} color={fs.color} bg={fs.bg} border={fs.border} small/></div>
+
+                    {/* Effort — own column */}
+                    <div style={{paddingLeft:8,whiteSpace:"nowrap"}}><Badge text={item.effort} color={es.color} bg={es.bg} border={es.border} small/></div>
+
                     <div style={{paddingLeft:8,whiteSpace:"nowrap"}}><Badge text={item.status} color={ss.color} bg={ss.bg} border={ss.border} small/></div>
+
+                    {/* Occurrence Rate */}
+                    <div style={{paddingLeft:8,whiteSpace:"nowrap"}}>
+                      {item.occurrenceRate
+                        ?<span style={{fontSize:11,fontWeight:600,color:item.occurrenceRate==="On Request"?"#92400e":"#1d4ed8",background:item.occurrenceRate==="On Request"?"#fffbeb":"#eff6ff",border:`1px solid ${item.occurrenceRate==="On Request"?"#fde68a":"#bfdbfe"}`,borderRadius:8,padding:"2px 8px"}}>{item.occurrenceRate}</span>
+                        :<span style={{fontSize:10,color:"#d1d5db"}}>—</span>}
+                    </div>
+
+                    {/* Exec Time */}
+                    <div style={{paddingLeft:8,whiteSpace:"nowrap"}}>
+                      {item.execTimeMins
+                        ?<span style={{fontSize:11,fontWeight:600,color:"#374151"}}>{item.execTimeMins}<span style={{fontSize:10,color:"#9ca3af",fontWeight:400}}> min</span></span>
+                        :<span style={{fontSize:10,color:"#d1d5db"}}>—</span>}
+                    </div>
+
+                    {/* Weekly Hours (calculated) */}
+                    <div style={{paddingLeft:8,whiteSpace:"nowrap",fontSize:12}}>
+                      {fmtHrs(wh)}
+                    </div>
 
                     {/* Linked CARs */}
                     <div style={{paddingLeft:8,display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
@@ -756,8 +939,8 @@ export default function ManualTasksTracker() {
           <strong>Goal: Reduce manual work by 50% next quarter.</strong> &nbsp;
           Link each task to its CAR initiative using the <strong>Edit</strong> form → Linked Automations field ·
           <strong> ⚠ None</strong> badge = no automation coverage yet ·
-          <strong> ⬇ Export CSV</strong> exports the full audit for reporting ·
-          Click the <strong>yellow banner</strong> to instantly filter unlinked tasks.
+          Fill in <strong>Occurrence Rate</strong> + <strong>Exec Time</strong> to unlock weekly hour estimates ·
+          <strong> ⬇ Export CSV</strong> exports the full audit for reporting.
         </div>
       </div>
     </div>
