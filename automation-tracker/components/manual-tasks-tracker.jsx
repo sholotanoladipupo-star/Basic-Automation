@@ -45,14 +45,13 @@ const COLOR_PRESETS = [
   { color:"#b45309", bg:"#fef3c7", border:"#fde68a" },
 ];
 
-const OCCURRENCE_RATE_OPTIONS = ["1×/day","2×/day","3×/day","4×/day","5×/day","On Request"];
 
 // ── SEED MANUAL TASKS ──────────────────────────────────────────────────────────
 const SEED_TASKS = [
   {
     id:"MT-001", task:"Routing Config Switching",
     category:"Routing & Config", frequency:"Daily", effort:"High", status:"Partially Automated",
-    occurrenceRate:"2×/day", execTimeMins:20, occurrenceNotes:"",
+    occurrenceRate:2, execTimeMins:20, occurrenceNotes:"",
     whyManual:"No automated detection of processor degradation — engineer must notice failure and manually toggle routes.",
     whatHappens:"When a processor degrades, SRE manually identifies the failing route, turns it off or switches it to a backup config. Requires direct system access and judgment under pressure.",
     riskIfMissed:"Continued routing to degraded processor causes transaction failures for customers.",
@@ -62,7 +61,7 @@ const SEED_TASKS = [
   {
     id:"MT-002", task:"Requeue Pending Business Settlements",
     category:"Settlement Operations", frequency:"Daily", effort:"Medium", status:"Fully Manual",
-    occurrenceRate:"2×/day", execTimeMins:25, occurrenceNotes:"",
+    occurrenceRate:2, execTimeMins:25, occurrenceNotes:"",
     whyManual:"No automatic detection or retry of stuck settlements. Engineer must log into Back Office portal and manually trigger requeue.",
     whatHappens:"Business owner transactions get stuck on 'Pending'. SRE logs into the Back Office web portal, identifies stuck records, and clicks Requeue. Transactions that have fixable issues process; others remain and need further investigation.",
     riskIfMissed:"Merchants not credited for transactions. Complaints and financial impact.",
@@ -72,7 +71,7 @@ const SEED_TASKS = [
   {
     id:"MT-003", task:"Manual Escalation to Processors",
     category:"Incident & Escalation", frequency:"Daily", effort:"High", status:"Fully Manual",
-    occurrenceRate:"1×/day", execTimeMins:45, occurrenceNotes:"Triggered per active incident; can spike to 3–4×/day during major outages.",
+    occurrenceRate:1, execTimeMins:45, occurrenceNotes:"Triggered per active incident; can spike to 3–4×/day during major outages.",
     whyManual:"No automated sample collection or escalation pipeline. SRE manually spools transaction samples and formats them for processor escalation.",
     whatHappens:"When a processor is failing and interchange is turned off, SRE manually queries transaction logs to gather failing samples, compiles an escalation email or ticket, and sends to the processor's support team. This delays resolution and occupies engineer time during active incidents.",
     riskIfMissed:"Delayed resolution of processor issues. Prolonged customer-facing transaction failures.",
@@ -82,7 +81,7 @@ const SEED_TASKS = [
   {
     id:"MT-004", task:"Update / Insert Dispute & Refund Records",
     category:"Dispute Operations", frequency:"Per Request", effort:"Medium", status:"Partially Automated",
-    occurrenceRate:"On Request", execTimeMins:30, occurrenceNotes:"Comes in batches from Disputes team — can be several times a week or not at all for 2–3 weeks.",
+    occurrenceRate:null, execTimeMins:30, occurrenceNotes:"Comes in batches from Disputes team — can be several times a week or not at all for 2–3 weeks.",
     whyManual:"No automated workflow for dispute record corrections. SRE cooks up SQL to update status of stopped disputes or insert corrective refund records.",
     whatHappens:"Disputes team requests status updates on stopped disputes (e.g. pending → failed). SRE writes and executes SQL UPDATE queries on dispute tables. Separately, wrong Settlement Report UIDs require detection and SQL-based correction.",
     riskIfMissed:"Incorrect dispute records. Reconciliation failures. Merchant over/under payments.",
@@ -92,7 +91,7 @@ const SEED_TASKS = [
   {
     id:"MT-005", task:"Upload Terminal IDs for Swapping",
     category:"Terminal Management", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
-    occurrenceRate:"On Request", execTimeMins:40, occurrenceNotes:"Happens before scheduled hardware swap events — may not occur for months then arrive as large batches.",
+    occurrenceRate:null, execTimeMins:40, occurrenceNotes:"Happens before scheduled hardware swap events — may not occur for months then arrive as large batches.",
     whyManual:"No self-service terminal upload tool. SRE manually writes INSERT SQL queries to add terminal records before hardware swap events.",
     whatHappens:"SRE receives a list of terminal IDs to be swapped. They cook up an INSERT query for the terminals table, inserting each record manually. An automated downstream process then picks them up. The insert step itself depends on DB access and manual query writing.",
     riskIfMissed:"Terminals not registered in time for swap. Hardware swap event fails or is delayed.",
@@ -102,7 +101,7 @@ const SEED_TASKS = [
   {
     id:"MT-006", task:"Clear / Update ISW PTSA TID Mapping",
     category:"DB Operations", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
-    occurrenceRate:"On Request", execTimeMins:20, occurrenceNotes:"",
+    occurrenceRate:null, execTimeMins:20, occurrenceNotes:"",
     whyManual:"No tooling for TID mapping management. SRE manually writes UPDATE SQL to set source_terminal_id = NULL so fresh TIDs become available for Interswitch transaction mapping.",
     whatHappens:"For every transaction to Interswitch, the system needs to translate the logical terminal ID (on physical device) to a mapped TID stored on the isw_ptsa_tid table. When new terminals start transacting to Interswitch for the first time, TIDs must be made available. SRE sets source_terminal_id = NULL on the relevant records.",
     riskIfMissed:"New terminals cannot transact to Interswitch. TID translation fails causing transaction rejections.",
@@ -112,7 +111,7 @@ const SEED_TASKS = [
   {
     id:"MT-007", task:"Reset Terminals for NIBSS Key Download",
     category:"Terminal Management", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
-    occurrenceRate:"On Request", execTimeMins:15, occurrenceNotes:"",
+    occurrenceRate:null, execTimeMins:15, occurrenceNotes:"",
     whyManual:"No playbook or tooling. SRE writes SQL to reset terminal key download state by setting card_acceptor_id_state = NULL on the destination interchange status table.",
     whatHappens:"Terminals get stuck waiting for NIBSS key download. SRE identifies the affected terminal IDs, writes UPDATE SQL targeting destination_interchange_status table, sets card_acceptor_id_state = NULL for the specific terminal. This resets the state so the key download can be re-attempted.",
     riskIfMissed:"Terminals remain stuck. POS endpoint transaction failures until manually resolved.",
@@ -122,7 +121,7 @@ const SEED_TASKS = [
   {
     id:"MT-008", task:"Insert into Destination Interchange Keys Table",
     category:"DB Operations", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
-    occurrenceRate:"On Request", execTimeMins:15, occurrenceNotes:"",
+    occurrenceRate:null, execTimeMins:15, occurrenceNotes:"",
     whyManual:"No tooling for interchange key record creation. SRE manually writes INSERT SQL with terminal_id and destination_interchange_id values.",
     whatHappens:"When adding new terminals to an interchange, SRE needs to insert records into the destination interchange keys table. This is a simple two-value INSERT (terminal_id, destination_interchange_id) but requires direct DB access, writing the query manually, and coordinating with the DBA team for access.",
     riskIfMissed:"New terminals cannot be mapped to destination interchange. Transactions fail to route.",
@@ -132,7 +131,7 @@ const SEED_TASKS = [
   {
     id:"MT-009", task:"Update Interchange Specific Data",
     category:"DB Operations", frequency:"Per Request", effort:"High", status:"Fully Manual",
-    occurrenceRate:"On Request", execTimeMins:60, occurrenceNotes:"Rare but high-stakes — incorrect config breaks all transactions for that interchange.",
+    occurrenceRate:null, execTimeMins:60, occurrenceNotes:"Rare but high-stakes — incorrect config breaks all transactions for that interchange.",
     whyManual:"Interchange-specific data is stored as JSON in the interchange_config table. Values are scattered and easily misconfigured. SRE must manually cook up an UPDATE query for the correct interchange ID.",
     whatHappens:"When onboarding or reconfiguring an interchange, SRE executes: UPDATE interchange_config SET interchange_specific_data = '{...json...}' WHERE id = <interchange_id>. The JSON structure is complex, varies per interchange, and has no validation. A single mistake can break all transactions for that interchange.",
     riskIfMissed:"Wrong interchange config causes widespread transaction failures for affected processor.",
@@ -142,7 +141,7 @@ const SEED_TASKS = [
   {
     id:"MT-010", task:"Create New Banks on Aptent DB",
     category:"DB Operations", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
-    occurrenceRate:"On Request", execTimeMins:45, occurrenceNotes:"",
+    occurrenceRate:null, execTimeMins:45, occurrenceNotes:"",
     whyManual:"No self-service bank onboarding tool. SRE manually writes INSERT queries for all required bank configuration records across multiple tables.",
     whatHappens:"When onboarding a new bank, SRE writes INSERT SQL across the Aptent DB bank tables, creating all required records in the correct dependency order. Missing a step or inserting with wrong values causes configuration gaps that block transactions for that bank.",
     riskIfMissed:"Incomplete bank configuration causes transaction failures for that bank's cards/channels.",
@@ -152,7 +151,7 @@ const SEED_TASKS = [
   {
     id:"MT-011", task:"Create Card BIN Records on Aptent DB",
     category:"DB Operations", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
-    occurrenceRate:"On Request", execTimeMins:30, occurrenceNotes:"",
+    occurrenceRate:null, execTimeMins:30, occurrenceNotes:"",
     whyManual:"No BIN management tool. SRE manually writes INSERT SQL for new BIN ranges. Format errors or duplicate inserts cause transaction routing failures.",
     whatHappens:"When a new card BIN range needs to be registered, SRE writes INSERT SQL targeting the card_bin table on Aptent DB. The insert requires specific formatting and must pass validation. Errors here cause all cards in that BIN range to fail at the routing step.",
     riskIfMissed:"Cards in the new BIN range fail to transact until the correct record is inserted.",
@@ -162,7 +161,7 @@ const SEED_TASKS = [
   {
     id:"MT-012", task:"Reset Settlement Status",
     category:"Settlement Operations", frequency:"Per Request", effort:"High", status:"Fully Manual",
-    occurrenceRate:"On Request", execTimeMins:35, occurrenceNotes:"Happens intermittently — can go weeks without occurring, or hit multiple times in one day during settlement issues.",
+    occurrenceRate:null, execTimeMins:35, occurrenceNotes:"Happens intermittently — can go weeks without occurring, or hit multiple times in one day during settlement issues.",
     whyManual:"No tooling for settlement status correction. SRE writes and runs SQL UPDATE under time pressure, risking broader data corruption if wrong records are updated.",
     whatHappens:"A settlement batch shows processor status = 'Completed' but the downstream business or DNS settlement was never actually created. SRE manually writes UPDATE SQL to reset the stuck status so the system re-attempts settlement creation. Requires identifying the exact affected records and correct status values.",
     riskIfMissed:"Merchants not paid. Settlement batch remains stuck indefinitely.",
@@ -172,7 +171,7 @@ const SEED_TASKS = [
   {
     id:"MT-013", task:"Move Terminals Between PTSP Key Configs",
     category:"Terminal Management", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
-    occurrenceRate:"On Request", execTimeMins:25, occurrenceNotes:"",
+    occurrenceRate:null, execTimeMins:25, occurrenceNotes:"",
     whyManual:"No migration tooling. SRE manually writes UPDATE SQL to change PTSP key config IDs for a batch of terminals.",
     whatHappens:"When terminal routing or key configuration changes, SRE writes UPDATE SQL to change the ptsp_key_config_id column for the affected terminal records. Errors cause terminals to use the wrong encryption keys, breaking transactions.",
     riskIfMissed:"Terminals transact with wrong key config causing encryption failures and declined transactions.",
@@ -182,7 +181,7 @@ const SEED_TASKS = [
   {
     id:"MT-014", task:"CS Downtime Communication",
     category:"Communication", frequency:"Per Incident", effort:"Medium", status:"Partially Automated",
-    occurrenceRate:"1×/day", execTimeMins:20, occurrenceNotes:"Per incident — during major outages this can happen multiple times across the day.",
+    occurrenceRate:1, execTimeMins:20, occurrenceNotes:"Per incident — during major outages this can happen multiple times across the day.",
     whyManual:"Communication to CS when there is a processor downtime or trading bank issue is still largely manual — composing messages, identifying affected parties, and notifying the right channels.",
     whatHappens:"When a processor goes down or a trading bank is fully offline, SRE needs to notify Customer Support teams so they can communicate to merchants and manage inbound complaints. This involves identifying the scope, drafting a notification, and sending to the right Slack channels or email lists.",
     riskIfMissed:"CS not aware of outage. Merchants and customers get inconsistent or delayed responses.",
@@ -192,7 +191,7 @@ const SEED_TASKS = [
   {
     id:"MT-015", task:"Port Management (Add / Delete / Resync)",
     category:"Port & Network", frequency:"Per Request", effort:"Medium", status:"Fully Manual",
-    occurrenceRate:"On Request", execTimeMins:30, occurrenceNotes:"Irregular — may not happen for months, then arrive as a batch of port changes for a new processor onboarding.",
+    occurrenceRate:null, execTimeMins:30, occurrenceNotes:"Irregular — may not happen for months, then arrive as a batch of port changes for a new processor onboarding.",
     whyManual:"Port additions, deletions, and resyncs require manual Nginx / proxy server configuration changes. No change management tool exists — errors can misconfigure ports silently.",
     whatHappens:"When a processor requests a new port or an existing port needs to be deleted or resynced, SRE manually edits the Nginx / proxy configuration files, applies the change, and verifies the port is active. Mistakes can delete wrong ports or introduce silent misconfigurations.",
     riskIfMissed:"Wrong port config causes routing failures for affected processor. Misconfigured ports may not be caught until transactions fail.",
@@ -229,22 +228,19 @@ const isoToday = () => new Date().toISOString().slice(0,10);
 
 // Calculate estimated weekly hours for a task
 function calcWeeklyHours(task) {
-  const rate = task.occurrenceRate;
-  const time = Number(task.execTimeMins);
-  if (!rate || !time || isNaN(time) || time <= 0) return null;
-  if (rate === "On Request") return "Variable";
-  const rateNum = parseInt(rate); // extracts 1,2,3,4,5 from "N×/day"
+  const rateNum = Number(task.occurrenceRate);
+  const time    = Number(task.execTimeMins);
+  if (!rateNum || rateNum <= 0 || !time || time <= 0 || isNaN(rateNum) || isNaN(time)) return null;
   const freq = task.frequency;
-  if (freq === "Daily")        return +(rateNum * time * 5 / 60).toFixed(2);
-  if (freq === "Weekly")       return +(rateNum * time / 60).toFixed(2);
-  if (freq === "Monthly")      return +(rateNum * time / 60 / 4.33).toFixed(2);
-  // Per Incident / Per Request — show per-occurrence cost
+  if (freq === "Daily")   return +(rateNum * time * 5 / 60).toFixed(2);
+  if (freq === "Weekly")  return +(rateNum * time / 60).toFixed(2);
+  if (freq === "Monthly") return +(rateNum * time / 60 / 4.33).toFixed(2);
+  // Per Incident / Per Request — show cost per occurrence
   return `~${+(rateNum * time / 60).toFixed(1)} hr/occ`;
 }
 
 function fmtHrs(val) {
   if (val === null || val === undefined) return "—";
-  if (val === "Variable") return <span style={{fontSize:10,color:"#92400e",fontWeight:600}}>Variable</span>;
   if (typeof val === "string") return <span style={{fontSize:10,color:"#6b7280"}}>{val}</span>;
   return <span style={{fontWeight:700,color:"#1d4ed8"}}>{val} <span style={{fontSize:10,fontWeight:400,color:"#6b7280"}}>hrs</span></span>;
 }
@@ -408,8 +404,8 @@ function EditModal({ item, onSave, onClose, lookups, jiraBase }) {
           <div style={{background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:10,padding:"14px 16px",display:"flex",flexDirection:"column",gap:12}}>
             <div style={{fontSize:11,fontWeight:700,color:"#0369a1"}}>⏱ EFFORT METRICS</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              <Field label="Occurrence Rate (per frequency period)" k="occurrenceRate" type="select"
-                opts={["", ...OCCURRENCE_RATE_OPTIONS]} f={f} onChange={set}/>
+              <Field label="Occurrence Rate (times per frequency period)" k="occurrenceRate" type="number"
+                placeholder="e.g. 3" f={f} onChange={set}/>
               <Field label="Time to Execute Manually (minutes)" k="execTimeMins" type="number"
                 placeholder="e.g. 30" f={f} onChange={set}/>
             </div>
@@ -419,7 +415,7 @@ function EditModal({ item, onSave, onClose, lookups, jiraBase }) {
             {f.occurrenceRate && f.execTimeMins ? (
               <div style={{background:"white",border:"1px solid #bae6fd",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#0369a1"}}>
                 <strong>Estimated weekly hours: </strong>
-                {(()=>{ const wh=calcWeeklyHours(f); if(wh===null)return "—"; if(wh==="Variable")return "Variable (On Request)"; if(typeof wh==="string")return wh; return `${wh} hrs/week`; })()}
+                {(()=>{ const wh=calcWeeklyHours(f); if(wh===null)return "—"; if(typeof wh==="string")return wh; return `${wh} hrs/week`; })()}
               </div>
             ) : null}
           </div>
@@ -472,8 +468,8 @@ function ExpandedDetail({ item, jiraBase, lookups }) {
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
           {item.occurrenceRate&&<span style={{fontSize:11,background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:7,padding:"3px 10px",color:"#1d4ed8",fontWeight:600}}>⏱ Rate: {item.occurrenceRate}</span>}
           {item.execTimeMins&&<span style={{fontSize:11,background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:7,padding:"3px 10px",color:"#1d4ed8",fontWeight:600}}>🕐 Exec: {item.execTimeMins} min/occ</span>}
-          {wh!==null&&<span style={{fontSize:11,background:wh==="Variable"?"#fffbeb":"#f0fdf4",border:`1px solid ${wh==="Variable"?"#fde68a":"#bbf7d0"}`,borderRadius:7,padding:"3px 10px",color:wh==="Variable"?"#92400e":"#16a34a",fontWeight:600}}>
-            📅 ~{wh==="Variable"?"Variable":typeof wh==="string"?wh:`${wh} hrs`}/week
+          {wh!==null&&<span style={{fontSize:11,background:typeof wh==="string"?"#fffbeb":"#f0fdf4",border:`1px solid ${typeof wh==="string"?"#fde68a":"#bbf7d0"}`,borderRadius:7,padding:"3px 10px",color:typeof wh==="string"?"#92400e":"#16a34a",fontWeight:600}}>
+            📅 ~{typeof wh==="string"?wh:`${wh} hrs`}/week
           </span>}
           {item.occurrenceNotes&&<span style={{fontSize:11,color:"#6b7280",fontStyle:"italic",padding:"3px 0"}}>ℹ {item.occurrenceNotes}</span>}
         </div>
@@ -862,7 +858,7 @@ export default function ManualTasksTracker() {
                     {/* Occurrence Rate */}
                     <div style={{paddingLeft:8,whiteSpace:"nowrap"}}>
                       {item.occurrenceRate
-                        ?<span style={{fontSize:11,fontWeight:600,color:item.occurrenceRate==="On Request"?"#92400e":"#1d4ed8",background:item.occurrenceRate==="On Request"?"#fffbeb":"#eff6ff",border:`1px solid ${item.occurrenceRate==="On Request"?"#fde68a":"#bfdbfe"}`,borderRadius:8,padding:"2px 8px"}}>{item.occurrenceRate}</span>
+                        ?<span style={{fontSize:11,fontWeight:700,color:"#1d4ed8"}}>{item.occurrenceRate}<span style={{fontSize:10,fontWeight:400,color:"#6b7280"}}>×</span></span>
                         :<span style={{fontSize:10,color:"#d1d5db"}}>—</span>}
                     </div>
 

@@ -64,11 +64,9 @@ const scColor  = v => v===null?"#9ca3af":v>=4?"#16a34a":v>=3?"#1d4ed8":v>=2?"#f5
 
 // Mirror of the same calc used in manual-tasks-tracker
 function calcWeeklyHours(task) {
-  const rate = task.occurrenceRate;
-  const time = Number(task.execTimeMins);
-  if (!rate || !time || isNaN(time) || time <= 0) return null;
-  if (rate === "On Request") return "Variable";
-  const rateNum = parseInt(rate);
+  const rateNum = Number(task.occurrenceRate);
+  const time    = Number(task.execTimeMins);
+  if (!rateNum || rateNum <= 0 || !time || time <= 0 || isNaN(rateNum) || isNaN(time)) return null;
   const freq = task.frequency;
   if (freq === "Daily")   return +(rateNum * time * 5 / 60).toFixed(2);
   if (freq === "Weekly")  return +(rateNum * time / 60).toFixed(2);
