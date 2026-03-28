@@ -4,6 +4,7 @@ import { SessionInfo } from '../types'
 const API_BASE = (import.meta.env.VITE_WS_URL ?? 'ws://localhost:3001')
   .replace('ws://', 'http://')
   .replace('wss://', 'https://')
+  .replace('wss://', 'https://')
 
 interface SubQuestion {
   id: string

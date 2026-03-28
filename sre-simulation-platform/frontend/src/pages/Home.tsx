@@ -29,7 +29,7 @@ export default function Home({ onStart, connecting, connectionError, onViewHisto
           Moniepoint SRE Simulation Platform
         </h1>
         <p className="text-[#8b949e] text-sm font-mono max-w-md">
-          On-call readiness validation through live incident simulation
+          Real incidents. Real pressure. Validate your on-call readiness.
         </p>
       </div>
 
