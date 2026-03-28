@@ -159,76 +159,19 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
     )
   }
 
-  // ── Score page ──────────────────────────────────────────────────────────────
-  if (submitted && scoreResult) {
-    const graded = scoreResult.graded
-    const reviewing = reviewIdx !== null ? graded[reviewIdx] : null
-
+  // ── Submitted page — no scores shown to candidate ───────────────────────────
+  if (submitted) {
     return (
-      <div className="min-h-screen bg-[#0d1117] font-mono text-xs flex flex-col">
-        {/* Green banner */}
-        <div className="bg-[#0f2a1a] border-b border-[#3fb950] px-4 py-2.5 flex items-center gap-3 flex-shrink-0">
-          <span className="text-[#3fb950] font-bold">✓ Assessment submitted</span>
-          <span className="text-[#8b949e]">{scoreResult.correct}/{scoreResult.total} correct</span>
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
-            {/* Score summary */}
-            <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-6 text-center">
-              <div className={`text-6xl font-bold mb-2 ${ratingColor(scoreResult.rating)}`}>{scoreResult.score}</div>
-              <div className="text-[#8b949e] mb-3">out of 100</div>
-              <div className={`inline-block px-4 py-1.5 rounded border font-bold text-sm ${ratingBorder(scoreResult.rating)} ${ratingColor(scoreResult.rating)}`}>
-                {scoreResult.rating.toUpperCase()}
-              </div>
-              <div className="mt-4 text-[#8b949e] leading-relaxed">{scoreResult.scorecard.postmortem_summary}</div>
-            </div>
-
-            {/* Question-by-question breakdown */}
-            <div className="space-y-2">
-              <div className="text-[#8b949e] uppercase tracking-widest mb-3">Question Breakdown</div>
-              {graded.map((g, i) => (
-                <div
-                  key={g.question_id}
-                  className={`bg-[#161b22] border rounded-lg overflow-hidden cursor-pointer transition-colors hover:bg-[#1c2128] ${g.correct ? 'border-[#3fb950]' : 'border-[#f85149]'}`}
-                  onClick={() => setReviewIdx(reviewIdx === i ? null : i)}
-                >
-                  <div className="flex items-center gap-3 px-4 py-3">
-                    <span className={`text-lg ${g.correct ? 'text-[#3fb950]' : 'text-[#f85149]'}`}>{g.correct ? '✓' : '✗'}</span>
-                    <span className="flex-1 text-[#e6edf3]">{g.title.replace('[SEED] ', '')}</span>
-                    <span className="text-[#484f58]">{reviewIdx === i ? '▲' : '▼'}</span>
-                  </div>
-
-                  {reviewIdx === i && reviewing && (
-                    <div className="border-t border-[#30363d] px-4 py-4 bg-[#0d1117] space-y-3">
-                      <div className="text-[#8b949e] leading-relaxed whitespace-pre-wrap">{reviewing.question}</div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <div className="text-[#484f58] uppercase tracking-widest mb-1.5">Your Answer</div>
-                          <div className={`px-3 py-2 rounded border text-sm font-mono ${reviewing.correct ? 'border-[#3fb950] text-[#3fb950] bg-[#0f2a1a]' : 'border-[#f85149] text-[#f85149] bg-[#2a1010]'}`}>
-                            {reviewing.answer || <span className="text-[#484f58] italic">No answer given</span>}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-[#484f58] uppercase tracking-widest mb-1.5">Correct Answer</div>
-                          <div className="px-3 py-2 rounded border border-[#3fb950] text-[#3fb950] bg-[#0f2a1a] text-sm font-mono">
-                            {reviewing.correct_answer}
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[#484f58] uppercase tracking-widest mb-1.5">Explanation</div>
-                        <div className="text-[#8b949e] leading-relaxed bg-[#161b22] border border-[#30363d] rounded px-3 py-2 whitespace-pre-wrap">
-                          {reviewing.explanation}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+      <div className="min-h-screen bg-[#0d1117] font-mono flex flex-col items-center justify-center px-4">
+        <div className="text-[#3fb950] text-5xl mb-5">✓</div>
+        <h1 className="text-xl font-bold text-[#e6edf3] mb-2">Exercise Submitted</h1>
+        <p className="text-[#8b949e] text-sm text-center max-w-sm">
+          Your answers have been recorded. Your assessor will review your results.
+        </p>
+        {timedOut && (
+          <p className="text-[#d29922] text-xs font-bold mt-3">⏱ Time limit reached — auto-submitted.</p>
+        )}
+        <div className="mt-8 text-[#484f58] text-xs">You may now close this window.</div>
       </div>
     )
   }

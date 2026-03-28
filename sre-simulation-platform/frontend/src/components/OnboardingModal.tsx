@@ -24,15 +24,6 @@ const panels = [
   { icon: '💬', name: 'Comms (bottom right)', desc: 'Slack-like messaging. Post updates to #incidents so stakeholders know the status.' },
 ]
 
-const tips = [
-  'Start with: kubectl get pods -n cache',
-  'Check redis status: redis-cli ping',
-  'Read the Redis Recovery runbook (right panel → Runbooks)',
-  'Declare severity within the first 2 minutes',
-  'Post at least one Slack update to #incidents',
-  'After fixing redis, verify postgres connections drop back below 50',
-]
-
 export default function OnboardingModal({ onDismiss, scenarioName, timeLimitMinutes }: OnboardingModalProps) {
   return (
     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 overflow-y-auto">
@@ -94,18 +85,6 @@ export default function OnboardingModal({ onDismiss, scenarioName, timeLimitMinu
             </div>
           </section>
 
-          {/* First steps */}
-          <section>
-            <div className="text-[#8b949e] uppercase tracking-widest mb-2">Suggested First Steps</div>
-            <div className="space-y-1">
-              {tips.map((tip, i) => (
-                <div key={i} className="flex gap-2 items-center">
-                  <span className="text-[#3fb950] w-5 text-center">{i + 1}.</span>
-                  <code className="text-[#e6edf3] bg-[#0d1117] px-2 py-0.5 rounded">{tip}</code>
-                </div>
-              ))}
-            </div>
-          </section>
         </div>
 
         {/* Footer */}
@@ -116,7 +95,7 @@ export default function OnboardingModal({ onDismiss, scenarioName, timeLimitMinu
           >
             ▶ I UNDERSTAND — START INVESTIGATING
           </button>
-          <div className="text-[#484f58] text-center mt-2">Timer is already running. The incident is live.</div>
+          <div className="text-[#484f58] text-center mt-2">Your timer starts when you click the button above.</div>
         </div>
       </div>
     </div>

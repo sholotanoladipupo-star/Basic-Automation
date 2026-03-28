@@ -8,6 +8,9 @@ import RunbookViewer from '../components/RunbookViewer'
 import IncidentPanel from '../components/IncidentPanel'
 import CommsPanel from '../components/CommsPanel'
 import OnboardingModal from '../components/OnboardingModal'
+import GCPConsole from '../components/GCPConsole'
+import NewRelicPanel from '../components/NewRelicPanel'
+import TourGuide from '../components/TourGuide'
 
 interface SimulationProps {
   state: SimulationState
@@ -30,7 +33,9 @@ const TABS = [
   { id: 'terminal', label: '⌨ Terminal' },
   { id: 'dashboard', label: '📊 Dashboards' },
   { id: 'logs', label: '📋 Logs' },
-  { id: 'runbook', label: '📖 Runbook' }
+  { id: 'runbook', label: '📖 Runbook' },
+  { id: 'gcp-console', label: '🌐 GCP Console' },
+  { id: 'new-relic', label: '📈 New Relic' },
 ] as const
 
 type TabId = typeof TABS[number]['id']
@@ -38,7 +43,9 @@ type TabId = typeof TABS[number]['id']
 export default function Simulation({ state, actions }: SimulationProps) {
   const { sessionInfo, systemState, activePanel, elapsedSeconds, severityDeclared, connected } = state
   const [showOnboarding, setShowOnboarding] = useState(true)
+  const [showTour, setShowTour] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [elapsedAtDismissal, setElapsedAtDismissal] = useState<number | null>(null)
 
   // Auto-request fullscreen when simulation loads
   useEffect(() => {
@@ -62,11 +69,19 @@ export default function Simulation({ state, actions }: SimulationProps) {
     }
   }
 
+  function handleDismissOnboarding() {
+    setElapsedAtDismissal(elapsedSeconds)
+    setShowOnboarding(false)
+    setShowTour(true)
+  }
+
   const services = systemState ? Object.values(systemState.services) : []
   const serviceNames = services.map(s => s.name)
 
-  const timeLimitSeconds = (sessionInfo?.time_limit_minutes ?? 10) * 60
-  const timeRemaining = Math.max(0, timeLimitSeconds - elapsedSeconds)
+  const timeLimitSeconds = (sessionInfo?.time_limit_minutes ?? 15) * 60
+  // Timer counts from when the user dismissed the onboarding modal
+  const effectiveElapsed = elapsedAtDismissal !== null ? Math.max(0, elapsedSeconds - elapsedAtDismissal) : 0
+  const timeRemaining = Math.max(0, timeLimitSeconds - effectiveElapsed)
   const timeIsLow = timeRemaining < 120 // last 2 minutes
 
   function handleTabClick(tab: TabId) {
@@ -75,15 +90,18 @@ export default function Simulation({ state, actions }: SimulationProps) {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-[#0d1117] overflow-hidden font-mono text-xs select-none">
+    <div className="h-screen flex flex-col bg-[#0d1117] overflow-hidden font-mono text-xs">
       {/* Onboarding modal */}
       {showOnboarding && sessionInfo && (
         <OnboardingModal
-          onDismiss={() => setShowOnboarding(false)}
+          onDismiss={handleDismissOnboarding}
           scenarioName={sessionInfo.scenario_name}
           timeLimitMinutes={sessionInfo.time_limit_minutes}
         />
       )}
+
+      {/* Tour guide */}
+      {showTour && <TourGuide onFinish={() => setShowTour(false)} />}
 
       {/* Top bar */}
       <div className="flex-shrink-0 h-11 bg-[#161b22] border-b border-[#30363d] flex items-center px-3 gap-3">
@@ -102,12 +120,20 @@ export default function Simulation({ state, actions }: SimulationProps) {
 
           {/* Countdown timer */}
           <div className={`font-bold tabular-nums px-2 py-0.5 rounded ${timeIsLow ? 'bg-[#f85149] text-white animate-pulse' : 'text-[#3fb950]'}`}>
-            ⏱ {formatElapsed(timeRemaining)} left
+            {showOnboarding ? '⏸ Paused' : `⏱ ${formatElapsed(timeRemaining)} left`}
           </div>
 
           <span className={`text-xs ${connected ? 'text-[#3fb950]' : 'text-[#f85149]'}`}>
             {connected ? '● LIVE' : '○ OFF'}
           </span>
+
+          <button
+            onClick={() => setShowTour(true)}
+            className="text-[#484f58] hover:text-[#58a6ff] px-1.5 transition-colors"
+            title="Take tour"
+          >
+            🗺
+          </button>
 
           <button
             onClick={toggleFullscreen}
@@ -131,12 +157,16 @@ export default function Simulation({ state, actions }: SimulationProps) {
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Alert panel */}
         <div className="w-64 flex-shrink-0 overflow-hidden">
-          <AlertPanel alerts={state.alerts} onAcknowledge={actions.acknowledgeAlert} />
+          <AlertPanel
+            alerts={state.alerts}
+            onAcknowledge={actions.acknowledgeAlert}
+            sessionStartedAt={state.sessionStartedAt}
+          />
         </div>
 
         {/* Centre: tabs + panel */}
         <div className="flex-1 flex flex-col overflow-hidden border-x border-[#30363d]">
-          <div className="flex-shrink-0 flex bg-[#161b22] border-b border-[#30363d]">
+          <div className="flex-shrink-0 flex bg-[#161b22] border-b border-[#30363d] overflow-x-auto">
             {TABS.map(tab => {
               const disabled = tab.id === 'runbook' && !state.openRunbook
               const isActive = activePanel === tab.id
@@ -145,7 +175,7 @@ export default function Simulation({ state, actions }: SimulationProps) {
                   key={tab.id}
                   onClick={() => handleTabClick(tab.id)}
                   disabled={disabled}
-                  className={`px-4 py-2 text-xs transition-colors border-b-2 ${
+                  className={`px-4 py-2 text-xs transition-colors border-b-2 whitespace-nowrap flex-shrink-0 ${
                     isActive ? 'text-[#e6edf3] border-[#3fb950]'
                     : disabled ? 'text-[#484f58] border-transparent cursor-not-allowed'
                     : 'text-[#8b949e] border-transparent hover:text-[#e6edf3]'
@@ -168,6 +198,12 @@ export default function Simulation({ state, actions }: SimulationProps) {
             )}
             {activePanel === 'runbook' && state.openRunbook && (
               <RunbookViewer runbook={state.openRunbook} onClose={() => actions.setActivePanel('terminal')} />
+            )}
+            {activePanel === 'gcp-console' && (
+              <GCPConsole systemState={systemState} />
+            )}
+            {activePanel === 'new-relic' && (
+              <NewRelicPanel systemState={systemState} />
             )}
           </div>
         </div>

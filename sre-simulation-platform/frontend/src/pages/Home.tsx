@@ -26,7 +26,7 @@ export default function Home({ onStart, connecting, connectionError, onViewHisto
           ● SYSTEM READY
         </div>
         <h1 className="text-4xl font-bold text-[#e6edf3] font-mono mb-3 tracking-tight">
-          SRE Simulation Platform
+          Moniepoint SRE Simulation Platform
         </h1>
         <p className="text-[#8b949e] text-sm font-mono max-w-md">
           On-call readiness validation through live incident simulation
@@ -35,11 +35,6 @@ export default function Home({ onStart, connecting, connectionError, onViewHisto
 
       {/* Card */}
       <div className="w-full max-w-sm bg-[#161b22] border border-[#30363d] rounded-lg p-6 space-y-5">
-        <div className="p-3 bg-[#0d1117] border border-[#d29922] rounded text-xs font-mono text-[#d29922]">
-          ⚠ You will be paged immediately with an active production incident.
-          Investigate, diagnose, and resolve within the time limit.
-        </div>
-
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs text-[#8b949e] uppercase tracking-widest mb-2 font-mono">

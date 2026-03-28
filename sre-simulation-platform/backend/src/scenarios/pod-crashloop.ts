@@ -218,7 +218,7 @@ kubectl get pods -n prod -l app=checkout-service
       { id: 'dash-overview', name: 'System Overview', services: ['api-gateway', 'checkout-service', 'inventory-service', 'notification-service', 'postgres-primary'] },
     ],
     passing_score: 65,
-    time_limit_minutes: 10,
+    time_limit_minutes: 15,
   }
 }
 

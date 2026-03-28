@@ -6,6 +6,23 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { pool } from '../db/client'
 import { executeQuery, scoreQueryResult, sqlRating } from '../sql-executor'
+import Anthropic from '@anthropic-ai/sdk'
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+async function aiPostmortem(prompt: string): Promise<string> {
+  try {
+    const msg = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      messages: [{ role: 'user', content: prompt }]
+    })
+    const block = msg.content[0]
+    return block.type === 'text' ? block.text.trim() : ''
+  } catch {
+    return ''
+  }
+}
 
 const ADMIN_KEY = process.env.ADMIN_KEY || 'sre-admin-2024'
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
@@ -96,7 +113,19 @@ sqlRouter.post('/submit', async (req, res) => {
     // Update session score
     await pool.query(`UPDATE sessions SET overall_score = $1, ended_at = NOW(), status = 'completed' WHERE id = $2`, [score, session_id])
 
-    // Build scorecard
+    // Build scorecard with AI postmortem
+    const aiPrompt = `You are an SRE hiring assessor reviewing a SQL exercise submission.
+Score: ${score}/100 (${rating})
+Candidate query:
+${query}
+${result.error ? `Error: ${result.error}` : `Returned ${result.rows?.length ?? 0} rows, columns: ${result.columns?.join(', ')}`}
+Expected: ${expected ? `${(expected.rows ?? []).length} rows` : 'unknown'}
+
+Write 2-3 concise sentences of specific, actionable feedback for the candidate covering what they got right and what to improve. Be direct and constructive.`
+
+    const fallbackPostmortem = score >= 80 ? 'Strong SQL skills demonstrated.' : score >= 50 ? 'Core SQL knowledge present. Practice JOINs and aggregations.' : 'SQL fundamentals need more work. Review JOIN syntax and WHERE conditions.'
+    const postmortem = (await aiPostmortem(aiPrompt)) || fallbackPostmortem
+
     const scorecard = {
       session_id,
       overall_score: score,
@@ -109,7 +138,7 @@ sqlRouter.post('/submit', async (req, res) => {
         result_completeness: { score: Math.round(score * 0.2), max: 20 },
       },
       timeline_highlights: score >= 80 ? ['Correct result returned', 'Query executed without errors'] : score >= 50 ? ['Query executed', 'Some results matched'] : ['Query had issues'],
-      postmortem_summary: score >= 80 ? 'Strong SQL skills demonstrated.' : score >= 50 ? 'Core SQL knowledge present. Practice JOINs and aggregations.' : 'SQL fundamentals need more work. Review JOIN syntax and WHERE conditions.'
+      postmortem_summary: postmortem
     }
 
     await pool.query(
@@ -219,11 +248,29 @@ monitoringRouter.post('/submit', async (req, res) => {
 
     await pool.query(`UPDATE sessions SET overall_score = $1, ended_at = NOW(), status = 'completed' WHERE id = $2`, [overallScore, session_id])
 
+    // AI postmortem
+    const qaSummary = answers.map((a, i) => {
+      const sq = subQuestions[i]
+      const s = scored.find(x => x.id === a.id)
+      return `Q: ${sq?.id ?? a.id}\nAnswer: ${a.answer}\nScore: ${s?.score ?? 0}/100`
+    }).join('\n\n')
+
+    const aiPrompt = `You are an SRE hiring assessor reviewing a monitoring/observability exercise.
+Overall score: ${overallScore}/100 (${rating})
+
+Candidate answers:
+${qaSummary}
+
+Write 2-3 concise sentences of specific, actionable feedback covering their observability knowledge strengths and areas to improve. Be direct and constructive.`
+
+    const fallbackPostmortem = overallScore >= 80 ? 'Strong observability skills.' : overallScore >= 50 ? 'Good fundamentals. Practice PromQL syntax and alert design patterns.' : 'Review PromQL basics, SLOs, and alerting principles.'
+    const postmortem = (await aiPostmortem(aiPrompt)) || fallbackPostmortem
+
     const scorecard = {
       session_id, overall_score: overallScore, module_type: 'monitoring', rating,
       dimensions: Object.fromEntries(scored.map((s, i) => [`question_${i + 1}`, { score: s.score, max: 100 }])),
       timeline_highlights: overallScore >= 80 ? ['Correct PromQL expressions', 'Proper alerting strategy used'] : overallScore >= 50 ? ['Partial answers provided', 'Core concepts present'] : ['Needs more work'],
-      postmortem_summary: overallScore >= 80 ? 'Strong observability skills.' : overallScore >= 50 ? 'Good fundamentals. Practice PromQL syntax and alert design patterns.' : 'Review PromQL basics, SLOs, and alerting principles.',
+      postmortem_summary: postmortem,
       sub_scores: scored
     }
 

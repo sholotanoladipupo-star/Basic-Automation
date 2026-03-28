@@ -172,11 +172,11 @@ export default function MonitoringSimulation({ sessionInfo }: Props) {
 
   return (
     <div className="min-h-screen bg-[#111217] font-mono text-xs flex flex-col">
-      {/* Submission confirmation banner */}
+      {/* Submission confirmation — no scores shown to candidate */}
       {submitted && (
-        <div className="bg-[#0f2a1a] border-b border-[#3fb950] px-4 py-2.5 flex items-center gap-3 flex-shrink-0">
-          <span className="text-[#3fb950] font-bold">✓ Assessment submitted</span>
-          <span className="text-[#8b949e] text-xs">Your answers have been recorded. Click each step in the sidebar to review your results.</span>
+        <div className="bg-[#0f2a1a] border-b border-[#3fb950] px-4 py-3 text-center flex-shrink-0">
+          <span className="text-[#3fb950] font-bold text-sm">✓ Exercise Submitted</span>
+          <span className="text-[#8b949e] text-xs block mt-0.5">Your answers have been recorded. Your assessor will review your results.</span>
         </div>
       )}
 
@@ -184,9 +184,9 @@ export default function MonitoringSimulation({ sessionInfo }: Props) {
       {showTimeUpModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-[#1f2028] border border-[#f85149] rounded-lg p-8 text-center max-w-sm">
-            <div className="text-[#f85149] text-2xl font-bold mb-2">Time's Up!</div>
+            <div className="text-[#f85149] text-2xl font-bold mb-2">⏱ Time is up!!</div>
             <div className="text-[#8b949e] mb-4">Your answers are being submitted automatically…</div>
-            <div className="text-[#484f58] animate-pulse">Submitting…</div>
+            <div className="text-[#484f58] animate-pulse">Exercise Submitted</div>
           </div>
         </div>
       )}
@@ -240,9 +240,7 @@ export default function MonitoringSimulation({ sessionInfo }: Props) {
                   <div className="flex-1 min-w-0">
                     <div className={`truncate text-[11px] ${isActive ? 'text-[#e0e0e0]' : 'text-[#aaa]'}`}>{meta.label}</div>
                   </div>
-                  {ss ? (
-                    <span className={`text-[10px] font-bold ${ss.score >= 80 ? 'text-[#3fb950]' : ss.score >= 50 ? 'text-[#d29922]' : 'text-[#f85149]'}`}>{ss.score}</span>
-                  ) : isDone ? (
+                  {isDone || ss ? (
                     <span className="text-[#3fb950] text-xs">✓</span>
                   ) : hasAnswer ? (
                     <span className="w-2 h-2 rounded-full bg-[#f46800] flex-shrink-0" />
@@ -267,13 +265,9 @@ export default function MonitoringSimulation({ sessionInfo }: Props) {
             </div>
           )}
 
-          {submitted && scoreResult && (
-            <div className="p-3 border-t border-[#2d2f3a]">
-              <div className="text-[#555] text-[10px] mb-1">Overall Score</div>
-              <div className={`text-lg font-bold ${ratingColor(scoreResult.rating)}`}>{scoreResult.rating}</div>
-              <div className={`w-12 h-12 rounded-full border-2 flex items-center justify-center font-bold mt-2 ${ratingBorder(scoreResult.rating)} ${ratingColor(scoreResult.rating)}`}>
-                {scoreResult.score}
-              </div>
+          {submitted && (
+            <div className="p-3 border-t border-[#2d2f3a] text-center">
+              <div className="text-[#3fb950] text-xs font-bold">✓ Submitted</div>
             </div>
           )}
         </div>
@@ -348,7 +342,6 @@ export default function MonitoringSimulation({ sessionInfo }: Props) {
                       <div>
                         <div className="flex items-center gap-2 mb-2">
                           <div className="text-[#555] uppercase tracking-widest text-[10px]">Reference Answer</div>
-                          <span className={`text-sm font-bold ${subScore.score >= 80 ? 'text-[#3fb950]' : subScore.score >= 50 ? 'text-[#d29922]' : 'text-[#f85149]'}`}>{subScore.score}/100</span>
                         </div>
                         <pre className="text-[#79c0ff] text-[11px] bg-[#111217] border border-[#2d2f3a] rounded p-3 whitespace-pre-wrap overflow-x-auto min-h-[60px]">{subScore.reference_answer || 'N/A'}</pre>
                       </div>
@@ -384,21 +377,7 @@ export default function MonitoringSimulation({ sessionInfo }: Props) {
         </div>
       </div>
 
-      {/* Score summary bar when submitted */}
-      {submitted && scoreResult && (
-        <div className="border-t border-[#2d2f3a] bg-[#1a1c22] p-4 flex items-center gap-6 flex-shrink-0">
-          <div className="flex-shrink-0">
-            <div className="text-[#555] uppercase tracking-widest text-[10px] mb-1">Overall</div>
-            <div className={`text-xl font-bold ${ratingColor(scoreResult.rating)}`}>{scoreResult.rating} · {scoreResult.score}/100</div>
-          </div>
-          <div className="flex-1 text-[#8b949e] text-[11px] leading-relaxed">{scoreResult.scorecard.postmortem_summary}</div>
-          <div className="flex gap-2 flex-wrap flex-shrink-0">
-            {scoreResult.scorecard.timeline_highlights.map((h, i) => (
-              <span key={i} className="px-2 py-1 bg-[#111217] border border-[#2d2f3a] rounded text-[#8b949e] text-[10px]">{h}</span>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* No score summary shown to candidates */}
     </div>
   )
 }

@@ -12,23 +12,35 @@ interface MetricsDashboardProps {
   onQueryDashboard: (id: string) => void
 }
 
-function StatusDot({ status }: { status: 'healthy' | 'degraded' | 'down' }) {
-  const colors = { healthy: '#3fb950', degraded: '#d29922', down: '#f85149' }
+function statusColor(status: 'healthy' | 'degraded' | 'down') {
+  if (status === 'healthy') return '#3fb950'
+  if (status === 'degraded') return '#d29922'
+  return '#f85149'
+}
+
+function statusBg(status: 'healthy' | 'degraded' | 'down') {
+  if (status === 'healthy') return 'bg-[#0f2a1a] border-[#3fb950]'
+  if (status === 'degraded') return 'bg-[#2a1e00] border-[#d29922]'
+  return 'bg-[#2a0a0a] border-[#f85149]'
+}
+
+function MetricBar({ value, max, warn, crit }: { value: number; max: number; warn: number; crit: number }) {
+  const pct = Math.min(100, (value / max) * 100)
+  const color = value >= crit ? '#f85149' : value >= warn ? '#d29922' : '#3fb950'
   return (
-    <span
-      className="inline-block w-2 h-2 rounded-full flex-shrink-0 mt-1"
-      style={{ backgroundColor: colors[status] }}
-    />
+    <div className="w-full bg-[#0d1117] rounded h-1.5 mt-1">
+      <div className="h-1.5 rounded transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: color }} />
+    </div>
   )
 }
 
-function MetricBar({ value, max, color }: { value: number; max: number; color: string }) {
-  const pct = Math.min(100, Math.round((value / max) * 100))
-  return (
-    <div className="w-full bg-[#0d1117] rounded-full h-1.5 mt-1">
-      <div className="h-1.5 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
-    </div>
-  )
+function MetricValue({ value, unit, warn, crit }: { value: number | string; unit: string; warn?: number; crit?: number }) {
+  const num = typeof value === 'number' ? value : parseFloat(String(value))
+  let color = 'text-[#e6edf3]'
+  if (!isNaN(num) && crit !== undefined && warn !== undefined) {
+    color = num >= crit ? 'text-[#f85149]' : num >= warn ? 'text-[#d29922]' : 'text-[#3fb950]'
+  }
+  return <span className={`font-bold tabular-nums ${color}`}>{value}{unit}</span>
 }
 
 export default function MetricsDashboard({ systemState, availableDashboards, dashboardData, onQueryDashboard }: MetricsDashboardProps) {
@@ -38,128 +50,152 @@ export default function MetricsDashboard({ systemState, availableDashboards, das
 
   return (
     <div className="flex flex-col h-full bg-[#0d1117] font-mono text-xs overflow-y-auto">
-      {/* Dashboard selector */}
-      <div className="flex-shrink-0 p-3 bg-[#161b22] border-b border-[#30363d]">
-        <div className="text-xs text-[#8b949e] uppercase tracking-widest mb-2">Dashboards</div>
-        <div className="flex flex-wrap gap-2">
+
+      {/* Dashboard load buttons */}
+      <div className="flex-shrink-0 px-3 pt-3 pb-2 bg-[#161b22] border-b border-[#30363d]">
+        <div className="text-[10px] text-[#484f58] uppercase tracking-widest mb-2">Load Dashboard</div>
+        <div className="flex flex-wrap gap-1.5">
           {availableDashboards.map(d => (
             <button
               key={d.id}
               onClick={() => onQueryDashboard(d.id)}
-              className="bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] hover:border-[#58a6ff] text-[#e6edf3] text-xs px-3 py-1.5 rounded transition-colors"
+              className="bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] hover:border-[#58a6ff] text-[#8b949e] hover:text-[#e6edf3] text-[11px] px-2.5 py-1 rounded transition-colors"
             >
-              {d.name}
+              📊 {d.name}
             </button>
           ))}
         </div>
       </div>
 
       <div className="p-3 space-y-4">
-        {/* Live Service Health */}
-        <div>
-          <div className="text-[#8b949e] uppercase tracking-widest mb-2">Service Health — Live</div>
-          <div className="grid grid-cols-1 gap-2">
-            {services.map(svc => (
-              <div key={svc.name} className="bg-[#161b22] border border-[#30363d] rounded p-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-start gap-2">
-                    <StatusDot status={svc.status} />
-                    <span className="text-[#e6edf3] font-bold">{svc.name}</span>
-                  </div>
-                  <span className="text-[#8b949e]">{svc.status}</span>
-                </div>
-                <div className="mt-1.5 grid grid-cols-2 gap-2 text-[#8b949e]">
-                  <div>
-                    <span>error_rate: </span>
-                    <span className={svc.error_rate > 0.1 ? 'text-[#f85149]' : svc.error_rate > 0.02 ? 'text-[#d29922]' : 'text-[#3fb950]'}>
-                      {(svc.error_rate * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                  <div>
-                    <span>p99: </span>
-                    <span className={svc.p99_latency_ms > 5000 ? 'text-[#f85149]' : svc.p99_latency_ms > 1000 ? 'text-[#d29922]' : 'text-[#e6edf3]'}>
-                      {svc.p99_latency_ms}ms
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
 
-        {/* Cache status */}
-        {caches.length > 0 && (
-          <div>
-            <div className="text-[#8b949e] uppercase tracking-widest mb-2">Cache</div>
-            {caches.map(cache => (
-              <div key={cache.name} className="bg-[#161b22] border border-[#30363d] rounded p-2">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <StatusDot status={cache.status} />
-                  <span className="text-[#e6edf3] font-bold">{cache.name}</span>
-                  <span className="ml-auto text-[#8b949e]">{cache.status}</span>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-[#8b949e]">hit_rate</span>
-                    <span className={cache.hit_rate < 0.5 ? 'text-[#f85149]' : 'text-[#3fb950]'}>{(cache.hit_rate * 100).toFixed(0)}%</span>
-                  </div>
-                  <MetricBar value={cache.hit_rate * 100} max={100} color={cache.hit_rate < 0.5 ? '#f85149' : '#3fb950'} />
-                  <div className="flex justify-between mt-1">
-                    <span className="text-[#8b949e]">memory</span>
-                    <span className="text-[#e6edf3]">{cache.memory_used_mb} / {cache.memory_total_mb} MB</span>
-                  </div>
-                  <MetricBar value={cache.memory_used_mb} max={cache.memory_total_mb} color="#58a6ff" />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Database status */}
-        {databases.length > 0 && (
-          <div>
-            <div className="text-[#8b949e] uppercase tracking-widest mb-2">Databases</div>
-            {databases.map(db => (
-              <div key={db.name} className="bg-[#161b22] border border-[#30363d] rounded p-2 mb-2">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <StatusDot status={db.status} />
-                  <span className="text-[#e6edf3] font-bold">{db.name}</span>
-                  <span className="ml-auto text-[#8b949e]">{db.status}</span>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-[#8b949e]">connections</span>
-                    <span className={db.connection_count / db.max_connections > 0.8 ? 'text-[#f85149]' : 'text-[#e6edf3]'}>
-                      {db.connection_count} / {db.max_connections}
+        {/* Service Health Grid */}
+        {services.length > 0 && (
+          <section>
+            <div className="text-[10px] text-[#484f58] uppercase tracking-widest mb-2 flex items-center gap-2">
+              <span>Service Health</span>
+              <span className="text-[#3fb950]">● LIVE</span>
+            </div>
+            <div className="space-y-1.5">
+              {services.map(svc => (
+                <div key={svc.name} className={`border rounded p-2.5 ${statusBg(svc.status)}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-[#e6edf3]">{svc.name}</span>
+                    <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ color: statusColor(svc.status), border: `1px solid ${statusColor(svc.status)}` }}>
+                      {svc.status}
                     </span>
                   </div>
-                  <MetricBar value={db.connection_count} max={db.max_connections} color={db.connection_count / db.max_connections > 0.8 ? '#f85149' : '#3fb950'} />
-                  <div className="flex justify-between mt-1">
-                    <span className="text-[#8b949e]">query p99</span>
-                    <span className={db.query_latency_ms > 1000 ? 'text-[#f85149]' : 'text-[#e6edf3]'}>
-                      {db.query_latency_ms === 999999 ? '∞' : `${db.query_latency_ms}ms`}
-                    </span>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                    <div>
+                      <div className="text-[#484f58] text-[10px] mb-0.5">Error Rate</div>
+                      <MetricValue value={(svc.error_rate * 100).toFixed(1)} unit="%" warn={5} crit={20} />
+                      <MetricBar value={svc.error_rate * 100} max={100} warn={5} crit={20} />
+                    </div>
+                    <div>
+                      <div className="text-[#484f58] text-[10px] mb-0.5">p99 Latency</div>
+                      <MetricValue value={svc.p99_latency_ms} unit="ms" warn={1000} crit={5000} />
+                      <MetricBar value={svc.p99_latency_ms} max={10000} warn={1000} crit={5000} />
+                    </div>
                   </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Queried dashboard metrics */}
-        {Object.entries(dashboardData).map(([id, dash]) => (
-          <div key={id}>
-            <div className="text-[#8b949e] uppercase tracking-widest mb-2">{dash.name}</div>
-            <div className="bg-[#161b22] border border-[#30363d] rounded p-2 space-y-1">
-              {dash.metrics.map((m, i) => (
-                <div key={i} className="flex justify-between">
-                  <span className="text-[#8b949e]">{m.service}.{m.metric}</span>
-                  <span className="text-[#e6edf3]">{m.value} {m.unit}</span>
                 </div>
               ))}
             </div>
-          </div>
+          </section>
+        )}
+
+        {/* Cache Section */}
+        {caches.length > 0 && (
+          <section>
+            <div className="text-[10px] text-[#484f58] uppercase tracking-widest mb-2">Cache Layer</div>
+            {caches.map(cache => (
+              <div key={cache.name} className={`border rounded p-2.5 mb-1.5 ${statusBg(cache.status)}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-bold text-[#e6edf3]">{cache.name}</span>
+                  <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ color: statusColor(cache.status), border: `1px solid ${statusColor(cache.status)}` }}>
+                    {cache.status}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4">
+                  <div>
+                    <div className="text-[#484f58] text-[10px] mb-0.5">Hit Rate</div>
+                    <MetricValue value={(cache.hit_rate * 100).toFixed(0)} unit="%" warn={70} crit={30} />
+                    <div className="w-full bg-[#0d1117] rounded h-1.5 mt-1">
+                      <div className="h-1.5 rounded transition-all duration-500"
+                        style={{ width: `${Math.min(100, cache.hit_rate * 100)}%`, backgroundColor: cache.hit_rate < 0.3 ? '#f85149' : cache.hit_rate < 0.7 ? '#d29922' : '#3fb950' }} />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[#484f58] text-[10px] mb-0.5">Memory</div>
+                    <span className="font-bold text-[#e6edf3]">{cache.memory_used_mb}<span className="text-[#484f58] font-normal">/{cache.memory_total_mb} MB</span></span>
+                    <MetricBar value={cache.memory_used_mb} max={cache.memory_total_mb} warn={80} crit={95} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {/* Database Section */}
+        {databases.length > 0 && (
+          <section>
+            <div className="text-[10px] text-[#484f58] uppercase tracking-widest mb-2">Databases</div>
+            {databases.map(db => (
+              <div key={db.name} className={`border rounded p-2.5 mb-1.5 ${statusBg(db.status)}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-bold text-[#e6edf3]">{db.name}</span>
+                  <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ color: statusColor(db.status), border: `1px solid ${statusColor(db.status)}` }}>
+                    {db.status}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4">
+                  <div>
+                    <div className="text-[#484f58] text-[10px] mb-0.5">Connections</div>
+                    <span className="font-bold">
+                      <MetricValue value={db.connection_count} unit="" warn={db.max_connections * 0.7} crit={db.max_connections * 0.9} />
+                      <span className="text-[#484f58] font-normal">/{db.max_connections}</span>
+                    </span>
+                    <MetricBar value={db.connection_count} max={db.max_connections} warn={70} crit={90} />
+                  </div>
+                  <div>
+                    <div className="text-[#484f58] text-[10px] mb-0.5">Query p99</div>
+                    <MetricValue value={db.query_latency_ms === 999999 ? '∞' : db.query_latency_ms} unit={db.query_latency_ms === 999999 ? '' : 'ms'} warn={500} crit={2000} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {/* Queried dashboard data */}
+        {Object.entries(dashboardData).map(([id, dash]) => (
+          <section key={id}>
+            <div className="text-[10px] text-[#484f58] uppercase tracking-widest mb-2">{dash.name}</div>
+            <div className="bg-[#161b22] border border-[#30363d] rounded overflow-hidden">
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="border-b border-[#30363d] bg-[#0d1117]">
+                    <th className="text-left px-3 py-1.5 text-[#484f58] font-normal">Metric</th>
+                    <th className="text-right px-3 py-1.5 text-[#484f58] font-normal">Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dash.metrics.map((m, i) => (
+                    <tr key={i} className="border-b border-[#1c2128] last:border-0 hover:bg-[#1c2128]">
+                      <td className="px-3 py-1.5 text-[#8b949e]">{m.service} <span className="text-[#484f58]">·</span> {m.metric}</td>
+                      <td className="px-3 py-1.5 text-right font-bold text-[#e6edf3] tabular-nums">{m.value}<span className="text-[#484f58] font-normal ml-0.5 text-[10px]">{m.unit}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         ))}
+
+        {services.length === 0 && caches.length === 0 && databases.length === 0 && Object.keys(dashboardData).length === 0 && (
+          <div className="text-[#484f58] text-center py-12 italic">
+            Waiting for system state…
+          </div>
+        )}
       </div>
     </div>
   )

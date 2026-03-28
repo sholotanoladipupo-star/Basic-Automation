@@ -240,7 +240,7 @@ CONCURRENTLY builds without locking writes. Takes longer but safe for production
       { id: 'dash-overview', name: 'System Overview', services: ['api-gateway', 'checkout-service', 'order-service', 'payment-service', 'product-service', 'postgres-primary'] },
     ],
     passing_score: 65,
-    time_limit_minutes: 10,
+    time_limit_minutes: 15,
   }
 }
 

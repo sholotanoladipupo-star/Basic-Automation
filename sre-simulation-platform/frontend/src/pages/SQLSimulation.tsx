@@ -76,6 +76,7 @@ export default function SQLSimulation({ sessionInfo }: Props) {
   const [schema, setSchema] = useState<Record<string, SchemaTable> | null>(null)
   const [activeSchemaTable, setActiveSchemaTable] = useState<string | null>(null)
   const [schemaOpen, setSchemaOpen] = useState(true)
+  const [syntaxOpen, setSyntaxOpen] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -94,7 +95,8 @@ export default function SQLSimulation({ sessionInfo }: Props) {
     return () => document.removeEventListener('fullscreenchange', handler)
   }, [])
 
-  const timeLimit = question?.time_limit_seconds ?? (sessionInfo.time_limit_minutes * 60)
+  // Enforce minimum 8-minute time limit
+  const timeLimit = Math.max(question?.time_limit_seconds ?? 480, 480)
   const remaining = Math.max(0, timeLimit - elapsed)
   const mins = Math.floor(remaining / 60)
   const secs = remaining % 60
@@ -125,6 +127,15 @@ export default function SQLSimulation({ sessionInfo }: Props) {
     timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [question, submitted, timedOut])
+
+  // Auto-submit on timeout
+  useEffect(() => {
+    if (timedOut && !submitted && question) {
+      if (timerRef.current) clearInterval(timerRef.current)
+      handleSubmit()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timedOut])
 
   async function handleRun() {
     if (!query.trim() || running) return
@@ -186,11 +197,11 @@ export default function SQLSimulation({ sessionInfo }: Props) {
 
   return (
     <div ref={containerRef} className="min-h-screen bg-[#0d1117] font-mono text-xs flex flex-col">
-      {/* Submission confirmation banner */}
+      {/* Submission confirmation — candidates see only this, no scores */}
       {submitted && (
-        <div className="bg-[#0f2a1a] border-b border-[#3fb950] px-4 py-2.5 flex items-center gap-3 flex-shrink-0">
-          <span className="text-[#3fb950] font-bold">✓ Assessment submitted</span>
-          <span className="text-[#8b949e] text-xs">Your answers have been recorded. Review your results below.</span>
+        <div className="bg-[#0f2a1a] border-b border-[#3fb950] px-4 py-3 text-center flex-shrink-0">
+          <span className="text-[#3fb950] font-bold text-sm">✓ Exercise Submitted</span>
+          <span className="text-[#8b949e] text-xs block mt-0.5">Your answers have been recorded. Your assessor will review your results.</span>
         </div>
       )}
 
@@ -239,6 +250,36 @@ export default function SQLSimulation({ sessionInfo }: Props) {
                     {question.hint}
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+
+          {/* SQL Syntax Reference */}
+          <div className="border-t border-[#30363d]">
+            <button
+              onClick={() => setSyntaxOpen(o => !o)}
+              className="w-full px-5 py-2.5 flex items-center justify-between text-[#484f58] uppercase tracking-widest hover:text-[#8b949e] transition-colors"
+            >
+              <span>SQL Syntax Reference</span>
+              <span className="text-[10px]">{syntaxOpen ? '▲' : '▼'}</span>
+            </button>
+            {syntaxOpen && (
+              <div className="px-5 pb-4 space-y-3 text-[11px]">
+                {[
+                  { label: 'SELECT', code: 'SELECT col1, col2\nFROM table\nWHERE condition\nORDER BY col ASC\nLIMIT 10;' },
+                  { label: 'JOIN', code: 'SELECT a.id, b.name\nFROM a\nINNER JOIN b ON a.id = b.a_id\nLEFT JOIN c ON a.id = c.a_id;' },
+                  { label: 'GROUP BY / HAVING', code: 'SELECT dept, COUNT(*) as cnt, AVG(salary)\nFROM employees\nGROUP BY dept\nHAVING COUNT(*) > 5;' },
+                  { label: 'Subquery', code: 'SELECT name FROM employees\nWHERE salary > (\n  SELECT AVG(salary) FROM employees\n);' },
+                  { label: 'CASE', code: 'SELECT name,\n  CASE\n    WHEN salary > 80000 THEN \'Senior\'\n    WHEN salary > 50000 THEN \'Mid\'\n    ELSE \'Junior\'\n  END AS level\nFROM employees;' },
+                  { label: 'Date functions', code: 'WHERE hire_date >= NOW() - INTERVAL \'1 year\'\nAND EXTRACT(YEAR FROM hire_date) = 2023\nAND DATE_TRUNC(\'month\', hire_date) = \'2023-01-01\'' },
+                  { label: 'String functions', code: "LOWER(col), UPPER(col)\nCONCAT(col1, ' ', col2)\nLIKE '%pattern%'\nCOALESCE(col, 'default')" },
+                  { label: 'Window functions', code: 'SELECT name, salary,\n  RANK() OVER (ORDER BY salary DESC) as rank,\n  SUM(salary) OVER (PARTITION BY dept) as dept_total\nFROM employees;' },
+                ].map(({ label, code }) => (
+                  <div key={label}>
+                    <div className="text-[#58a6ff] font-bold text-[10px] uppercase tracking-widest mb-1">{label}</div>
+                    <pre className="bg-[#0d1117] border border-[#1c2128] rounded p-2 text-[#8b949e] text-[10px] whitespace-pre overflow-x-auto">{code}</pre>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -365,8 +406,9 @@ export default function SQLSimulation({ sessionInfo }: Props) {
           {/* Results */}
           <div className="h-64 overflow-auto bg-[#0d1117]">
             {timedOut && !submitted && (
-              <div className="p-4 text-[#f85149] text-center">
-                Time's up! Submit your best attempt.
+              <div className="p-4 text-center">
+                <div className="text-[#f85149] font-bold text-sm mb-1">⏱ Time is up!!</div>
+                <div className="text-[#8b949e] text-xs">Your query has been auto-submitted.</div>
               </div>
             )}
 
@@ -377,82 +419,11 @@ export default function SQLSimulation({ sessionInfo }: Props) {
               </div>
             )}
 
-            {submitted && scoreResult && (
-              <div className="p-4 space-y-4">
-                {/* Score header */}
-                <div className="flex items-center gap-4">
-                  <div className={`text-3xl font-bold ${ratingColor(scoreResult.rating)}`}>
-                    {scoreResult.rating}
-                  </div>
-                  <div className={`w-16 h-16 rounded-full border-2 flex items-center justify-center font-bold text-lg ${ratingBorder(scoreResult.rating)} ${ratingColor(scoreResult.rating)}`}>
-                    {scoreResult.score}
-                  </div>
-                </div>
-
-                {/* Score breakdown */}
-                <div className="space-y-2">
-                  <div className="text-[#484f58] uppercase tracking-widest">Score Breakdown</div>
-                  {Object.entries(scoreResult.scorecard.dimensions).map(([key, dim]) => {
-                    const pct = Math.round((dim.score / dim.max) * 100)
-                    const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-                    return (
-                      <div key={key}>
-                        <div className="flex justify-between mb-1">
-                          <span className="text-[#8b949e]">{label}</span>
-                          <span className={pct >= 80 ? 'text-[#3fb950]' : pct >= 50 ? 'text-[#d29922]' : 'text-[#f85149]'}>{dim.score}/{dim.max}</span>
-                        </div>
-                        <div className="h-1.5 bg-[#161b22] rounded overflow-hidden">
-                          <div className={`h-full rounded ${pct >= 80 ? 'bg-[#3fb950]' : pct >= 50 ? 'bg-[#d29922]' : 'bg-[#f85149]'}`} style={{ width: `${pct}%` }} />
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {/* Postmortem */}
-                <div className="text-[#e6edf3] bg-[#161b22] border border-[#30363d] rounded p-3 leading-relaxed">
-                  {scoreResult.scorecard.postmortem_summary}
-                </div>
-
-                {/* Your query vs reference query side by side */}
-                <div>
-                  <div className="text-[#484f58] uppercase tracking-widest mb-2">Query Comparison</div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="text-[#484f58] text-[10px] uppercase tracking-widest mb-1">Your Query</div>
-                      <pre className="bg-[#0d1117] border border-[#30363d] rounded p-3 text-[#8b949e] text-[11px] whitespace-pre-wrap overflow-x-auto">{query || '(empty)'}</pre>
-                    </div>
-                    <div>
-                      <div className="text-[#484f58] text-[10px] uppercase tracking-widest mb-1">Reference Answer</div>
-                      <pre className="bg-[#0d1117] border border-[#238636] rounded p-3 text-[#79c0ff] text-[11px] whitespace-pre-wrap overflow-x-auto">{scoreResult.solution_query || '(not available)'}</pre>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Candidate result summary */}
-                {scoreResult.candidate_result && !scoreResult.candidate_result.error && scoreResult.candidate_result.columns.length > 0 && (
-                  <div>
-                    <div className="text-[#484f58] uppercase tracking-widest mb-2">Your Result ({scoreResult.candidate_result.row_count} rows)</div>
-                    <div className="overflow-x-auto max-h-32 overflow-y-auto">
-                      <table className="w-full text-[10px]">
-                        <thead>
-                          <tr className="text-[#484f58] border-b border-[#30363d]">
-                            {scoreResult.candidate_result.columns.map(c => <th key={c} className="text-left px-2 py-1 font-normal">{c}</th>)}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {scoreResult.candidate_result.rows.slice(0, 5).map((row, i) => (
-                            <tr key={i} className="border-b border-[#1c2128]">
-                              {scoreResult.candidate_result.columns.map(c => (
-                                <td key={c} className="px-2 py-1 text-[#8b949e]">{String(row[c] ?? '')}</td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
+            {submitted && (
+              <div className="p-8 text-center">
+                <div className="text-[#3fb950] text-3xl mb-3">✓</div>
+                <div className="text-[#e6edf3] font-bold text-sm">Exercise Submitted</div>
+                <div className="text-[#8b949e] text-xs mt-1">Your assessor will review your results.</div>
               </div>
             )}
 

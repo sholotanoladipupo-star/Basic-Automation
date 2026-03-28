@@ -40,8 +40,8 @@ function playBeep() {
   osc.stop(now + 1.4)
 }
 
-export type AppScreen = 'home' | 'simulation' | 'scorecard'
-export type ActivePanel = 'terminal' | 'logs' | 'dashboard' | 'runbook' | 'incident' | 'comms'
+export type AppScreen = 'home' | 'simulation' | 'scorecard' | 'submitted'
+export type ActivePanel = 'terminal' | 'logs' | 'dashboard' | 'runbook' | 'incident' | 'comms' | 'gcp-console' | 'new-relic'
 
 export interface DashboardEntry {
   name: string
@@ -68,6 +68,7 @@ export interface SimulationState {
   slackMessages: SlackMessage[]
   scorecard: Scorecard | null
   elapsedSeconds: number
+  sessionStartedAt: string | null
 }
 
 export interface SimulationActions {
@@ -88,7 +89,8 @@ const INITIAL_STATE: SimulationState = {
   screen: 'home', activePanel: 'terminal', connected: false, connecting: false, connectionError: null,
   sessionInfo: null, systemState: null, alerts: [], terminalLines: [], terminalBusy: false,
   logLines: [], dashboardData: {}, openRunbook: null, severityDeclared: null,
-  incidentResolved: false, sessionEnded: null, slackMessages: [], scorecard: null, elapsedSeconds: 0
+  incidentResolved: false, sessionEnded: null, slackMessages: [], scorecard: null, elapsedSeconds: 0,
+  sessionStartedAt: null
 }
 
 function mkLine(type: TerminalLine['type'], content: string, extra?: Partial<TerminalLine>): TerminalLine {
@@ -185,7 +187,7 @@ export function useSimulation(): [SimulationState, SimulationActions] {
             mkLine('system', `Investigate, diagnose, and resolve before the timer runs out.`),
             mkLine('system', `Tip: start with — kubectl get pods -n cache`),
           ]
-          return { ...s, screen: 'simulation', sessionInfo: info, alerts: msg.payload.initial_alerts, terminalLines: welcomeLines, terminalBusy: false }
+          return { ...s, screen: 'simulation', sessionInfo: info, alerts: msg.payload.initial_alerts, terminalLines: welcomeLines, terminalBusy: false, sessionStartedAt: new Date().toISOString() }
         }
         case 'thinking':
           return { ...s, terminalBusy: true, terminalLines: addLine(s.terminalLines, 'thinking', msg.payload.message) }
@@ -219,7 +221,8 @@ export function useSimulation(): [SimulationState, SimulationActions] {
           return { ...s, sessionEnded: msg.payload, terminalLines: addLine(s.terminalLines, 'system', `=== SESSION ENDED: ${msg.payload.reason.toUpperCase()} | Duration: ${msg.payload.duration_minutes} min ===`), terminalBusy: false }
         }
         case 'scorecard':
-          return { ...s, scorecard: msg.payload, screen: 'scorecard' }
+          // scorecard is stored server-side; candidates see 'submitted' screen only
+          return { ...s, scorecard: null, screen: 'submitted' }
         case 'error': {
           // If still on home screen (no session started yet), show as connection error
           if (s.screen === 'home') {

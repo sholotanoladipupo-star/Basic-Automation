@@ -3,14 +3,21 @@ import { Alert } from '../types'
 interface AlertPanelProps {
   alerts: Alert[]
   onAcknowledge: (alertId: string) => void
+  sessionStartedAt?: string | null
 }
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
+function alertTimestamp(firedAt: string, sessionStartedAt?: string | null): string {
+  if (sessionStartedAt) {
+    const offsetMs = new Date(firedAt).getTime() - new Date(sessionStartedAt).getTime()
+    const totalSecs = Math.max(0, Math.floor(offsetMs / 1000))
+    const m = Math.floor(totalSecs / 60)
+    const s = totalSecs % 60
+    return `T+${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }
+  // fallback: relative wall time
+  const diff = Date.now() - new Date(firedAt).getTime()
   const minutes = Math.floor(diff / 60000)
-  const seconds = Math.floor((diff % 60000) / 1000)
-  if (minutes > 0) return `${minutes}m ago`
-  return `${seconds}s ago`
+  return minutes > 0 ? `${minutes}m ago` : `${Math.floor((diff % 60000) / 1000)}s ago`
 }
 
 const SEV_STYLES: Record<string, { badge: string; border: string; label: string }> = {
@@ -19,7 +26,7 @@ const SEV_STYLES: Record<string, { badge: string; border: string; label: string 
   sev3: { badge: 'bg-[#d29922] text-black', border: 'border-l-4 border-[#d29922]', label: 'SEV3' }
 }
 
-export default function AlertPanel({ alerts, onAcknowledge }: AlertPanelProps) {
+export default function AlertPanel({ alerts, onAcknowledge, sessionStartedAt }: AlertPanelProps) {
   const unackedCount = alerts.filter(a => !a.acknowledged).length
 
   return (
@@ -53,7 +60,7 @@ export default function AlertPanel({ alerts, onAcknowledge }: AlertPanelProps) {
                     <span className={`${style.badge} text-xs px-1.5 py-0.5 rounded font-bold`}>
                       {style.label}
                     </span>
-                    <span className="text-[#484f58]">{timeAgo(alert.fired_at)}</span>
+                    <span className="text-[#484f58] font-mono text-[10px]">{alertTimestamp(alert.fired_at, sessionStartedAt)}</span>
                   </div>
                   <div className="text-[#3fb950] mb-1 font-bold">{alert.service}</div>
                   <div className="text-[#e6edf3] leading-relaxed break-words">{alert.message}</div>

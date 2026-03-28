@@ -37,13 +37,29 @@ interface SessionHistoryProps {
   onBack: () => void
 }
 
+const HISTORY_PASSWORD = 'sre-moniepoint-2024'
+
 export default function SessionHistory({ onBack }: SessionHistoryProps) {
+  const [unlocked, setUnlocked] = useState(false)
+  const [passwordInput, setPasswordInput] = useState('')
+  const [passwordError, setPasswordError] = useState(false)
   const [sessions, setSessions] = useState<SessionWithScore[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
 
+  function handleUnlock(e: React.FormEvent) {
+    e.preventDefault()
+    if (passwordInput === HISTORY_PASSWORD) {
+      setUnlocked(true)
+      setPasswordError(false)
+    } else {
+      setPasswordError(true)
+    }
+  }
+
   useEffect(() => {
+    if (!unlocked) return
     async function load() {
       try {
         const res = await fetch(`${API_BASE}/sessions`)
@@ -74,7 +90,7 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
       }
     }
     load()
-  }, [])
+  }, [unlocked])
 
   function formatDate(iso: string) {
     return new Date(iso).toLocaleString(undefined, {
@@ -86,6 +102,42 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
     if (score >= passing) return 'text-[#3fb950]'
     if (score >= passing * 0.7) return 'text-[#d29922]'
     return 'text-[#f85149]'
+  }
+
+  if (!unlocked) {
+    return (
+      <div className="min-h-screen bg-[#0d1117] flex flex-col items-center justify-center px-4 font-mono">
+        <div className="w-full max-w-sm bg-[#161b22] border border-[#30363d] rounded-lg p-6 space-y-5">
+          <div className="text-center">
+            <div className="text-[#8b949e] text-xs uppercase tracking-widest mb-2">🔒 Restricted Access</div>
+            <h1 className="text-[#e6edf3] text-lg font-bold">Session History</h1>
+            <p className="text-[#484f58] text-xs mt-1">Enter the assessor password to continue</p>
+          </div>
+          <form onSubmit={handleUnlock} className="space-y-4">
+            <input
+              type="password"
+              value={passwordInput}
+              onChange={e => setPasswordInput(e.target.value)}
+              placeholder="Password"
+              autoFocus
+              className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-sm text-[#e6edf3] placeholder-[#484f58] focus:outline-none focus:border-[#3fb950] transition-colors"
+            />
+            {passwordError && (
+              <div className="text-[#f85149] text-xs text-center">✗ Incorrect password</div>
+            )}
+            <button
+              type="submit"
+              className="w-full bg-[#238636] hover:bg-[#2ea043] text-white font-bold py-2.5 rounded border border-[#2ea043] transition-all text-sm"
+            >
+              Unlock
+            </button>
+          </form>
+          <button onClick={onBack} className="w-full text-[#484f58] hover:text-[#8b949e] text-xs text-center transition-colors">
+            ← Back to Home
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (

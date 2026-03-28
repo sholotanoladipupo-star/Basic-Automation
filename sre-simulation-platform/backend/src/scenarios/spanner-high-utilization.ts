@@ -220,7 +220,7 @@ watch -n10 gcloud spanner instances describe prod-catalog
       { id: 'dash-overview', name: 'System Overview', services: ['api-gateway', 'catalog-service', 'search-service', 'recommendation-service', 'spanner-primary'] },
     ],
     passing_score: 65,
-    time_limit_minutes: 10,
+    time_limit_minutes: 15,
   }
 }
 

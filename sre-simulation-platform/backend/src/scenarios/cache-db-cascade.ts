@@ -431,7 +431,7 @@ Next update in: {X} minutes
       }
     ],
     passing_score: 65,
-    time_limit_minutes: 10
+    time_limit_minutes: 15
   }
 }
 
