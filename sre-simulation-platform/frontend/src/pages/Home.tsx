@@ -6,9 +6,11 @@ interface HomeProps {
   connectionError: string | null
   onViewHistory: () => void
   onAdmin: () => void
+  theme?: 'dark' | 'light'
+  onToggleTheme?: () => void
 }
 
-export default function Home({ onStart, connecting, connectionError, onViewHistory, onAdmin }: HomeProps) {
+export default function Home({ onStart, connecting, connectionError, onViewHistory, onAdmin, theme = 'dark', onToggleTheme }: HomeProps) {
   const [name, setName] = useState('')
 
   function handleSubmit(e: React.FormEvent) {
@@ -95,6 +97,14 @@ export default function Home({ onStart, connecting, connectionError, onViewHisto
           <span>·</span>
           <button onClick={onAdmin} className="hover:text-[#8b949e] transition-colors">
             Admin
+          </button>
+          <span>·</span>
+          <button
+            onClick={onToggleTheme}
+            className="hover:text-[#8b949e] transition-colors"
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            {theme === 'dark' ? '☀ Light' : '◑ Dark'}
           </button>
         </div>
       </div>

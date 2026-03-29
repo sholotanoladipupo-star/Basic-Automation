@@ -21,3 +21,15 @@ body { margin: 0; background: #0d1117; color: #e6edf3; font-family: 'JetBrains M
   50% { border-color: #ff7b72; }
 }
 .sev1-pulse { animation: pulse-border 1.5s ease-in-out infinite; }
+
+/* ── Light mode (CSS invert trick) ─────────────────────────────────────────── */
+html.light-mode {
+  filter: invert(1) hue-rotate(180deg);
+}
+/* Re-invert elements that should NOT be inverted */
+html.light-mode img,
+html.light-mode video,
+html.light-mode canvas,
+html.light-mode .no-invert {
+  filter: invert(1) hue-rotate(180deg);
+}

@@ -1,19 +1,32 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSimulation } from './hooks/useSimulation'
 import Home from './pages/Home'
 import Simulation from './pages/Simulation'
-import ScoreCardPage from './pages/ScoreCardPage'
 import SessionHistory from './pages/SessionHistory'
 import Admin from './pages/Admin'
 import SQLSimulation from './pages/SQLSimulation'
 import MonitoringSimulation from './pages/MonitoringSimulation'
 import CognitiveSimulation from './pages/CognitiveSimulation'
+import PostmortemSimulation from './pages/PostmortemSimulation'
+import AutomationSimulation from './pages/AutomationSimulation'
 
 type AppScreen = 'home' | 'history' | 'admin'
 
 export default function App() {
   const [state, actions] = useSimulation()
   const [appScreen, setAppScreen] = useState<AppScreen>('home')
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    return (localStorage.getItem('sre-theme') as 'dark' | 'light') ?? 'dark'
+  })
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('light-mode', theme === 'light')
+    localStorage.setItem('sre-theme', theme)
+  }, [theme])
+
+  function toggleTheme() {
+    setTheme(t => (t === 'dark' ? 'light' : 'dark'))
+  }
 
   // Simulation screens take over when active
   if (state.screen === 'submitted' || state.screen === 'scorecard') {
@@ -35,24 +48,16 @@ export default function App() {
   }
   if (state.screen === 'simulation') {
     const moduleType = state.sessionInfo?.module_type ?? 'incident'
-    if (moduleType === 'sql') {
-      return <SQLSimulation sessionInfo={state.sessionInfo!} />
-    }
-    if (moduleType === 'monitoring') {
-      return <MonitoringSimulation sessionInfo={state.sessionInfo!} />
-    }
-    if (moduleType === 'cognitive') {
-      return <CognitiveSimulation sessionInfo={state.sessionInfo!} />
-    }
+    if (moduleType === 'sql') return <SQLSimulation sessionInfo={state.sessionInfo!} />
+    if (moduleType === 'monitoring') return <MonitoringSimulation sessionInfo={state.sessionInfo!} />
+    if (moduleType === 'cognitive') return <CognitiveSimulation sessionInfo={state.sessionInfo!} />
+    if (moduleType === 'postmortem') return <PostmortemSimulation sessionInfo={state.sessionInfo!} />
+    if (moduleType === 'automation') return <AutomationSimulation sessionInfo={state.sessionInfo!} />
     return <Simulation state={state} actions={actions} />
   }
 
-  if (appScreen === 'history') {
-    return <SessionHistory onBack={() => setAppScreen('home')} />
-  }
-  if (appScreen === 'admin') {
-    return <Admin onBack={() => setAppScreen('home')} />
-  }
+  if (appScreen === 'history') return <SessionHistory onBack={() => setAppScreen('home')} />
+  if (appScreen === 'admin') return <Admin onBack={() => setAppScreen('home')} />
 
   return (
     <Home
@@ -61,6 +66,8 @@ export default function App() {
       connectionError={state.connectionError}
       onViewHistory={() => setAppScreen('history')}
       onAdmin={() => setAppScreen('admin')}
+      theme={theme}
+      onToggleTheme={toggleTheme}
     />
   )
 }

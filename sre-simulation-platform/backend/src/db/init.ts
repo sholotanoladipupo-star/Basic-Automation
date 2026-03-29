@@ -163,6 +163,59 @@ export async function initDb(): Promise<void> {
       )
     `)
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS postmortem_questions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        title TEXT NOT NULL,
+        incident_summary TEXT NOT NULL,
+        timeline JSONB NOT NULL DEFAULT '[]',
+        difficulty TEXT NOT NULL DEFAULT 'medium',
+        time_limit_seconds INTEGER NOT NULL DEFAULT 1800,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS postmortem_attempts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+        question_id UUID REFERENCES postmortem_questions(id) ON DELETE CASCADE,
+        sections JSONB NOT NULL DEFAULT '{}',
+        score INTEGER,
+        rating TEXT,
+        submitted_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS automation_questions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        task TEXT NOT NULL,
+        difficulty TEXT NOT NULL DEFAULT 'medium',
+        language TEXT NOT NULL DEFAULT 'bash',
+        starter_code TEXT NOT NULL DEFAULT '',
+        evaluation_criteria JSONB NOT NULL DEFAULT '[]',
+        time_limit_seconds INTEGER NOT NULL DEFAULT 900,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS automation_attempts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+        question_id UUID REFERENCES automation_questions(id) ON DELETE CASCADE,
+        candidate_code TEXT NOT NULL,
+        score INTEGER,
+        rating TEXT,
+        feedback TEXT,
+        criterion_scores JSONB,
+        submitted_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+
     await client.query(`CREATE INDEX IF NOT EXISTS idx_event_logs_session ON event_logs(session_id)`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_state_snapshots_session ON state_snapshots(session_id)`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_scorecards_session ON scorecards(session_id)`)

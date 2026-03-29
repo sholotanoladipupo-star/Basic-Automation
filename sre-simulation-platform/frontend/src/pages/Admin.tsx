@@ -15,7 +15,7 @@ interface Assignment {
   id: string
   candidate_name: string
   scenario_id: string
-  module_type: 'incident' | 'sql' | 'monitoring' | 'cognitive'
+  module_type: 'incident' | 'sql' | 'monitoring' | 'cognitive' | 'postmortem' | 'automation'
   question_id: string | null
   created_at: string
   used_at: string | null
@@ -61,7 +61,7 @@ interface AdminProps {
   onBack: () => void
 }
 
-type Tab = 'assign' | 'sql' | 'monitoring' | 'results'
+type Tab = 'assign' | 'sql' | 'monitoring' | 'postmortem' | 'automation' | 'results'
 
 export default function Admin({ onBack }: AdminProps) {
   const [adminKey, setAdminKey] = useState('')
@@ -72,7 +72,7 @@ export default function Admin({ onBack }: AdminProps) {
   // Assign tab
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [candidateName, setCandidateName] = useState('')
-  const [moduleType, setModuleType] = useState<'incident' | 'sql' | 'monitoring' | 'cognitive'>('incident')
+  const [moduleType, setModuleType] = useState<'incident' | 'sql' | 'monitoring' | 'cognitive' | 'postmortem' | 'automation'>('incident')
   const [scenarioId, setScenarioId] = useState('cache-db-cascade')
   const [selectedQuestionId, setSelectedQuestionId] = useState('')
   const [creating, setCreating] = useState(false)
@@ -95,6 +95,12 @@ export default function Admin({ onBack }: AdminProps) {
   const [monForm, setMonForm] = useState({ title: '', scenario: '', difficulty: 'medium', sub_questions: '', time_limit_seconds: '600' })
   const [monFormError, setMonFormError] = useState('')
   const [monFormSuccess, setMonFormSuccess] = useState('')
+
+  // Postmortem tab
+  const [postmortemQuestions, setPostmortemQuestions] = useState<{ id: string; title: string; difficulty: string; time_limit_seconds: number; created_at: string }[]>([])
+
+  // Automation tab
+  const [automationQuestions, setAutomationQuestions] = useState<{ id: string; title: string; difficulty: string; language: string; time_limit_seconds: number; created_at: string }[]>([])
 
   async function handleAuth(e: React.FormEvent) {
     e.preventDefault()
@@ -135,9 +141,24 @@ export default function Admin({ onBack }: AdminProps) {
     } catch { /* ignore */ }
   }
 
+  async function loadPostmortemQuestions() {
+    try {
+      const res = await fetch(`${API_BASE}/postmortem/admin/questions`, { headers: { 'x-admin-key': adminKey } })
+      if (res.ok) setPostmortemQuestions(await res.json())
+    } catch { /* ignore */ }
+  }
+
+  async function loadAutomationQuestions() {
+    try {
+      const res = await fetch(`${API_BASE}/automation/admin/questions`, { headers: { 'x-admin-key': adminKey } })
+      if (res.ok) setAutomationQuestions(await res.json())
+    } catch { /* ignore */ }
+  }
+
   useEffect(() => {
     if (!authed) return
     loadAssignments(); loadSessions(); loadSqlQuestions(); loadMonitoringQuestions()
+    loadPostmortemQuestions(); loadAutomationQuestions()
     const iv = setInterval(() => { loadAssignments(); loadSessions() }, 15_000)
     return () => clearInterval(iv)
   }, [authed])
@@ -157,14 +178,14 @@ export default function Admin({ onBack }: AdminProps) {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     if (!candidateName.trim()) return
-    if ((moduleType === 'sql' || moduleType === 'monitoring') && !selectedQuestionId) {
+    if ((moduleType === 'sql' || moduleType === 'monitoring' || moduleType === 'postmortem' || moduleType === 'automation') && !selectedQuestionId) {
       setCreateError('Select a question for this module'); return
     }
     setCreating(true); setCreateError(''); setCreateSuccess('')
     try {
       const body: Record<string, string> = { candidate_name: candidateName.trim(), module_type: moduleType }
       if (moduleType === 'incident') body.scenario_id = scenarioId
-      if (moduleType === 'sql' || moduleType === 'monitoring') body.question_id = selectedQuestionId
+      if (moduleType === 'sql' || moduleType === 'monitoring' || moduleType === 'postmortem' || moduleType === 'automation') body.question_id = selectedQuestionId
       const res = await fetch(`${API_BASE}/admin/assignments`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-admin-key': adminKey },
@@ -177,6 +198,8 @@ export default function Admin({ onBack }: AdminProps) {
         const modLabel = moduleType === 'incident' ? SCENARIOS.find(s => s.id === scenarioId)?.name
           : moduleType === 'sql' ? sqlQuestions.find(q => q.id === selectedQuestionId)?.title
           : moduleType === 'monitoring' ? monitoringQuestions.find(q => q.id === selectedQuestionId)?.title
+          : moduleType === 'postmortem' ? postmortemQuestions.find(q => q.id === selectedQuestionId)?.title
+          : moduleType === 'automation' ? automationQuestions.find(q => q.id === selectedQuestionId)?.title
           : 'Cognitive Test'
         setCreateSuccess(`✓ Assigned "${candidateName.trim()}" → ${modLabel ?? moduleType}`)
         await loadAssignments()
@@ -253,7 +276,18 @@ export default function Admin({ onBack }: AdminProps) {
     if (mt === 'sql') return 'SQL'
     if (mt === 'monitoring') return 'MONITORING'
     if (mt === 'cognitive') return 'COGNITIVE'
+    if (mt === 'postmortem') return 'POSTMORTEM'
+    if (mt === 'automation') return 'AUTOMATION'
     return 'INCIDENT'
+  }
+
+  function moduleBadgeClass(mt: string) {
+    if (mt === 'sql') return 'border-[#58a6ff] text-[#58a6ff]'
+    if (mt === 'monitoring') return 'border-[#bc8cff] text-[#bc8cff]'
+    if (mt === 'cognitive') return 'border-[#e3b341] text-[#e3b341]'
+    if (mt === 'postmortem') return 'border-[#d29922] text-[#d29922]'
+    if (mt === 'automation') return 'border-[#3fb950] text-[#3fb950]'
+    return 'border-[#f85149] text-[#f85149]'
   }
 
   const inputCls = "w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-sm text-[#e6edf3] placeholder-[#484f58] focus:outline-none focus:border-[#58a6ff] transition-colors"
@@ -284,10 +318,12 @@ export default function Admin({ onBack }: AdminProps) {
             {/* Tabs */}
             <div className="flex border-b border-[#30363d] overflow-x-auto">
               {([
-                ['assign', '📋 Assign'],
-                ['sql', '🗄 SQL Questions'],
-                ['monitoring', '📊 Monitoring Questions'],
-                ['results', '🏆 Results'],
+                ['assign',     '📋 Assign'],
+                ['sql',        '🗄 SQL'],
+                ['monitoring', '📊 Monitoring'],
+                ['postmortem', '📄 Postmortem'],
+                ['automation', '⚙ Automation'],
+                ['results',    '🏆 Results'],
               ] as [Tab, string][]).map(([id, label]) => (
                 <button key={id} onClick={() => setTab(id)}
                   className={`px-5 py-2.5 text-xs whitespace-nowrap border-b-2 transition-colors ${tab === id ? 'border-[#3fb950] text-[#e6edf3]' : 'border-transparent text-[#8b949e] hover:text-[#e6edf3]'}`}>
@@ -310,10 +346,17 @@ export default function Admin({ onBack }: AdminProps) {
                     <div>
                       <label className={labelCls}>Module Type</label>
                       <div className="flex gap-2 flex-wrap">
-                        {(['incident', 'sql', 'monitoring', 'cognitive'] as const).map(m => (
+                        {([
+                          ['incident',   'Incident Simulation'],
+                          ['sql',        'SQL Readiness'],
+                          ['monitoring', 'Monitoring Design'],
+                          ['postmortem', 'Postmortem Writing'],
+                          ['automation', 'Automation Scripting'],
+                          ['cognitive',  'Cognitive Test'],
+                        ] as const).map(([m, label]) => (
                           <button key={m} type="button" onClick={() => { setModuleType(m); setSelectedQuestionId('') }}
                             className={`px-4 py-1.5 rounded border text-xs font-bold transition-colors ${moduleType === m ? 'border-[#3fb950] text-[#3fb950] bg-[#0d1117]' : 'border-[#30363d] text-[#8b949e] hover:border-[#484f58]'}`}>
-                            {m === 'incident' ? 'Incident Simulation' : m === 'sql' ? 'SQL Readiness' : m === 'monitoring' ? 'Monitoring Design' : 'Cognitive Test'}
+                            {label}
                           </button>
                         ))}
                       </div>
@@ -374,6 +417,44 @@ export default function Admin({ onBack }: AdminProps) {
                       </div>
                     )}
 
+                    {moduleType === 'postmortem' && (
+                      <div>
+                        <label className={labelCls}>Postmortem Scenario</label>
+                        {postmortemQuestions.length === 0 ? (
+                          <div className="text-[#484f58]">No postmortem questions yet. Run /admin/seed-questions to seed them.</div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {postmortemQuestions.map(q => (
+                              <label key={q.id} className={`flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors ${selectedQuestionId === q.id ? 'border-[#3fb950] bg-[#0d1117]' : 'border-[#30363d] hover:border-[#484f58]'}`}>
+                                <input type="radio" name="pm_question" value={q.id} checked={selectedQuestionId === q.id} onChange={() => setSelectedQuestionId(q.id)} className="accent-[#3fb950]" />
+                                <span className="text-[#e6edf3] flex-1">{q.title}</span>
+                                <span className="text-[#484f58] text-[10px] uppercase">{q.difficulty} · {Math.round(q.time_limit_seconds / 60)}m</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {moduleType === 'automation' && (
+                      <div>
+                        <label className={labelCls}>Automation Task</label>
+                        {automationQuestions.length === 0 ? (
+                          <div className="text-[#484f58]">No automation questions yet. Run /admin/seed-questions to seed them.</div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {automationQuestions.map(q => (
+                              <label key={q.id} className={`flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors ${selectedQuestionId === q.id ? 'border-[#3fb950] bg-[#0d1117]' : 'border-[#30363d] hover:border-[#484f58]'}`}>
+                                <input type="radio" name="auto_question" value={q.id} checked={selectedQuestionId === q.id} onChange={() => setSelectedQuestionId(q.id)} className="accent-[#3fb950]" />
+                                <span className="text-[#e6edf3] flex-1">{q.title}</span>
+                                <span className="text-[#484f58] text-[10px] uppercase">{q.difficulty} · {q.language}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {moduleType === 'cognitive' && (
                       <div className="bg-[#0d1117] border border-[#e3b341] rounded p-4">
                         <div className="text-[#e3b341] font-bold mb-1">Cognitive Assessment</div>
@@ -410,7 +491,7 @@ export default function Admin({ onBack }: AdminProps) {
                           <tr key={a.id} className="border-b border-[#30363d] last:border-0 hover:bg-[#1c2128] transition-colors">
                             <td className="px-4 py-2.5 text-[#e6edf3] font-bold">{a.candidate_name}</td>
                             <td className="px-4 py-2.5">
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${a.module_type === 'sql' ? 'border-[#58a6ff] text-[#58a6ff]' : a.module_type === 'monitoring' ? 'border-[#bc8cff] text-[#bc8cff]' : a.module_type === 'cognitive' ? 'border-[#e3b341] text-[#e3b341]' : 'border-[#d29922] text-[#d29922]'}`}>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${moduleBadgeClass(a.module_type ?? 'incident')}`}>
                                 {moduleLabel(a.module_type ?? 'incident')}
                               </span>
                             </td>
@@ -600,6 +681,86 @@ export default function Admin({ onBack }: AdminProps) {
                             <td className="px-4 py-2.5 text-[#484f58]">{Math.round(q.time_limit_seconds / 60)}min</td>
                             <td className="px-4 py-2.5 text-right">
                               <button onClick={() => handleDeleteMonitoringQuestion(q.id)} className="text-[#484f58] hover:text-[#f85149] transition-colors">✕</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── POSTMORTEM TAB ── */}
+            {tab === 'postmortem' && (
+              <div className="space-y-5">
+                <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
+                  <div className="text-[#8b949e] uppercase tracking-widest mb-3">Postmortem Questions</div>
+                  <div className="text-[#484f58] text-xs mb-4">
+                    Postmortem questions are seeded automatically. Run <code className="text-[#8b949e] bg-[#0d1117] px-1 rounded">POST /admin/seed-questions</code> to seed 3 scenarios.
+                  </div>
+                  {postmortemQuestions.length === 0 ? (
+                    <div className="text-[#484f58] py-4">No postmortem questions yet. Seed to add them.</div>
+                  ) : (
+                    <table className="w-full">
+                      <thead><tr className="text-[#484f58] border-b border-[#30363d]">
+                        <th className="text-left px-4 py-2">Title</th>
+                        <th className="text-left px-4 py-2">Difficulty</th>
+                        <th className="text-left px-4 py-2">Time</th>
+                        <th className="px-4 py-2"></th>
+                      </tr></thead>
+                      <tbody>
+                        {postmortemQuestions.map(q => (
+                          <tr key={q.id} className="border-b border-[#30363d] last:border-0 hover:bg-[#1c2128]">
+                            <td className="px-4 py-2.5 text-[#e6edf3]">{q.title}</td>
+                            <td className="px-4 py-2.5 text-[#8b949e] uppercase text-[10px]">{q.difficulty}</td>
+                            <td className="px-4 py-2.5 text-[#484f58]">{Math.round(q.time_limit_seconds / 60)}min</td>
+                            <td className="px-4 py-2.5 text-right">
+                              <button onClick={async () => {
+                                await fetch(`${API_BASE}/postmortem/admin/questions/${q.id}`, { method: 'DELETE', headers: { 'x-admin-key': adminKey } })
+                                await loadPostmortemQuestions()
+                              }} className="text-[#484f58] hover:text-[#f85149] transition-colors">✕</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── AUTOMATION TAB ── */}
+            {tab === 'automation' && (
+              <div className="space-y-5">
+                <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
+                  <div className="text-[#8b949e] uppercase tracking-widest mb-3">Automation Questions</div>
+                  <div className="text-[#484f58] text-xs mb-4">
+                    Automation questions are seeded automatically. Run <code className="text-[#8b949e] bg-[#0d1117] px-1 rounded">POST /admin/seed-questions</code> to seed 4 tasks (Bash & Python).
+                  </div>
+                  {automationQuestions.length === 0 ? (
+                    <div className="text-[#484f58] py-4">No automation questions yet. Seed to add them.</div>
+                  ) : (
+                    <table className="w-full">
+                      <thead><tr className="text-[#484f58] border-b border-[#30363d]">
+                        <th className="text-left px-4 py-2">Title</th>
+                        <th className="text-left px-4 py-2">Difficulty</th>
+                        <th className="text-left px-4 py-2">Language</th>
+                        <th className="text-left px-4 py-2">Time</th>
+                        <th className="px-4 py-2"></th>
+                      </tr></thead>
+                      <tbody>
+                        {automationQuestions.map(q => (
+                          <tr key={q.id} className="border-b border-[#30363d] last:border-0 hover:bg-[#1c2128]">
+                            <td className="px-4 py-2.5 text-[#e6edf3]">{q.title}</td>
+                            <td className="px-4 py-2.5 text-[#8b949e] uppercase text-[10px]">{q.difficulty}</td>
+                            <td className="px-4 py-2.5 text-[#3fb950] text-[10px]">{q.language}</td>
+                            <td className="px-4 py-2.5 text-[#484f58]">{Math.round(q.time_limit_seconds / 60)}min</td>
+                            <td className="px-4 py-2.5 text-right">
+                              <button onClick={async () => {
+                                await fetch(`${API_BASE}/automation/admin/questions/${q.id}`, { method: 'DELETE', headers: { 'x-admin-key': adminKey } })
+                                await loadAutomationQuestions()
+                              }} className="text-[#484f58] hover:text-[#f85149] transition-colors">✕</button>
                             </td>
                           </tr>
                         ))}

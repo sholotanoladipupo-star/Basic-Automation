@@ -120,7 +120,7 @@ export interface SessionInfo {
   scenario_name: string
   difficulty: string
   time_limit_minutes: number
-  module_type: 'incident' | 'sql' | 'monitoring' | 'cognitive'
+  module_type: 'incident' | 'sql' | 'monitoring' | 'cognitive' | 'postmortem' | 'automation'
   question_id: string | null
   available_runbooks: { id: string; title: string }[]
   available_dashboards: { id: string; name: string }[]

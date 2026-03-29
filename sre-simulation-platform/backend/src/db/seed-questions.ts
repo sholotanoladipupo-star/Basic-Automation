@@ -661,6 +661,185 @@ async function seedCognitiveQuestions(client: PoolClient) {
 }
 
 
+async function seedPostmortemQuestions(client: PoolClient) {
+  console.log('Seeding postmortem questions...')
+  await client.query(`DELETE FROM postmortem_questions WHERE title LIKE '[SEED]%'`)
+
+  const questions = [
+    {
+      title: '[SEED] Payments API — Database Connection Pool Exhaustion',
+      difficulty: 'medium',
+      time_limit_seconds: 1800,
+      incident_summary: `SEV-1 | Duration: 47 minutes | Date: Monday 06:14–07:01 UTC
+
+Impact: 100% of payment transactions failed for 47 minutes. ~12,000 transactions declined. Estimated revenue impact: $240,000. Customer-facing error: "Service temporarily unavailable."
+
+Detection: PagerDuty alert fired at 06:14 — "payments-api error rate >10% for 5 minutes." On-call engineer acknowledged at 06:18.
+
+Resolution: At 06:58, engineer identified that a new release deployed at 05:50 introduced a database connection leak. Rolling back the release restored service at 07:01.
+
+Affected systems: payments-api (v2.4.1), PostgreSQL payments-db, downstream: transaction-service, notification-service.`,
+      timeline: [
+        { time: '05:50', description: 'payments-api v2.4.1 deployed to production via CI/CD pipeline. Deploy completed successfully, no immediate alerts.' },
+        { time: '06:12', description: 'payments-api error rate begins climbing — 0.1% → 2% → 8% over 2 minutes. DB connection pool at 95%.' },
+        { time: '06:14', description: 'PagerDuty fires: payments-api error rate >10%. DB connection pool at 100% (500/500 connections exhausted).' },
+        { time: '06:18', description: 'On-call engineer acknowledges. Starts investigation in New Relic.' },
+        { time: '06:25', description: 'New Relic shows DB query latency spiking to 30s. pg_stat_activity shows 500 active connections, all in "idle in transaction" state.' },
+        { time: '06:35', description: 'Second engineer joins. Hypothesis: connection leak. Git log shows DB client upgrade in v2.4.1.' },
+        { time: '06:50', description: 'Decision to rollback. Initiates rollback of payments-api to v2.4.0.' },
+        { time: '06:58', description: 'Rollback complete. DB connections begin draining. Error rate drops to 0%.' },
+        { time: '07:01', description: 'All systems normal. Incident resolved. Customer comms sent.' },
+      ],
+    },
+    {
+      title: '[SEED] Mobile App Crashes — Memory Leak in Push Notification SDK',
+      difficulty: 'medium',
+      time_limit_seconds: 1800,
+      incident_summary: `SEV-2 | Duration: 2h 15min | Date: Saturday 14:30–16:45 WAT
+
+Impact: ~32% of Android users (≈800,000 users) experienced app crashes within 60 seconds of receiving a push notification. iOS users unaffected. Crash rate: normal 0.1% → peak 28%.
+
+Detection: Automated crash monitoring (Firebase Crashlytics) triggered a Slack alert at 14:35 — "Android crash rate >5%." First customer report on Twitter at 14:40.
+
+Resolution: Feature flag disabling the new push notification SDK rolled out at 16:30. Crash rate normalised by 16:45.
+
+Root cause: Firebase Messaging SDK v9.2.0 (deployed Friday 18:00 via Play Store update) contained a memory leak triggered when the app received a notification while backgrounded. The leak caused OOM (out-of-memory) crashes within 30–90 seconds.`,
+      timeline: [
+        { time: 'Fri 18:00', description: 'Android app v4.8.0 published to Play Store. Includes Firebase Messaging SDK upgrade from v8.4.1 → v9.2.0.' },
+        { time: 'Sat 14:30', description: 'Marketing push notification sent to all Android users (1.8M devices) as part of a weekend promotion.' },
+        { time: 'Sat 14:35', description: 'Firebase Crashlytics alert: Android crash rate >5%. Crashes all show OOM in Firebase thread.' },
+        { time: 'Sat 14:50', description: 'On-call mobile engineer investigates. Crash stack traces point to Firebase Messaging SDK heap allocation.' },
+        { time: 'Sat 15:10', description: 'Hypothesis: SDK memory leak. Push notification timing correlates with crash spike start.' },
+        { time: 'Sat 15:30', description: 'Checked Firebase SDK changelog — v9.2.0 has known memory issue on Android API < 30 (reported in Firebase GitHub issues).' },
+        { time: 'Sat 15:45', description: 'Decision: cannot hotfix SDK quickly. Plan: disable push notifications via feature flag, force SDK downgrade in next release.' },
+        { time: 'Sat 16:30', description: 'Feature flag rolled out disabling push notification processing in app.' },
+        { time: 'Sat 16:45', description: 'Crash rate returns to baseline 0.1%. Incident resolved.' },
+      ],
+    },
+    {
+      title: '[SEED] Data Pipeline Delay — Kafka Consumer Group Lag Explosion',
+      difficulty: 'hard',
+      time_limit_seconds: 2100,
+      incident_summary: `SEV-2 | Duration: 3h 40min | Date: Wednesday 02:10–05:50 UTC
+
+Impact: Transaction data pipeline delayed by up to 4 hours. Downstream: real-time fraud detection model received stale data, fraud scoring degraded. Finance reconciliation reports showed incorrect balances until pipeline caught up. No transactions were lost.
+
+Detection: Grafana alert "kafka_consumer_lag > 500,000 messages for >10 minutes" fired at 02:10. On-call data engineer acknowledged at 02:18.
+
+Resolution: Root cause was a schema registry outage caused by a disk full on the schema registry node. Extending disk and restarting schema registry resolved the consumer blocking. Consumer lag cleared by 05:50.
+
+Systems affected: transaction-events Kafka topic (30 partitions), fraud-detection-consumer (Python), reconciliation-consumer (Java), downstream: fraud model API, finance-reports service.`,
+      timeline: [
+        { time: '02:00', description: 'Schema registry disk usage reaches 100% (was at 87% at midnight, grew due to schema evolution event at 01:55).' },
+        { time: '02:03', description: 'Kafka consumers begin receiving "Failed to retrieve schema" errors from schema registry. Both Python and Java consumers enter retry loop.' },
+        { time: '02:07', description: 'Consumer lag begins accumulating as consumers pause processing. Lag grows at ~15,000 msgs/min.' },
+        { time: '02:10', description: 'Grafana alert fires: consumer lag > 500,000 messages.' },
+        { time: '02:18', description: 'On-call engineer acknowledges. Checks consumer logs — sees schema registry errors.' },
+        { time: '02:35', description: 'Schema registry health endpoint returns 503. Disk usage confirmed at 100% via GCP Cloud Monitoring.' },
+        { time: '03:00', description: 'Second engineer joins. Decision: extend schema registry disk from 100GB to 200GB via GCP Console.' },
+        { time: '03:45', description: 'Disk extended. Schema registry restarted. Consumers reconnect and begin processing.' },
+        { time: '04:00', description: 'Consumer lag starts decreasing. Fraud detection model receiving fresh data. Finance reports still showing stale data.' },
+        { time: '05:50', description: 'Consumer lag reaches 0. All downstream systems back to real-time. Incident resolved.' },
+      ],
+    },
+  ]
+
+  for (const q of questions) {
+    await client.query(
+      `INSERT INTO postmortem_questions (title, incident_summary, timeline, difficulty, time_limit_seconds)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT DO NOTHING`,
+      [q.title, q.incident_summary, JSON.stringify(q.timeline), q.difficulty, q.time_limit_seconds]
+    )
+  }
+  console.log(`Seeded ${questions.length} postmortem questions.`)
+}
+
+async function seedAutomationQuestions(client: PoolClient) {
+  console.log('Seeding automation questions...')
+  await client.query(`DELETE FROM automation_questions WHERE title LIKE '[SEED]%'`)
+
+  const questions = [
+    {
+      title: '[SEED] Disk Usage Monitor',
+      difficulty: 'easy',
+      language: 'bash',
+      time_limit_seconds: 600,
+      description: 'On-call engineers need an automated way to check disk usage across all mounted filesystems and receive an alert when any filesystem exceeds a threshold.',
+      task: 'Write a Bash script that:\n1. Checks disk usage on all mounted filesystems\n2. Sends an alert (print to stderr and exit with code 1) if any filesystem exceeds 80% usage\n3. Accepts the threshold as a command-line argument (default: 80)\n4. Outputs a clean summary of each filesystem: name, usage %, status (OK/WARN/CRIT)\n5. Uses WARN for >80%, CRIT for >90%\n6. Handles the case where df is unavailable gracefully',
+      starter_code: '#!/usr/bin/env bash\nset -euo pipefail\n\nTHRESHOLD="${1:-80}"\n\n# Your solution here\n',
+      evaluation_criteria: [
+        { label: 'Correctness', description: 'Script correctly parses df output and identifies filesystems over threshold' },
+        { label: 'Error handling', description: 'Uses set -euo pipefail, handles edge cases (no df, empty output)' },
+        { label: 'Threshold argument', description: 'Correctly accepts and uses CLI argument with default fallback' },
+        { label: 'Output clarity', description: 'Clean, readable output with WARN/CRIT distinction' },
+        { label: 'Best practices', description: 'Proper quoting, exit codes, comments' },
+      ],
+    },
+    {
+      title: '[SEED] Log Error Aggregator',
+      difficulty: 'medium',
+      language: 'python',
+      time_limit_seconds: 900,
+      description: 'SRE teams need to quickly understand error patterns in application logs. You will write a script to parse log files and produce a summarised error report.',
+      task: 'Write a Python script that:\n1. Accepts a log file path as a CLI argument (use argparse)\n2. Parses log lines in the format: [LEVEL] TIMESTAMP message\n   Example: [ERROR] 2024-01-15T10:23:45Z Failed to connect to database: timeout\n3. Counts occurrences of each error message (group similar errors by removing variable parts: UUIDs, IPs, numbers)\n4. Outputs the top 10 most frequent errors sorted by count descending\n5. Prints a summary: total lines, total errors, unique error types\n6. Handles file not found and permission errors gracefully\n7. Supports --level flag to filter by log level (default: ERROR)',
+      starter_code: '#!/usr/bin/env python3\nimport argparse\nimport re\nfrom collections import Counter\nfrom pathlib import Path\n\ndef normalize_message(msg: str) -> str:\n    """Remove variable parts to group similar errors."""\n    # Your normalization logic here\n    return msg\n\ndef main():\n    parser = argparse.ArgumentParser(description="Aggregate log errors")\n    # Your argument definitions here\n    pass\n\nif __name__ == "__main__":\n    main()\n',
+      evaluation_criteria: [
+        { label: 'Correctness', description: 'Correctly parses log format and counts errors' },
+        { label: 'Error normalization', description: 'Strips UUIDs, IPs, timestamps to group similar errors' },
+        { label: 'CLI interface', description: 'Uses argparse with --level flag and proper help text' },
+        { label: 'Error handling', description: 'Handles missing file, permission errors, malformed lines' },
+        { label: 'Output quality', description: 'Clean sorted output with summary statistics' },
+        { label: 'Code quality', description: 'Type hints, docstrings, clean separation of concerns' },
+      ],
+    },
+    {
+      title: '[SEED] K8s Unhealthy Pod Reporter',
+      difficulty: 'medium',
+      language: 'bash',
+      time_limit_seconds: 900,
+      description: 'Ops team needs a script to run as a cron job that checks pod health across all namespaces and sends a Slack notification if any pods are not in a Running or Completed state.',
+      task: 'Write a Bash script that:\n1. Uses kubectl to list all pods across all namespaces\n2. Identifies pods NOT in Running or Completed/Succeeded status\n3. Groups unhealthy pods by namespace\n4. Formats a Slack message with the list of unhealthy pods (webhook URL from env var SLACK_WEBHOOK)\n5. Only sends the Slack message if there ARE unhealthy pods (no false-positive pings)\n6. Prints a summary to stdout regardless\n7. Exits with code 0 if all healthy, code 1 if any unhealthy\n8. Handles kubectl not found or connection errors',
+      starter_code: '#!/usr/bin/env bash\nset -euo pipefail\n\nSLACK_WEBHOOK="${SLACK_WEBHOOK:-}"\n\n# Check kubectl is available\nif ! command -v kubectl &>/dev/null; then\n  echo "ERROR: kubectl not found" >&2\n  exit 2\nfi\n\n# Your solution here\n',
+      evaluation_criteria: [
+        { label: 'Correctness', description: 'Correctly identifies non-Running/Completed pods using kubectl' },
+        { label: 'Slack integration', description: 'Only sends webhook when pods are unhealthy, proper JSON payload' },
+        { label: 'Grouping', description: 'Groups output by namespace for clarity' },
+        { label: 'Exit codes', description: 'Returns 0 for healthy, 1 for unhealthy, 2 for missing dependency' },
+        { label: 'Robustness', description: 'Handles kubectl failures, missing webhook env var' },
+      ],
+    },
+    {
+      title: '[SEED] GCP VM Inventory Script',
+      difficulty: 'hard',
+      language: 'python',
+      time_limit_seconds: 1200,
+      description: 'The ops team needs to generate a filtered inventory of GCP Compute Engine VMs for capacity planning. The script must use the Google Cloud Python SDK.',
+      task: 'Write a Python script that:\n1. Uses the google-cloud-compute library (google.cloud.compute_v1) to list all VMs in a GCP project\n2. Accepts --project, --label-filter (e.g. "env=production"), --zone (optional, default all zones), --output (csv|json|table)\n3. For each VM, extracts: name, zone, machine_type, status, internal_ip, labels\n4. Filters VMs by the provided label key=value pair\n5. Outputs results in the chosen format (CSV with header, JSON array, or ASCII table)\n6. Handles pagination correctly (the API may return multiple pages)\n7. Handles auth errors (Application Default Credentials not configured) with a clear error message\n8. Includes a --dry-run flag that prints the API calls that would be made without executing them',
+      starter_code: '#!/usr/bin/env python3\n"""GCP VM Inventory Script\n\nUsage:\n  python vm_inventory.py --project my-project --label-filter env=production --output csv\n"""\nimport argparse\nimport csv\nimport json\nimport sys\nfrom typing import Optional\n\n# from google.cloud import compute_v1  # Uncomment when running\n\ndef parse_label_filter(label_str: Optional[str]) -> Optional[tuple[str, str]]:\n    """Parse "key=value" label filter string."""\n    if not label_str:\n        return None\n    # Your implementation here\n    pass\n\ndef list_vms(project: str, zone: Optional[str], label_filter: Optional[tuple[str, str]]):\n    """List VMs with optional zone and label filter."""\n    # Your implementation here\n    pass\n\ndef main():\n    parser = argparse.ArgumentParser(description="GCP VM Inventory")\n    # Your argument definitions here\n    pass\n\nif __name__ == "__main__":\n    main()\n',
+      evaluation_criteria: [
+        { label: 'API usage', description: 'Correct use of google.cloud.compute_v1 InstancesClient with aggregated list for all zones' },
+        { label: 'Pagination', description: 'Handles paginated API responses correctly' },
+        { label: 'Label filtering', description: 'Correctly parses and applies label filter to results' },
+        { label: 'Output formats', description: 'All three output formats (CSV, JSON, table) implemented correctly' },
+        { label: 'Error handling', description: 'Auth errors, invalid project, no results handled gracefully' },
+        { label: 'CLI design', description: 'All flags present with sensible defaults and help text; --dry-run works' },
+        { label: 'Code quality', description: 'Type hints, docstrings, modular functions, no global state' },
+      ],
+    },
+  ]
+
+  for (const q of questions) {
+    await client.query(
+      `INSERT INTO automation_questions (title, description, task, difficulty, language, starter_code, evaluation_criteria, time_limit_seconds)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT DO NOTHING`,
+      [q.title, q.description, q.task, q.difficulty, q.language, q.starter_code, JSON.stringify(q.evaluation_criteria), q.time_limit_seconds]
+    )
+  }
+  console.log(`Seeded ${questions.length} automation questions.`)
+}
+
 export async function runSeed() {
   const client = await pool.connect()
   try {
@@ -668,6 +847,8 @@ export async function runSeed() {
     await seedSqlQuestions(client)
     await seedMonitoringQuestions(client)
     await seedCognitiveQuestions(client)
+    await seedPostmortemQuestions(client)
+    await seedAutomationQuestions(client)
     console.log('All questions seeded successfully.')
   } finally {
     client.release()

@@ -10,6 +10,8 @@ import { initDb } from './db/init'
 import { pool } from './db/client'
 import { sqlRouter, monitoringRouter } from './routes/modules'
 import { cognitiveRouter } from './routes/cognitive'
+import { postmortemRouter } from './routes/postmortem'
+import { automationRouter } from './routes/automation'
 import { runSeed } from './db/seed-questions'
 
 const app = express()
@@ -42,6 +44,8 @@ function requireAdmin(req: express.Request, res: express.Response, next: express
 app.use('/sql', sqlRouter)
 app.use('/monitoring', monitoringRouter)
 app.use('/cognitive', cognitiveRouter)
+app.use('/postmortem', postmortemRouter)
+app.use('/automation', automationRouter)
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
@@ -79,7 +83,7 @@ app.post('/admin/assignments', requireAdmin, async (req, res) => {
   }
   const mt = module_type ?? 'incident'
   if (mt !== 'incident' && mt !== 'cognitive' && !question_id) {
-    res.status(400).json({ error: 'question_id required for sql/monitoring modules' })
+    res.status(400).json({ error: 'question_id required for sql/monitoring/postmortem/automation modules' })
     return
   }
   try {
