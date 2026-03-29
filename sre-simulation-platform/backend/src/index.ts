@@ -173,13 +173,25 @@ app.get('/sessions/:id/scorecard', async (req, res) => {
       postmortem_summary: raw.postmortem ?? '',
     }
 
-    // Enrich with candidate_query from sql_attempts if this is a SQL session
+    // Enrich with candidate_query + question details from sql_attempts if this is a SQL session
     const sqlAttempt = await pool.query(
-      'SELECT candidate_query, score, rating FROM sql_attempts WHERE session_id = $1 ORDER BY submitted_at DESC LIMIT 1',
+      'SELECT candidate_query, score, rating, question_id FROM sql_attempts WHERE session_id = $1 ORDER BY submitted_at DESC LIMIT 1',
       [req.params.id]
     )
     if (sqlAttempt.rows[0]) {
       scorecard.candidate_query = sqlAttempt.rows[0].candidate_query
+      scorecard.sql_score = sqlAttempt.rows[0].score
+      scorecard.sql_rating = sqlAttempt.rows[0].rating
+      // Fetch the SQL question details for side-by-side view
+      if (sqlAttempt.rows[0].question_id) {
+        const sqlQ = await pool.query(
+          'SELECT title, description, schema_hint, starter_query, expected_output FROM sql_questions WHERE id = $1',
+          [sqlAttempt.rows[0].question_id]
+        )
+        if (sqlQ.rows[0]) {
+          scorecard.sql_question = sqlQ.rows[0]
+        }
+      }
     }
     // Enrich with monitoring answers if this is a monitoring session
     const monAttempt = await pool.query(

@@ -238,14 +238,40 @@ export default function Simulation({ state, actions }: SimulationProps) {
 
       {/* Session-ended overlay */}
       {state.sessionEnded && !state.scorecard && (
-        <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-40">
-          <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-8 text-center font-mono max-w-sm">
-            <div className="text-[#3fb950] text-2xl mb-2">{state.sessionEnded.reason === 'resolved' ? '✓' : '⏱'}</div>
-            <div className="text-[#e6edf3] text-lg font-bold mb-2">
-              {state.sessionEnded.reason === 'resolved' ? 'Incident Resolved' : state.sessionEnded.reason === 'time_limit' ? 'Time Limit Reached' : 'Session Ended'}
+        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-40">
+          <div className={`border rounded-lg p-8 text-center font-mono max-w-sm ${
+            state.sessionEnded.reason === 'resolved'
+              ? 'bg-[#0f2a1a] border-[#3fb950]'
+              : state.sessionEnded.reason === 'time_limit'
+              ? 'bg-[#2a1e00] border-[#d29922]'
+              : 'bg-[#161b22] border-[#30363d]'
+          }`}>
+            <div className="text-4xl mb-3">
+              {state.sessionEnded.reason === 'resolved' ? '🎉' : state.sessionEnded.reason === 'time_limit' ? '⏱' : '✓'}
             </div>
-            <div className="text-[#8b949e] text-sm mb-4">Duration: {state.sessionEnded.duration_minutes} minutes</div>
-            <div className="text-[#8b949e] text-xs">Generating scorecard... <span className="blink">◉</span></div>
+            <div className={`text-xl font-bold mb-2 ${
+              state.sessionEnded.reason === 'resolved' ? 'text-[#3fb950]'
+              : state.sessionEnded.reason === 'time_limit' ? 'text-[#d29922]'
+              : 'text-[#e6edf3]'
+            }`}>
+              {state.sessionEnded.reason === 'resolved'
+                ? 'Exercise Completed!'
+                : state.sessionEnded.reason === 'time_limit'
+                ? 'Exercise Automatically Submitted'
+                : 'Session Ended'}
+            </div>
+            <div className="text-[#8b949e] text-sm mb-1">
+              {state.sessionEnded.reason === 'resolved'
+                ? 'Incident resolved successfully'
+                : state.sessionEnded.reason === 'time_limit'
+                ? 'Time limit reached — your work has been submitted'
+                : ''}
+            </div>
+            <div className="text-[#484f58] text-xs mb-4">Duration: {state.sessionEnded.duration_minutes} min</div>
+            <div className="text-[#8b949e] text-xs flex items-center justify-center gap-2">
+              <span className="animate-spin">◉</span>
+              <span>AI is scoring your performance…</span>
+            </div>
           </div>
         </div>
       )}
