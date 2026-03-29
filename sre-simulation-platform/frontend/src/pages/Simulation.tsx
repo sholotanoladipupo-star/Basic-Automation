@@ -44,6 +44,7 @@ export default function Simulation({ state, actions }: SimulationProps) {
   const [showTour, setShowTour] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [elapsedAtDismissal, setElapsedAtDismissal] = useState<number | null>(null)
+  const [expandedCenter, setExpandedCenter] = useState(false)
 
   // Auto-request fullscreen when simulation loads
   useEffect(() => {
@@ -157,8 +158,8 @@ export default function Simulation({ state, actions }: SimulationProps) {
 
       {/* Main layout: left | centre | right */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Alert panel */}
-        <div className="w-64 flex-shrink-0 overflow-hidden">
+        {/* Left: Alert panel — hidden when expanded */}
+        <div className={`flex-shrink-0 overflow-hidden transition-all duration-200 ${expandedCenter ? 'w-0' : 'w-64'}`}>
           <AlertPanel
             alerts={state.alerts}
             onAcknowledge={actions.acknowledgeAlert}
@@ -168,14 +169,14 @@ export default function Simulation({ state, actions }: SimulationProps) {
 
         {/* Centre: tabs + panel */}
         <div className="flex-1 flex flex-col overflow-hidden border-x border-[#30363d]">
-          <div className="flex-shrink-0 flex bg-[#161b22] border-b border-[#30363d] overflow-x-auto">
+          <div className="flex-shrink-0 flex bg-[#161b22] border-b border-[#30363d] overflow-x-auto items-center">
             {TABS.map(tab => {
               const disabled = tab.id === 'runbook' && !state.openRunbook
               const isActive = activePanel === tab.id
               return (
                 <button
                   key={tab.id}
-                  onClick={() => handleTabClick(tab.id)}
+                  onClick={() => { handleTabClick(tab.id); if (tab.id !== 'gcp-console' && tab.id !== 'new-relic') setExpandedCenter(false) }}
                   disabled={disabled}
                   className={`px-4 py-2 text-xs transition-colors border-b-2 whitespace-nowrap flex-shrink-0 ${
                     isActive ? 'text-[#e6edf3] border-[#3fb950]'
@@ -187,6 +188,16 @@ export default function Simulation({ state, actions }: SimulationProps) {
                 </button>
               )
             })}
+            {/* Expand button only for GCP/New Relic panels */}
+            {(activePanel === 'gcp-console' || activePanel === 'new-relic') && (
+              <button
+                onClick={() => setExpandedCenter(e => !e)}
+                className="ml-auto mr-2 text-[#484f58] hover:text-[#e6edf3] px-2 py-1 transition-colors text-[11px] border border-[#30363d] rounded"
+                title={expandedCenter ? 'Collapse' : 'Expand full width'}
+              >
+                {expandedCenter ? '⊡ Collapse' : '⤢ Expand'}
+              </button>
+            )}
           </div>
           <div className="flex-1 overflow-hidden">
             {activePanel === 'terminal' && (
@@ -207,8 +218,8 @@ export default function Simulation({ state, actions }: SimulationProps) {
           </div>
         </div>
 
-        {/* Right: Incident + Comms */}
-        <div className="w-64 flex-shrink-0 flex flex-col overflow-hidden">
+        {/* Right: Incident + Comms — hidden when expanded */}
+        <div className={`flex-shrink-0 flex flex-col overflow-hidden transition-all duration-200 ${expandedCenter ? 'w-0' : 'w-64'}`}>
           <div className="flex-1 overflow-y-auto min-h-0">
             <IncidentPanel
               severityDeclared={severityDeclared}

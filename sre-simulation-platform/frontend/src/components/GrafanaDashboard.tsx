@@ -318,7 +318,93 @@ export default function GrafanaDashboard({ systemState }: Props) {
             )}
           </div>
         </CollapsibleRow>
+
+        {/* Row 3: Business Performance */}
+        <CollapsibleRow title="Business Performance" defaultOpen={true}>
+          <div className="p-3 space-y-3">
+            {(() => {
+              const isDown = systemState ? Object.values(systemState.services).some(s => s.status === 'down') : false
+              const isDegraded = systemState ? Object.values(systemState.services).some(s => s.status === 'degraded') : false
+              const successRate = isDown ? 61.2 : isDegraded ? 84.7 : 99.4
+              const rpm = isDown ? 183 : isDegraded ? 412 : 1247
+              const pendingTx = isDown ? 3842 : isDegraded ? 1203 : 47
+              const avgRespMs = isDown ? 4821 : isDegraded ? 1834 : 142
+              const ordersToday = isDown ? 2341 : isDegraded ? 5102 : 12847
+              const productsPurchased = isDown ? 3109 : isDegraded ? 6843 : 18293
+
+              const successColor = successRate > 95 ? '#3fb950' : successRate > 80 ? '#ff7c21' : '#f85149'
+              const rpmColor = '#8ab4f8'
+              const pendingColor = pendingTx > 1000 ? '#f85149' : pendingTx > 200 ? '#ff7c21' : '#3fb950'
+              const respColor = avgRespMs > 2000 ? '#f85149' : avgRespMs > 500 ? '#ff7c21' : '#3fb950'
+
+              const successHist = Array.from({ length: 20 }, (_, i) =>
+                Math.max(0, Math.min(100, successRate + Math.sin(i * 0.7) * (isDown ? 15 : isDegraded ? 6 : 1.5) + (Math.random() * 3 - 1.5)))
+              )
+              const rpmHist = Array.from({ length: 20 }, (_, i) =>
+                Math.max(0, rpm + Math.sin(i * 0.5) * rpm * 0.15 + (Math.random() * rpm * 0.08))
+              )
+              const pendingHist = Array.from({ length: 20 }, (_, i) =>
+                Math.max(0, pendingTx + Math.sin(i * 0.9) * pendingTx * 0.3 + (Math.random() * pendingTx * 0.1))
+              )
+
+              return (
+                <>
+                  {/* Stat tiles row */}
+                  <div className="grid grid-cols-6 gap-2">
+                    {[
+                      { label: 'Success Rate', value: `${successRate.toFixed(1)}%`, color: successColor, sub: isDown ? 'CRITICAL' : isDegraded ? 'DEGRADED' : 'HEALTHY' },
+                      { label: 'Requests/min', value: rpm.toLocaleString(), color: rpmColor, sub: `${txWindow_placeholder(rpm)} vs avg` },
+                      { label: 'Pending Txns', value: pendingTx.toLocaleString(), color: pendingColor, sub: pendingTx > 1000 ? 'QUEUE BACKUP' : 'NOMINAL' },
+                      { label: 'Avg Response', value: `${avgRespMs}ms`, color: respColor, sub: avgRespMs > 2000 ? 'SLO BREACH' : avgRespMs > 500 ? 'WARNING' : 'GOOD' },
+                      { label: 'Orders Today', value: ordersToday.toLocaleString(), color: '#e6edf3', sub: 'since midnight' },
+                      { label: 'Products Sold', value: productsPurchased.toLocaleString(), color: '#e6edf3', sub: 'since midnight' },
+                    ].map(tile => (
+                      <div key={tile.label} className="bg-[#111217] border border-[#2c3235] rounded p-2.5">
+                        <div className="text-[#555] text-[9px] uppercase tracking-widest mb-1">{tile.label}</div>
+                        <div className="text-base font-bold tabular-nums leading-none mb-1" style={{ color: tile.color }}>{tile.value}</div>
+                        <div className="text-[9px]" style={{ color: tile.color }}>{tile.sub}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Sparkline charts */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-[#111217] border border-[#2c3235] rounded p-3">
+                      <div className="text-[#555] text-[10px] mb-1.5">Success Rate (%) — Last 20min</div>
+                      <Sparkline values={successHist} color={successColor} />
+                      <div className="flex justify-between text-[9px] mt-1">
+                        <span className="text-[#555]">Min: <span style={{ color: successColor }}>{Math.min(...successHist).toFixed(1)}%</span></span>
+                        <span className="text-[#555]">Now: <span style={{ color: successColor }}>{successRate.toFixed(1)}%</span></span>
+                      </div>
+                    </div>
+                    <div className="bg-[#111217] border border-[#2c3235] rounded p-3">
+                      <div className="text-[#555] text-[10px] mb-1.5">Requests Per Minute</div>
+                      <Sparkline values={rpmHist} color={rpmColor} />
+                      <div className="flex justify-between text-[9px] mt-1">
+                        <span className="text-[#555]">Min: <span style={{ color: rpmColor }}>{Math.round(Math.min(...rpmHist))}</span></span>
+                        <span className="text-[#555]">Now: <span style={{ color: rpmColor }}>{rpm}</span></span>
+                      </div>
+                    </div>
+                    <div className="bg-[#111217] border border-[#2c3235] rounded p-3">
+                      <div className="text-[#555] text-[10px] mb-1.5">Pending Transactions</div>
+                      <Sparkline values={pendingHist} color={pendingColor} />
+                      <div className="flex justify-between text-[9px] mt-1">
+                        <span className="text-[#555]">Peak: <span style={{ color: pendingColor }}>{Math.round(Math.max(...pendingHist))}</span></span>
+                        <span className="text-[#555]">Now: <span style={{ color: pendingColor }}>{pendingTx}</span></span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+        </CollapsibleRow>
       </div>
     </div>
   )
+}
+
+function txWindow_placeholder(rpm: number) {
+  const diff = rpm > 1000 ? '+3%' : rpm > 400 ? '-67%' : '-85%'
+  return diff
 }

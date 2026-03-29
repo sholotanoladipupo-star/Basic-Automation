@@ -60,10 +60,10 @@ export default function AlertPanel({ alerts, onAcknowledge }: AlertPanelProps) {
                     {/* Status badge */}
                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
                       resolved
-                        ? 'text-[#3fb950] border-[#3fb950] bg-[#0f2a1a]'
+                        ? 'text-[#d29922] border-[#d29922] bg-[#2a1e00]'
                         : 'text-[#f85149] border-[#f85149] bg-[#2a0a0a]'
                     }`}>
-                      {resolved ? '● RESOLVED' : '● ACTIVE'}
+                      {resolved ? '◆ ACKNOWLEDGED' : '● ACTIVE'}
                     </span>
                   </div>
                   <div className="text-[#3fb950] mb-0.5 font-bold">{alert.service}</div>

@@ -268,7 +268,7 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
                       </div>
 
                       {/* Highlights */}
-                      {sc.highlights.length > 0 && (
+                      {(sc.highlights?.length ?? 0) > 0 && (
                         <div>
                           <div className="text-[#8b949e] uppercase tracking-widest mb-2">What Went Well</div>
                           <div className="space-y-1">
@@ -283,7 +283,7 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
                       )}
 
                       {/* Improvements */}
-                      {sc.improvements.length > 0 && (
+                      {(sc.improvements?.length ?? 0) > 0 && (
                         <div>
                           <div className="text-[#8b949e] uppercase tracking-widest mb-2">Areas to Improve</div>
                           <div className="space-y-1">
@@ -298,11 +298,11 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
                       )}
 
                       {/* Candidate SQL query */}
-                      {sc.candidate_query && (
+                      {sc.candidate_query !== undefined && (
                         <div>
                           <div className="text-[#8b949e] uppercase tracking-widest mb-2">Candidate SQL Query</div>
                           <pre className="text-[#e6edf3] text-[11px] leading-relaxed bg-[#0d1117] rounded p-3 border border-[#30363d] overflow-x-auto whitespace-pre-wrap font-mono">
-                            {sc.candidate_query}
+                            {sc.candidate_query || <span className="text-[#484f58] italic">No query submitted</span>}
                           </pre>
                         </div>
                       )}

@@ -101,6 +101,8 @@ export default function Admin({ onBack }: AdminProps) {
 
   // Automation tab
   const [automationQuestions, setAutomationQuestions] = useState<{ id: string; title: string; difficulty: string; language: string; time_limit_seconds: number; created_at: string }[]>([])
+  const [seeding, setSeeding] = useState(false)
+  const [seedMsg, setSeedMsg] = useState('')
 
   async function handleAuth(e: React.FormEvent) {
     e.preventDefault()
@@ -254,6 +256,17 @@ export default function Admin({ onBack }: AdminProps) {
       setMonForm({ title: '', scenario: '', difficulty: 'medium', sub_questions: '', time_limit_seconds: '600' })
       await loadMonitoringQuestions()
     } catch (err) { setMonFormError(String(err)) }
+  }
+
+  async function handleSeedQuestions() {
+    setSeeding(true); setSeedMsg('')
+    try {
+      const res = await fetch(`${API_BASE}/admin/seed-questions`, { method: 'POST', headers: { 'x-admin-key': adminKey } })
+      if (!res.ok) { setSeedMsg('✗ Seed failed'); return }
+      await Promise.all([loadPostmortemQuestions(), loadAutomationQuestions(), loadSqlQuestions(), loadMonitoringQuestions()])
+      setSeedMsg('✓ Questions seeded and refreshed')
+    } catch { setSeedMsg('✗ Could not reach backend') }
+    finally { setSeeding(false) }
   }
 
   async function handleDeleteMonitoringQuestion(id: string) {
@@ -695,9 +708,18 @@ export default function Admin({ onBack }: AdminProps) {
             {tab === 'postmortem' && (
               <div className="space-y-5">
                 <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
-                  <div className="text-[#8b949e] uppercase tracking-widest mb-3">Postmortem Questions</div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-[#8b949e] uppercase tracking-widest">Postmortem Questions</div>
+                    <div className="flex items-center gap-3">
+                      {seedMsg && <span className={`text-xs ${seedMsg.startsWith('✓') ? 'text-[#3fb950]' : 'text-[#f85149]'}`}>{seedMsg}</span>}
+                      <button onClick={handleSeedQuestions} disabled={seeding}
+                        className="text-xs px-3 py-1.5 rounded border border-[#d29922] text-[#d29922] hover:bg-[#2a1e00] disabled:opacity-50 transition-colors">
+                        {seeding ? 'Seeding…' : '⟳ Seed & Refresh'}
+                      </button>
+                    </div>
+                  </div>
                   <div className="text-[#484f58] text-xs mb-4">
-                    Postmortem questions are seeded automatically. Run <code className="text-[#8b949e] bg-[#0d1117] px-1 rounded">POST /admin/seed-questions</code> to seed 3 scenarios.
+                    Postmortem questions are seeded automatically. Click "Seed &amp; Refresh" to add/refresh the 3 built-in scenarios.
                   </div>
                   {postmortemQuestions.length === 0 ? (
                     <div className="text-[#484f58] py-4">No postmortem questions yet. Seed to add them.</div>
@@ -734,9 +756,18 @@ export default function Admin({ onBack }: AdminProps) {
             {tab === 'automation' && (
               <div className="space-y-5">
                 <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
-                  <div className="text-[#8b949e] uppercase tracking-widest mb-3">Automation Questions</div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-[#8b949e] uppercase tracking-widest">Automation Questions</div>
+                    <div className="flex items-center gap-3">
+                      {seedMsg && <span className={`text-xs ${seedMsg.startsWith('✓') ? 'text-[#3fb950]' : 'text-[#f85149]'}`}>{seedMsg}</span>}
+                      <button onClick={handleSeedQuestions} disabled={seeding}
+                        className="text-xs px-3 py-1.5 rounded border border-[#3fb950] text-[#3fb950] hover:bg-[#0f2a1a] disabled:opacity-50 transition-colors">
+                        {seeding ? 'Seeding…' : '⟳ Seed & Refresh'}
+                      </button>
+                    </div>
+                  </div>
                   <div className="text-[#484f58] text-xs mb-4">
-                    Automation questions are seeded automatically. Run <code className="text-[#8b949e] bg-[#0d1117] px-1 rounded">POST /admin/seed-questions</code> to seed 4 tasks (Bash & Python).
+                    Automation questions are seeded automatically. Click "Seed &amp; Refresh" to add/refresh the 4 built-in tasks (Bash &amp; Python).
                   </div>
                   {automationQuestions.length === 0 ? (
                     <div className="text-[#484f58] py-4">No automation questions yet. Seed to add them.</div>

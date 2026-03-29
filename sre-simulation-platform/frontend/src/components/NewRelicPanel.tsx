@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { SystemState } from '../types'
 
 interface Props { systemState: SystemState | null }
@@ -36,6 +36,59 @@ function hist(base: number, count = 20, noise = 15) {
   )
 }
 
+// Generate spike+recovery trend: flat → spike at incidentAt → recovery at recoverAt
+function spikeHist(base: number, spike: number, count: number, incidentAt: number, recoverAt: number, noise = 0) {
+  return Array.from({ length: count }, (_, i) => {
+    const frac = i / (count - 1)
+    let val: number
+    if (frac < incidentAt) val = base
+    else if (frac < recoverAt) val = base + (spike - base) * ((frac - incidentAt) / (recoverAt - incidentAt)) * 2
+    else val = base + (spike - base) * Math.max(0, 1 - (frac - recoverAt) / (1 - recoverAt))
+    return Math.max(0, val + (Math.random() - 0.5) * noise)
+  })
+}
+
+// Drill-down chart panel for a single KPI
+function KpiDrillDown({ label, unit, color, values, timeLabels, onClose }: {
+  label: string; unit: string; color: string; values: number[]; timeLabels: string[]; onClose: () => void
+}) {
+  const max = Math.max(...values, 1)
+  const min = Math.min(...values, 0)
+  const range = max - min || 1
+  const w = 600; const h = 120
+  const pts = values.map((v, i) =>
+    `${(i / (values.length - 1)) * w},${h - ((v - min) / range) * (h - 4)}`
+  ).join(' ')
+  return (
+    <div className="bg-[#12131a] border border-[#2d2f45] rounded p-4 mt-3">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[#d4d4d4] font-bold text-[11px] uppercase tracking-widest">{label} — Trend</span>
+        <button onClick={onClose} className="text-[#555] hover:text-[#d4d4d4] text-[11px] transition-colors">✕ Close</button>
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: 100 }}>
+        <defs>
+          <linearGradient id={`kpi-${label}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <polygon points={`0,${h} ${pts} ${w},${h}`} fill={`url(#kpi-${label})`} />
+        <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+      </svg>
+      <div className="flex justify-between text-[9px] text-[#555] mt-1">
+        {timeLabels.filter((_, i) => i % Math.ceil(timeLabels.length / 6) === 0).map((t, i) => (
+          <span key={i}>{t}</span>
+        ))}
+      </div>
+      <div className="flex gap-4 mt-2 text-[10px]">
+        <span className="text-[#555]">Min: <span style={{ color }}>{min.toFixed(2)}{unit}</span></span>
+        <span className="text-[#555]">Max: <span style={{ color }}>{max.toFixed(2)}{unit}</span></span>
+        <span className="text-[#555]">Avg: <span style={{ color }}>{(values.reduce((a, b) => a + b, 0) / values.length).toFixed(2)}{unit}</span></span>
+      </div>
+    </div>
+  )
+}
+
 interface ServiceDetailProps {
   service: NonNullable<SystemState>['services'][string]
   onBack: () => void
@@ -43,17 +96,40 @@ interface ServiceDetailProps {
 
 function ServiceDetail({ service, onBack }: ServiceDetailProps) {
   const [tab, setTab] = useState<'summary' | 'transactions' | 'errors' | 'infrastructure'>('summary')
+  const [drillDown, setDrillDown] = useState<string | null>(null)
+  const [txWindow, setTxWindow] = useState<'1h' | '6h' | '24h'>('1h')
 
   const errPct = (service.error_rate * 100)
   const errColor = errPct > 10 ? '#f85149' : errPct > 2 ? '#d29922' : '#00b4a0'
   const latColor = service.p99_latency_ms > 2000 ? '#f85149' : service.p99_latency_ms > 500 ? '#d29922' : '#00b4a0'
 
-  const errHist = hist(errPct, 20, errPct * 0.4)
-  const latHist = hist(service.p99_latency_ms, 20, service.p99_latency_ms * 0.2)
-  const throughputHist = hist(service.status === 'down' ? 0 : service.status === 'degraded' ? 120 : 850, 20, 80)
+  const pointCount = txWindow === '1h' ? 24 : txWindow === '6h' ? 36 : 48
+  // Spike starts at 30% of time window, recovers at 70% — incident pattern
+  const errTrendValues = useMemo(() =>
+    spikeHist(0.5, errPct, pointCount, 0.3, 0.7, 0.2),
+    [errPct, pointCount]
+  )
+  const apdexTrendValues = useMemo(() => {
+    const baseApdex = service.status === 'down' ? 0.05 : service.status === 'degraded' ? 0.54 : 0.97
+    return spikeHist(0.97, baseApdex, pointCount, 0.3, 0.7, 0.02).map(v => Math.min(1, Math.max(0, v)))
+  }, [service.status, pointCount])
+
+  const txTimeLabels = useMemo(() => {
+    const now = new Date()
+    const hours = txWindow === '1h' ? 1 : txWindow === '6h' ? 6 : 24
+    return Array.from({ length: pointCount }, (_, i) => {
+      const t = new Date(now.getTime() - (hours * 3600000) * (1 - i / (pointCount - 1)))
+      return t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    })
+  }, [txWindow, pointCount])
+
+  const errHist = useMemo(() => hist(errPct, 20, errPct * 0.4), [errPct])
+  const latHist = useMemo(() => hist(service.p99_latency_ms, 20, service.p99_latency_ms * 0.2), [service.p99_latency_ms])
+  const throughputHist = useMemo(() => hist(service.status === 'down' ? 0 : service.status === 'degraded' ? 120 : 850, 20, 80), [service.status])
 
   const p95 = Math.round(service.p99_latency_ms * 0.82)
-  const apdex = service.status === 'down' ? '0.00' : service.status === 'degraded' ? '0.54' : (0.94 + Math.random() * 0.05).toFixed(2)
+  const apdexVal = service.status === 'down' ? 0 : service.status === 'degraded' ? 0.54 : 0.96
+  const apdex = apdexVal.toFixed(2)
   const throughput = service.status === 'down' ? 0 : service.status === 'degraded' ? 134 : 847
 
   return (
@@ -91,17 +167,32 @@ function ServiceDetail({ service, onBack }: ServiceDetailProps) {
             {/* KPI tiles */}
             <div className="grid grid-cols-4 gap-2">
               {[
-                { label: 'Apdex Score', value: apdex, color: parseFloat(apdex) > 0.85 ? '#00b4a0' : parseFloat(apdex) > 0.7 ? '#d29922' : '#f85149' },
-                { label: 'Error Rate', value: `${errPct.toFixed(2)}%`, color: errColor },
-                { label: 'Throughput', value: `${throughput} rpm`, color: '#d4d4d4' },
-                { label: 'p99 Latency', value: `${service.p99_latency_ms}ms`, color: latColor },
+                { label: 'Apdex Score', value: apdex, color: parseFloat(apdex) > 0.85 ? '#00b4a0' : parseFloat(apdex) > 0.7 ? '#d29922' : '#f85149', clickable: true },
+                { label: 'Error Rate', value: `${errPct.toFixed(2)}%`, color: errColor, clickable: true },
+                { label: 'Throughput', value: `${throughput} rpm`, color: '#d4d4d4', clickable: false },
+                { label: 'p99 Latency', value: `${service.p99_latency_ms}ms`, color: latColor, clickable: false },
               ].map(k => (
-                <div key={k.label} className="bg-[#12131a] border border-[#2d2f45] rounded p-2.5">
-                  <div className="text-[#666] text-[9px] uppercase tracking-widest mb-1">{k.label}</div>
+                <div key={k.label}
+                  onClick={() => k.clickable && setDrillDown(drillDown === k.label ? null : k.label)}
+                  className={`bg-[#12131a] border rounded p-2.5 transition-colors ${
+                    k.clickable ? 'cursor-pointer hover:border-[#00b4a0]/50 border-[#2d2f45]' : 'border-[#2d2f45]'
+                  } ${drillDown === k.label ? 'border-[#00b4a0]' : ''}`}>
+                  <div className="text-[#666] text-[9px] uppercase tracking-widest mb-1 flex items-center gap-1">
+                    {k.label} {k.clickable && <span className="text-[#555]">↓</span>}
+                  </div>
                   <div className="text-sm font-bold tabular-nums" style={{ color: k.color }}>{k.value}</div>
                 </div>
               ))}
             </div>
+            {/* Drill-down panel */}
+            {drillDown === 'Apdex Score' && (
+              <KpiDrillDown label="Apdex Score" unit="" color={parseFloat(apdex) > 0.85 ? '#00b4a0' : '#f85149'}
+                values={apdexTrendValues} timeLabels={txTimeLabels} onClose={() => setDrillDown(null)} />
+            )}
+            {drillDown === 'Error Rate' && (
+              <KpiDrillDown label="Error Rate" unit="%" color={errColor}
+                values={errTrendValues} timeLabels={txTimeLabels} onClose={() => setDrillDown(null)} />
+            )}
 
             {/* Charts */}
             <div className="grid grid-cols-3 gap-3">
@@ -145,24 +236,45 @@ function ServiceDetail({ service, onBack }: ServiceDetailProps) {
 
         {tab === 'transactions' && (
           <div className="space-y-2">
-            <div className="text-[#666] text-[10px] uppercase tracking-widest mb-3">Top Transactions — Last 5 Minutes</div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[#666] text-[10px] uppercase tracking-widest">Top Transactions</div>
+              <div className="flex items-center gap-1">
+                <span className="text-[#555] text-[10px] mr-1">Window:</span>
+                {(['1h', '6h', '24h'] as const).map(w => (
+                  <button key={w} onClick={() => setTxWindow(w)}
+                    className={`px-2 py-0.5 rounded text-[10px] transition-colors ${
+                      txWindow === w ? 'bg-[#00b4a0] text-[#12131a] font-bold' : 'bg-[#1a1d2e] border border-[#2d2f45] text-[#666] hover:text-[#d4d4d4]'
+                    }`}>{w}
+                  </button>
+                ))}
+              </div>
+            </div>
             {[
               { name: `POST /api/v1/${service.name.replace('-service', '')}/create`, calls: 1243, avgMs: Math.round(service.p99_latency_ms * 0.6), errPct: errPct * 0.8 },
               { name: `GET /api/v1/${service.name.replace('-service', '')}/list`, calls: 3891, avgMs: Math.round(service.p99_latency_ms * 0.35), errPct: errPct * 0.4 },
               { name: `PUT /api/v1/${service.name.replace('-service', '')}/update`, calls: 547, avgMs: Math.round(service.p99_latency_ms * 0.8), errPct: errPct * 1.2 },
               { name: `DELETE /api/v1/${service.name.replace('-service', '')}/remove`, calls: 89, avgMs: Math.round(service.p99_latency_ms * 0.5), errPct: errPct * 0.3 },
-            ].map((tx, i) => (
-              <div key={i} className="bg-[#12131a] border border-[#2d2f45] rounded p-2.5 text-[11px]">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[#8ab4f8] truncate flex-1">{tx.name}</span>
+              { name: `GET /api/v1/${service.name.replace('-service', '')}/health`, calls: 12490, avgMs: 2, errPct: 0 },
+            ].map((tx, i) => {
+              const sparkData = spikeHist(tx.avgMs * 0.8, tx.avgMs, pointCount, 0.3, 0.7, tx.avgMs * 0.1)
+              const latC = tx.avgMs > 2000 ? '#f85149' : tx.avgMs > 500 ? '#d29922' : '#00b4a0'
+              return (
+                <div key={i} className="bg-[#12131a] border border-[#2d2f45] hover:border-[#00b4a0]/30 rounded p-2.5 text-[11px] cursor-pointer transition-colors">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[#8ab4f8] truncate flex-1 font-mono text-[10px]">{tx.name}</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 text-[10px] items-center">
+                    <div><span className="text-[#555]">Calls: </span><span className="text-[#d4d4d4]">{tx.calls.toLocaleString()}</span></div>
+                    <div><span className="text-[#555]">Avg: </span><span style={{ color: latC }}>{tx.avgMs}ms</span></div>
+                    <div><span className="text-[#555]">Errors: </span><span style={{ color: tx.errPct > 5 ? '#f85149' : '#d4d4d4' }}>{Math.max(0, tx.errPct).toFixed(1)}%</span></div>
+                    <div className="w-20"><Spark values={sparkData} color={latC} h={20} /></div>
+                  </div>
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-[10px]">
-                  <div><span className="text-[#555]">Calls: </span><span className="text-[#d4d4d4]">{tx.calls.toLocaleString()}</span></div>
-                  <div><span className="text-[#555]">Avg: </span><span style={{ color: tx.avgMs > 2000 ? '#f85149' : tx.avgMs > 500 ? '#d29922' : '#d4d4d4' }}>{tx.avgMs}ms</span></div>
-                  <div><span className="text-[#555]">Errors: </span><span style={{ color: tx.errPct > 5 ? '#f85149' : '#d4d4d4' }}>{Math.max(0, tx.errPct).toFixed(1)}%</span></div>
-                </div>
-              </div>
-            ))}
+              )
+            })}
+            <div className="text-[#555] text-[10px] mt-2 text-center">
+              Showing {txWindow} window · Spike visible around incident start
+            </div>
           </div>
         )}
 

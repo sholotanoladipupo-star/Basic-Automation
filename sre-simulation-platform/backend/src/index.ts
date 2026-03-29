@@ -127,7 +127,52 @@ app.get('/sessions/:id/scorecard', async (req, res) => {
       res.status(404).json({ error: 'Scorecard not found' })
       return
     }
-    const scorecard = result.rows[0]
+    const raw = result.rows[0]
+    const dims = raw.dimensions ?? {}
+    const getScore = (...keys: string[]) => {
+      for (const k of keys) {
+        if (dims[k]?.score != null) return dims[k].score
+      }
+      return 0
+    }
+    const getNotes = (...keys: string[]) => {
+      for (const k of keys) {
+        if (dims[k]?.notes) return dims[k].notes
+      }
+      return ''
+    }
+
+    // Fetch session for duration
+    const sessionRow = await pool.query(
+      'SELECT started_at, ended_at FROM sessions WHERE id = $1',
+      [req.params.id]
+    )
+    let duration_minutes = 0
+    if (sessionRow.rows[0]?.ended_at && sessionRow.rows[0]?.started_at) {
+      const ms = new Date(sessionRow.rows[0].ended_at).getTime() - new Date(sessionRow.rows[0].started_at).getTime()
+      duration_minutes = Math.round(ms / 60000)
+    }
+
+    const overallScore = raw.overall_score ?? 0
+    const scorecard: Record<string, unknown> = {
+      ...raw,
+      total_score: overallScore,
+      passing_score: 70,
+      passed: overallScore >= 70,
+      duration_minutes,
+      incident_coordination: getScore('coordination', 'incident_coordination'),
+      incident_resolution: getScore('resolution', 'incident_resolution'),
+      technical_depth: getScore('technical_depth'),
+      observability_usage: getScore('observability', 'observability_usage'),
+      coordination_notes: getNotes('coordination', 'incident_coordination'),
+      resolution_notes: getNotes('resolution', 'incident_resolution'),
+      technical_notes: getNotes('technical_depth'),
+      observability_notes: getNotes('observability', 'observability_usage'),
+      highlights: Array.isArray(raw.timeline_highlights) ? raw.timeline_highlights : [],
+      improvements: [],
+      postmortem_summary: raw.postmortem ?? '',
+    }
+
     // Enrich with candidate_query from sql_attempts if this is a SQL session
     const sqlAttempt = await pool.query(
       'SELECT candidate_query, score, rating FROM sql_attempts WHERE session_id = $1 ORDER BY submitted_at DESC LIMIT 1',
