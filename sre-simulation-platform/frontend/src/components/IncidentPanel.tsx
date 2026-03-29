@@ -1,10 +1,8 @@
 import { useState } from 'react'
-import { SystemState } from '../types'
 
 interface IncidentPanelProps {
   severityDeclared: 'sev1' | 'sev2' | 'sev3' | null
   incidentResolved: boolean
-  systemState: SystemState | null
   elapsedSeconds: number
   availableRunbooks: { id: string; title: string }[]
   onDeclareSeverity: (s: 'sev1' | 'sev2' | 'sev3') => void
@@ -20,13 +18,11 @@ function formatTime(seconds: number): string {
 }
 
 export default function IncidentPanel({
-  severityDeclared, incidentResolved, systemState, elapsedSeconds,
+  severityDeclared, incidentResolved, elapsedSeconds,
   availableRunbooks, onDeclareSeverity, onEscalate, onResolveIncident, onCallRunbook
 }: IncidentPanelProps) {
   const [escalateTo, setEscalateTo] = useState('')
   const [escalateMsg, setEscalateMsg] = useState('')
-
-  const activeIncidents = systemState?.active_incidents ?? []
 
   function handleEscalate() {
     if (!escalateTo.trim() || !escalateMsg.trim()) return
@@ -71,29 +67,6 @@ export default function IncidentPanel({
             </div>
           )}
         </div>
-
-        {/* Active incidents */}
-        {activeIncidents.length > 0 && (
-          <div>
-            <div className="text-[#8b949e] uppercase tracking-widest mb-2">Active Incidents</div>
-            {activeIncidents.map(inc => (
-              <div key={inc.id} className="bg-[#0d1117] border border-[#30363d] rounded p-2 mb-2">
-                <div className="text-[#8b949e] mb-1">Symptoms:</div>
-                <ul className="space-y-0.5">
-                  {inc.visible_symptoms.map((sym, i) => (
-                    <li key={i} className="text-[#e6edf3]">• {sym}</li>
-                  ))}
-                </ul>
-                <div className="text-[#8b949e] mt-2 mb-1">Blast radius:</div>
-                <div className="flex flex-wrap gap-1">
-                  {inc.blast_radius.map(s => (
-                    <span key={s} className="bg-[#21262d] border border-[#30363d] px-1.5 py-0.5 rounded text-[#e6edf3]">{s}</span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
 
         {/* Runbooks */}
         {availableRunbooks.length > 0 && (

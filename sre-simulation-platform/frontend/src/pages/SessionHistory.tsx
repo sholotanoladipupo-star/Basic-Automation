@@ -24,6 +24,10 @@ interface Scorecard {
   highlights: string[]
   improvements: string[]
   postmortem_summary: string
+  candidate_query?: string
+  monitoring_answers?: { id: string; answer: string }[]
+  overall_score?: number
+  postmortem?: string
 }
 
 interface SessionWithScore extends Session {
@@ -293,12 +297,37 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
                         </div>
                       )}
 
-                      {/* Postmortem summary */}
-                      {sc.postmortem_summary && (
+                      {/* Candidate SQL query */}
+                      {sc.candidate_query && (
                         <div>
-                          <div className="text-[#8b949e] uppercase tracking-widest mb-2">Postmortem Summary</div>
+                          <div className="text-[#8b949e] uppercase tracking-widest mb-2">Candidate SQL Query</div>
+                          <pre className="text-[#e6edf3] text-[11px] leading-relaxed bg-[#0d1117] rounded p-3 border border-[#30363d] overflow-x-auto whitespace-pre-wrap font-mono">
+                            {sc.candidate_query}
+                          </pre>
+                        </div>
+                      )}
+
+                      {/* Monitoring answers */}
+                      {sc.monitoring_answers && sc.monitoring_answers.length > 0 && (
+                        <div>
+                          <div className="text-[#8b949e] uppercase tracking-widest mb-2">Candidate Answers</div>
+                          <div className="space-y-2">
+                            {sc.monitoring_answers.map((a, i) => (
+                              <div key={i} className="bg-[#161b22] rounded p-3 border border-[#30363d]">
+                                <div className="text-[#484f58] text-[10px] mb-1 uppercase tracking-widest">{a.id}</div>
+                                <div className="text-[#e6edf3] text-[11px] leading-relaxed">{a.answer || <span className="text-[#484f58] italic">No answer provided</span>}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Postmortem summary */}
+                      {(sc.postmortem_summary || sc.postmortem) && (
+                        <div>
+                          <div className="text-[#8b949e] uppercase tracking-widest mb-2">AI Assessment</div>
                           <div className="text-[#e6edf3] leading-relaxed bg-[#161b22] rounded p-3 border border-[#30363d]">
-                            {sc.postmortem_summary}
+                            {sc.postmortem_summary || sc.postmortem}
                           </div>
                         </div>
                       )}

@@ -123,7 +123,24 @@ app.get('/sessions/:id/scorecard', async (req, res) => {
       res.status(404).json({ error: 'Scorecard not found' })
       return
     }
-    res.json(result.rows[0])
+    const scorecard = result.rows[0]
+    // Enrich with candidate_query from sql_attempts if this is a SQL session
+    const sqlAttempt = await pool.query(
+      'SELECT candidate_query, score, rating FROM sql_attempts WHERE session_id = $1 ORDER BY submitted_at DESC LIMIT 1',
+      [req.params.id]
+    )
+    if (sqlAttempt.rows[0]) {
+      scorecard.candidate_query = sqlAttempt.rows[0].candidate_query
+    }
+    // Enrich with monitoring answers if this is a monitoring session
+    const monAttempt = await pool.query(
+      'SELECT answers FROM monitoring_attempts WHERE session_id = $1 ORDER BY submitted_at DESC LIMIT 1',
+      [req.params.id]
+    )
+    if (monAttempt.rows[0]) {
+      scorecard.monitoring_answers = monAttempt.rows[0].answers
+    }
+    res.json(scorecard)
   } catch (err) {
     res.status(500).json({ error: String(err) })
   }

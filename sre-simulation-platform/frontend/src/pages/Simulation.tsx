@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react'
 import { SimulationState, SimulationActions } from '../hooks/useSimulation'
 import AlertPanel from '../components/AlertPanel'
 import Terminal from '../components/Terminal'
-import LogViewer from '../components/LogViewer'
-import MetricsDashboard from '../components/MetricsDashboard'
+import GrafanaDashboard from '../components/GrafanaDashboard'
 import RunbookViewer from '../components/RunbookViewer'
 import IncidentPanel from '../components/IncidentPanel'
 import CommsPanel from '../components/CommsPanel'
@@ -31,11 +30,10 @@ const SEVERITY_STYLE: Record<string, string> = {
 
 const TABS = [
   { id: 'terminal', label: '⌨ Terminal' },
-  { id: 'dashboard', label: '📊 Dashboards' },
-  { id: 'logs', label: '📋 Logs' },
-  { id: 'runbook', label: '📖 Runbook' },
+  { id: 'dashboard', label: '📊 Grafana' },
   { id: 'gcp-console', label: '🌐 GCP Console' },
   { id: 'new-relic', label: '📈 New Relic' },
+  { id: 'runbook', label: '📖 Runbook' },
 ] as const
 
 type TabId = typeof TABS[number]['id']
@@ -70,13 +68,17 @@ export default function Simulation({ state, actions }: SimulationProps) {
   }
 
   function handleDismissOnboarding() {
-    setElapsedAtDismissal(elapsedSeconds)
     setShowOnboarding(false)
     setShowTour(true)
+    // Timer starts only when tour is also dismissed — see handleFinishTour
+  }
+
+  function handleFinishTour() {
+    setElapsedAtDismissal(elapsedSeconds) // timer starts NOW
+    setShowTour(false)
   }
 
   const services = systemState ? Object.values(systemState.services) : []
-  const serviceNames = services.map(s => s.name)
 
   const timeLimitSeconds = (sessionInfo?.time_limit_minutes ?? 15) * 60
   // Timer counts from when the user dismissed the onboarding modal
@@ -101,7 +103,7 @@ export default function Simulation({ state, actions }: SimulationProps) {
       )}
 
       {/* Tour guide */}
-      {showTour && <TourGuide onFinish={() => setShowTour(false)} />}
+      {showTour && <TourGuide onFinish={handleFinishTour} />}
 
       {/* Top bar */}
       <div className="flex-shrink-0 h-11 bg-[#161b22] border-b border-[#30363d] flex items-center px-3 gap-3">
@@ -128,7 +130,7 @@ export default function Simulation({ state, actions }: SimulationProps) {
           </span>
 
           <button
-            onClick={() => setShowTour(true)}
+            onClick={() => { if (elapsedAtDismissal === null) handleFinishTour(); else setShowTour(true) }}
             className="text-[#484f58] hover:text-[#58a6ff] px-1.5 transition-colors"
             title="Take tour"
           >
@@ -191,10 +193,7 @@ export default function Simulation({ state, actions }: SimulationProps) {
               <Terminal lines={state.terminalLines} onCommand={actions.sendCommand} busy={state.terminalBusy} />
             )}
             {activePanel === 'dashboard' && (
-              <MetricsDashboard systemState={systemState} availableDashboards={sessionInfo?.available_dashboards ?? []} dashboardData={state.dashboardData} onQueryDashboard={actions.queryDashboard} />
-            )}
-            {activePanel === 'logs' && (
-              <LogViewer onQuery={actions.readLogs} logLines={state.logLines} availableServices={serviceNames.length > 0 ? serviceNames : ['api-gateway', 'order-service', 'redis-primary']} busy={state.terminalBusy} />
+              <GrafanaDashboard systemState={systemState} />
             )}
             {activePanel === 'runbook' && state.openRunbook && (
               <RunbookViewer runbook={state.openRunbook} onClose={() => actions.setActivePanel('terminal')} />
@@ -214,7 +213,6 @@ export default function Simulation({ state, actions }: SimulationProps) {
             <IncidentPanel
               severityDeclared={severityDeclared}
               incidentResolved={state.incidentResolved}
-              systemState={systemState}
               elapsedSeconds={elapsedSeconds}
               availableRunbooks={sessionInfo?.available_runbooks ?? []}
               onDeclareSeverity={actions.declareSeverity}
