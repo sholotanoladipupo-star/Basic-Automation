@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { SystemState } from '../types'
 
 interface GCPConsoleProps { systemState: SystemState | null }
@@ -54,23 +54,85 @@ function StatusChip({ status }: { status: string }) {
 }
 
 // --- Log generation ---
+const LOG_MSGS: Record<string, string[]> = {
+  INFO: [
+    `GET /api/v1/health 200 OK 3ms`, `POST /api/v1/transactions 201 Created 18ms`,
+    `Processed 847 events in batch`, `Cache hit ratio: 94.2%`,
+    `DB connection pool: 12/100 active`, `Heartbeat OK — upstream services reachable`,
+    `Metrics flushed to Prometheus endpoint`, `Config reload completed — 0 changes detected`,
+    `JWT validated for user_id=usr_48291 (1ms)`, `GET /api/v2/accounts/bal 200 OK 7ms`,
+    `Kafka consumer lag: 0 — partition 3 fully caught up`, `S3 presigned URL generated for upload_id=f9a2c`,
+    `gRPC call to payment-processor:50051 OK (22ms)`, `Rate limit check: 840/1000 tokens used`,
+    `Trace exported to Cloud Trace — spans=14`, `Serving request from cache: /feed 200 (0ms)`,
+    `Session renewed for user_id=usr_77231 — TTL reset to 3600s`, `Health check /readyz returned 200 in 1ms`,
+    `Distributed lock acquired: lock:checkout:ord_9123 (TTL=30s)`, `Batch job completed: 2048 records processed in 1.2s`,
+    `Outgoing webhook delivered to partner_id=ptnr_442 — 200 OK`, `Feature flag 'new_checkout_flow' = true for user_id=usr_11029`,
+    `Auto-scaling: 2→3 replicas triggered (CPU 72%)`, `Config value refreshed: payment.retry_limit = 3`,
+  ],
+  DEBUG: [
+    `Entering handler: TransactionController.create`, `SQL query executed: SELECT * FROM accounts WHERE id=$1 [3ms]`,
+    `Cache key lookup: session:usr_48291 → HIT`, `gRPC interceptor: req_id=74f2b9`,
+    `Span started: checkout.process_payment`, `Rate limiter bucket: 850/1000 tokens remaining`,
+    `Health check: /readyz returned 200 in 1ms`, `Middleware chain: auth → ratelimit → handler (total 4ms)`,
+    `DB pool checkout: conn_id=84 leased (pool free: 88/100)`, `Serializing response: 1.2KB JSON`,
+    `Cache write: key=user:profile:usr_48291 TTL=300s`, `Tracing: child span created span_id=9f3a2b`,
+    `gRPC dial to redis-service:6379 established`, `Feature flag evaluated: rollout=22% → user in`,
+    `Request ID assigned: req_id=a9f2c3d7`, `Unmarshalling body: 384 bytes`,
+  ],
+  WARN: [
+    `Response time p99 exceeded 2000ms (got 3241ms)`, `DB connection pool at 71% capacity (71/100)`,
+    `Redis cache miss rate elevated: 28%`, `Memory usage at 73%`,
+    `Retry 2/3 for downstream call`, `Slow query detected (>500ms)`,
+    `Goroutine count spike: 1820 (threshold: 1500)`, `Circuit breaker half-open — test request sent`,
+    `Disk usage at 81% on /var/log`, `Consumer lag growing: partition 2 = 1420 msgs`,
+    `Upstream latency high: payment-processor p99=1800ms`, `JWT expiry imminent — refresh token issued`,
+    `gRPC deadline approaching: 400ms remaining`, `Retry exhausted — falling back to degraded response`,
+    `Connection pool queue depth: 12 waiting`, `Slow GC pause: 140ms (threshold: 100ms)`,
+    `TLS cert expiry in 14 days — renewal needed`, `Read replica lag: 480ms (threshold: 300ms)`,
+  ],
+  ERROR: [
+    `upstream connect error or disconnect/reset before headers`, `context deadline exceeded after 5000ms`,
+    `failed to acquire distributed lock after 3 retries`, `pq: deadlock detected — rolling back transaction`,
+    `EOF on Redis connection — reconnecting`, `gRPC status UNAVAILABLE from payment-processor:50051`,
+    `dial tcp: connection refused 10.0.0.5:5432`, `http: panic serving — recovered, 500 returned`,
+    `failed to publish to Kafka topic=transactions: leader not available`, `Redis SETEX failed: READONLY — replica lag`,
+    `SQL: ERROR 1213 (40001): Deadlock found`, `Webhook delivery failed (502): partner_id=ptnr_442`,
+    `goroutine leak detected: 840 goroutines (threshold: 500)`, `OOM: runtime memory allocation failed`,
+    `Cloud Storage upload failed: ServiceUnavailable — retry 3/3`, `Response body read error: unexpected EOF`,
+  ],
+  FATAL: [
+    `panic: runtime error: nil pointer dereference`, `connection refused — localhost:5432`,
+    `OOMKilled — container exceeded memory limit`, `failed to connect to Redis: connection refused`,
+    `unrecoverable error in main goroutine — exiting`, `signal: killed — container OOM`,
+    `failed to open DB connection after 5 attempts — shutting down`, `stack overflow in request handler — process dying`,
+    `SIGTERM received — graceful shutdown failed after 30s`, `panic: concurrent map write detected`,
+  ],
+}
+
+function pickLevel(status: string): string {
+  const r = Math.random()
+  if (status === 'down') return r < 0.45 ? 'FATAL' : r < 0.8 ? 'ERROR' : 'WARN'
+  if (status === 'degraded') return r < 0.25 ? 'ERROR' : r < 0.5 ? 'WARN' : r < 0.72 ? 'INFO' : 'DEBUG'
+  return r < 0.42 ? 'INFO' : r < 0.72 ? 'DEBUG' : r < 0.88 ? 'WARN' : r < 0.97 ? 'ERROR' : 'FATAL'
+}
+
+function generateSingleLog(service: string, status: string): { time: string; level: string; msg: string } {
+  const level = pickLevel(status)
+  const pool = LOG_MSGS[level] ?? LOG_MSGS.INFO
+  return {
+    time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    level,
+    msg: `[${service}] ${pool[Math.floor(Math.random() * pool.length)]}`,
+  }
+}
+
 function generateLogs(service: string, status: string, minutes: number): { time: string; level: string; msg: string }[] {
   const now = Date.now()
-  const count = Math.min(minutes * 5, 80)
-  const msgs: Record<string, string[]> = {
-    INFO:  [`GET /api/v1/health 200 OK 3ms`,`POST /api/v1/transactions 201 Created 18ms`,`Processed 847 events in batch`,`Cache hit ratio: 94.2%`,`DB connection pool: 12/100 active`,`Heartbeat OK — upstream services reachable`,`Metrics flushed to Prometheus endpoint`,`Config reload completed — 0 changes detected`,`JWT validated for user_id=usr_48291 (1ms)`],
-    DEBUG: [`Entering handler: TransactionController.create`,`SQL query executed: SELECT * FROM accounts WHERE id=$1 [3ms]`,`Cache key lookup: session:usr_48291 → HIT`,`gRPC interceptor: req_id=74f2b9`,`Span started: checkout.process_payment`,`Rate limiter bucket: 850/1000 tokens remaining`,`Health check: /readyz returned 200 in 1ms`],
-    WARN:  [`Response time p99 exceeded 2000ms (got 3241ms)`,`DB connection pool at 71% capacity (71/100)`,`Redis cache miss rate elevated: 28%`,`Memory usage at 73%`,`Retry 2/3 for downstream call`,`Slow query detected (>500ms)`,`Goroutine count spike: 1820 (threshold: 1500)`],
-    ERROR: [`upstream connect error or disconnect/reset before headers`,`context deadline exceeded after 5000ms`,`failed to acquire distributed lock after 3 retries`,`pq: deadlock detected — rolling back transaction`,`EOF on Redis connection — reconnecting`,`gRPC status UNAVAILABLE from payment-processor:50051`],
-    FATAL: [`panic: runtime error: nil pointer dereference`,`connection refused — localhost:5432`,`OOMKilled — container exceeded memory limit`,`failed to connect to Redis: connection refused`,`unrecoverable error in main goroutine — exiting`],
-  }
+  const count = Math.min(minutes * 12, 200)
   return Array.from({ length: count }, (_, i) => {
     const t = new Date(now - (count - i) * (minutes * 60000 / count))
-    let level: string
-    if (status === 'down') { const r = Math.random(); level = r < 0.5 ? 'FATAL' : r < 0.8 ? 'ERROR' : 'WARN' }
-    else if (status === 'degraded') { const r = Math.random(); level = r < 0.3 ? 'ERROR' : r < 0.55 ? 'WARN' : r < 0.7 ? 'INFO' : 'DEBUG' }
-    else { const r = Math.random(); level = r < 0.45 ? 'INFO' : r < 0.75 ? 'DEBUG' : r < 0.88 ? 'WARN' : 'ERROR' }
-    const pool = msgs[level] ?? msgs.INFO
+    const level = pickLevel(status)
+    const pool = LOG_MSGS[level] ?? LOG_MSGS.INFO
     return { time: t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }), level, msg: `[${service}] ${pool[Math.floor(Math.random() * pool.length)]}` }
   })
 }
@@ -101,10 +163,30 @@ interface PodViewProps { podName: string; status: string; svcStatus: string; onB
 function PodView({ podName, status, svcStatus, onBack }: PodViewProps) {
   const [logRange, setLogRange] = useState(5)
   const [logFilter, setLogFilter] = useState<string | null>(null)
-  const [pinned, setPinned] = useState<string[]>([])
-  const logs = useMemo(() => generateLogs(podName, svcStatus, logRange), [podName, svcStatus, logRange])
-  const filtered = logFilter ? logs.filter(l => l.level === logFilter) : logs
-  const displayed = [...pinned.map(p => ({ time: '📌', level: 'ERROR', msg: p })), ...filtered.filter(l => !pinned.includes(l.msg))]
+  const [pinned, setPinned] = useState<Set<number>>(new Set())
+  const [streamedLogs, setStreamedLogs] = useState<{ time: string; level: string; msg: string }[]>([])
+  const logEndRef = useRef<HTMLDivElement>(null)
+
+  const baseLogs = useMemo(() => generateLogs(podName, svcStatus, logRange), [podName, svcStatus, logRange])
+
+  // Stream a new log line every 3s
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setStreamedLogs(prev => [...prev.slice(-200), generateSingleLog(podName, svcStatus)])
+    }, 3000)
+    return () => clearInterval(iv)
+  }, [podName, svcStatus])
+
+  // Auto-scroll to bottom as new logs arrive
+  useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [streamedLogs])
+
+  const allLogs = useMemo(() => [...baseLogs, ...streamedLogs], [baseLogs, streamedLogs])
+  const filtered = logFilter ? allLogs.filter(l => l.level === logFilter) : allLogs
+  const pinnedEntries = [...pinned].map(i => ({ ...allLogs[i], pinIdx: i }))
+  const displayed = [
+    ...pinnedEntries.map(e => ({ time: '📌', level: e.level, msg: e.msg, origIdx: e.pinIdx })),
+    ...filtered.map((l, i) => ({ ...l, origIdx: i })).filter(l => !pinned.has(l.origIdx)),
+  ]
 
   return (
     <div className="flex flex-col h-full">
@@ -112,7 +194,7 @@ function PodView({ podName, status, svcStatus, onBack }: PodViewProps) {
         <button onClick={onBack} className="text-[#8ab4f8] hover:text-[#e8eaed] text-[11px]">← Pod</button>
         <div className="flex-1 min-w-0">
           <div className="text-[#e8eaed] text-sm font-medium font-mono">{podName}</div>
-          <div className="text-[#9aa0a6] text-[10px]">Container logs</div>
+          <div className="text-[#9aa0a6] text-[10px]">Container logs · <span className="text-[#3fb950]">● live</span></div>
         </div>
         <StatusChip status={status} />
       </div>
@@ -129,20 +211,21 @@ function PodView({ podName, status, svcStatus, onBack }: PodViewProps) {
               style={{ color: LEVEL_COLOR[lvl], borderColor: LEVEL_COLOR[lvl], backgroundColor: logFilter === lvl ? `${LEVEL_COLOR[lvl]}22` : 'transparent' }}>{lvl}
             </button>
           ))}
-          {pinned.length > 0 && <button onClick={() => setPinned([])} className="text-[9px] text-[#484f58] hover:text-[#f85149] ml-auto">clear pins</button>}
+          {pinned.size > 0 && <button onClick={() => setPinned(new Set())} className="text-[9px] text-[#484f58] hover:text-[#f85149] ml-auto">clear {pinned.size} pin(s)</button>}
         </div>
         <div className="bg-[#0f1011] border border-[#3c4043] rounded p-2 font-mono text-[10px] space-y-0.5 max-h-[calc(100vh-200px)] overflow-y-auto">
           {displayed.map((l, i) => (
-            <div key={i} className="flex gap-2 leading-relaxed group">
+            <div key={i} className={`flex gap-2 leading-relaxed group ${l.time === '📌' ? 'bg-[#1a1400] border-l-2 border-[#d29922] pl-1' : ''}`}>
               <span className="text-[#484f58] flex-shrink-0 w-16">{l.time}</span>
               <span className="font-bold flex-shrink-0 w-10" style={{ color: LEVEL_COLOR[l.level] ?? '#6b7280' }}>{l.level}</span>
               <span className="text-[#e8eaed] break-all flex-1">{l.msg}</span>
-              {(l.level === 'ERROR' || l.level === 'FATAL') && l.time !== '📌' && (
-                <button onClick={() => setPinned(p => p.includes(l.msg) ? p.filter(x => x !== l.msg) : [...p, l.msg])}
-                  className="opacity-0 group-hover:opacity-100 text-[#484f58] hover:text-[#d29922] flex-shrink-0 transition-opacity" title="Pin this error">📌</button>
+              {l.time !== '📌' && (
+                <button onClick={() => setPinned(p => { const n = new Set(p); n.has(l.origIdx) ? n.delete(l.origIdx) : n.add(l.origIdx); return n })}
+                  className="opacity-0 group-hover:opacity-100 text-[#484f58] hover:text-[#d29922] flex-shrink-0 transition-opacity text-[11px]" title="Pin log line">📌</button>
               )}
             </div>
           ))}
+          <div ref={logEndRef} />
         </div>
       </div>
     </div>
@@ -165,13 +248,31 @@ function DeployDetail({ name, status, kind, extraData, scale, podSuffixes, onBac
   const [tab, setTab] = useState<'overview' | 'observability' | 'events' | 'logs'>('overview')
   const [logRange, setLogRange] = useState(5)
   const [logFilter, setLogFilter] = useState<string | null>(null)
-  const [pinned, setPinned] = useState<string[]>([])
+  const [pinned, setPinned] = useState<Set<number>>(new Set())
+  const [streamedLogs, setStreamedLogs] = useState<{ time: string; level: string; msg: string }[]>([])
   const [scaleInput, setScaleInput] = useState(String(scale.desired))
   const [selectedPodIdx, setSelectedPodIdx] = useState<number | null>(null)
+  const logEndRef = useRef<HTMLDivElement>(null)
 
-  const logs = useMemo(() => generateLogs(name, status, logRange), [name, status, logRange])
-  const filtered = logFilter ? logs.filter(l => l.level === logFilter) : logs
-  const displayed = [...pinned.map(p => ({ time: '📌', level: 'ERROR', msg: p })), ...filtered.filter(l => !pinned.includes(l.msg))]
+  const baseLogs = useMemo(() => generateLogs(name, status, logRange), [name, status, logRange])
+
+  useEffect(() => {
+    if (tab !== 'logs') return
+    const iv = setInterval(() => {
+      setStreamedLogs(prev => [...prev.slice(-300), generateSingleLog(name, status)])
+    }, 3000)
+    return () => clearInterval(iv)
+  }, [tab, name, status])
+
+  useEffect(() => { if (tab === 'logs') logEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [streamedLogs, tab])
+
+  const allLogs = useMemo(() => [...baseLogs, ...streamedLogs], [baseLogs, streamedLogs])
+  const filtered = logFilter ? allLogs.filter(l => l.level === logFilter) : allLogs
+  const pinnedEntries = [...pinned].map(i => ({ ...allLogs[i], pinIdx: i }))
+  const displayed = [
+    ...pinnedEntries.map(e => ({ time: '📌', level: e.level, msg: e.msg, origIdx: e.pinIdx })),
+    ...filtered.map((l, i) => ({ ...l, origIdx: i })).filter(l => !pinned.has(l.origIdx)),
+  ]
   const events = useMemo(() => generateEvents(name, status), [name, status])
   const cpuReq = kind === 'service' ? '250m' : '100m'
   const memReq = kind === 'service' ? '512Mi' : '256Mi'
@@ -335,27 +436,29 @@ function DeployDetail({ name, status, kind, extraData, scale, podSuffixes, onBac
               {[1, 5, 15, 30, 60].map(m => (
                 <button key={m} onClick={() => setLogRange(m)} className={`px-2 py-0.5 rounded text-[10px] transition-colors ${logRange === m ? 'bg-[#8ab4f8] text-[#202124] font-bold' : 'bg-[#292a2d] border border-[#3c4043] text-[#9aa0a6]'}`}>{m < 60 ? `${m}m` : '1h'}</button>
               ))}
-              <span className="text-[#9aa0a6] text-[10px] ml-2">Filter (click level):</span>
+              <span className="text-[#9aa0a6] text-[10px] ml-2">Filter:</span>
               {['INFO','DEBUG','WARN','ERROR','FATAL'].map(lvl => (
                 <button key={lvl} onClick={() => setLogFilter(logFilter === lvl ? null : lvl)}
                   className={`text-[9px] font-bold px-1.5 py-0.5 rounded border transition-all ${logFilter === lvl ? 'opacity-100 scale-105' : 'opacity-50 hover:opacity-80'}`}
                   style={{ color: LEVEL_COLOR[lvl], borderColor: LEVEL_COLOR[lvl], backgroundColor: logFilter === lvl ? `${LEVEL_COLOR[lvl]}22` : 'transparent' }}>{lvl}
                 </button>
               ))}
-              {pinned.length > 0 && <button onClick={() => setPinned([])} className="text-[9px] text-[#484f58] hover:text-[#f85149] ml-auto">clear {pinned.length} pin(s)</button>}
+              <span className="text-[#3fb950] text-[9px] ml-1">● live</span>
+              {pinned.size > 0 && <button onClick={() => setPinned(new Set())} className="text-[9px] text-[#484f58] hover:text-[#f85149] ml-auto">clear {pinned.size} pin(s)</button>}
             </div>
             <div className="bg-[#0f1011] border border-[#3c4043] rounded p-2 font-mono text-[10px] space-y-0.5 max-h-[400px] overflow-y-auto">
               {displayed.map((l, i) => (
-                <div key={i} className="flex gap-2 leading-relaxed group">
+                <div key={i} className={`flex gap-2 leading-relaxed group ${l.time === '📌' ? 'bg-[#1a1400] border-l-2 border-[#d29922] pl-1' : ''}`}>
                   <span className="text-[#484f58] flex-shrink-0 w-16">{l.time}</span>
                   <span className="font-bold flex-shrink-0 w-10" style={{ color: LEVEL_COLOR[l.level] ?? '#6b7280' }}>{l.level}</span>
                   <span className="text-[#e8eaed] break-all flex-1">{l.msg}</span>
-                  {(l.level === 'ERROR' || l.level === 'FATAL') && l.time !== '📌' && (
-                    <button onClick={() => setPinned(p => p.includes(l.msg) ? p.filter(x => x !== l.msg) : [...p, l.msg])}
-                      className="opacity-0 group-hover:opacity-100 text-[#484f58] hover:text-[#d29922] flex-shrink-0 text-[11px] transition-opacity" title="Pin error">📌</button>
+                  {l.time !== '📌' && (
+                    <button onClick={() => setPinned(p => { const n = new Set(p); n.has(l.origIdx) ? n.delete(l.origIdx) : n.add(l.origIdx); return n })}
+                      className="opacity-0 group-hover:opacity-100 text-[#484f58] hover:text-[#d29922] flex-shrink-0 text-[11px] transition-opacity" title="Pin log line">📌</button>
                   )}
                 </div>
               ))}
+              <div ref={logEndRef} />
             </div>
           </div>
         )}
@@ -371,7 +474,6 @@ export default function GCPConsole({ systemState }: GCPConsoleProps) {
   const [scaleMap, setScaleMap] = useState<Record<string, ScaleEntry>>({})
   const [globalLogRange, setGlobalLogRange] = useState(15)
   const [globalFilter, setGlobalFilter] = useState<string | null>(null)
-  const [pinnedGlobal, setPinnedGlobal] = useState<string[]>([])
 
   const dynamicServices = systemState ? Object.values(systemState.services) : []
   const caches = systemState?.infrastructure.caches ?? []
@@ -433,17 +535,43 @@ export default function GCPConsole({ systemState }: GCPConsoleProps) {
   ), [])
 
   // Global logs
-  const globalLogs = useMemo(() => {
+  const [streamedGlobal, setStreamedGlobal] = useState<{ time: string; level: string; msg: string; svc: string }[]>([])
+  const [pinnedGlobalIdx, setPinnedGlobalIdx] = useState<Set<number>>(new Set())
+  const globalLogEndRef = useRef<HTMLDivElement>(null)
+
+  const baseGlobalLogs = useMemo(() => {
     const all: { time: string; level: string; msg: string; svc: string }[] = []
-    for (const svc of allServices.slice(0, 8)) {
+    for (const svc of allServices.slice(0, 12)) {
       const logs = generateLogs(svc.name, svc.status, globalLogRange)
       all.push(...logs.map(l => ({ ...l, svc: svc.name })))
     }
     return all.sort((a, b) => a.time.localeCompare(b.time))
   }, [allServices, globalLogRange])
 
-  const filteredGlobal = globalFilter ? globalLogs.filter(l => l.level === globalFilter) : globalLogs
-  const displayedGlobal = [...pinnedGlobal.map(p => ({ time: '📌', level: 'ERROR', msg: p, svc: '' })), ...filteredGlobal.filter(l => !pinnedGlobal.includes(l.msg))]
+  // Stream new global log lines every 2s
+  useEffect(() => {
+    if (activeSection !== 'logging') return
+    const svcList = allServices.slice(0, 12)
+    const iv = setInterval(() => {
+      const svc = svcList[Math.floor(Math.random() * svcList.length)]
+      if (!svc) return
+      setStreamedGlobal(prev => [...prev.slice(-500), { ...generateSingleLog(svc.name, svc.status), svc: svc.name }])
+    }, 2000)
+    return () => clearInterval(iv)
+  }, [activeSection, allServices])
+
+  // Auto-scroll global log to bottom
+  useEffect(() => {
+    if (activeSection === 'logging') globalLogEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [streamedGlobal, activeSection])
+
+  const allGlobalLogs = useMemo(() => [...baseGlobalLogs, ...streamedGlobal], [baseGlobalLogs, streamedGlobal])
+  const filteredGlobal = globalFilter ? allGlobalLogs.filter(l => l.level === globalFilter) : allGlobalLogs
+  const pinnedGlobalEntries = [...pinnedGlobalIdx].map(i => ({ ...allGlobalLogs[i], pinIdx: i }))
+  const displayedGlobal = [
+    ...pinnedGlobalEntries.map(e => ({ time: '📌', level: e.level, msg: e.msg, svc: e.svc, origIdx: e.pinIdx })),
+    ...filteredGlobal.map((l, i) => ({ ...l, origIdx: i })).filter(l => !pinnedGlobalIdx.has(l.origIdx)),
+  ]
 
   if (selectedDeploy) {
     const sc = getScale(selectedDeploy.name, selectedDeploy.status)
@@ -567,7 +695,13 @@ export default function GCPConsole({ systemState }: GCPConsoleProps) {
 
         {activeSection === 'logging' && (
           <div className="p-4 space-y-3">
-            <div><div className="text-[#e8eaed] text-sm font-medium mb-1">Cloud Logging — Log Explorer</div><div className="text-[#9aa0a6] text-[10px] mb-3">Resource: GKE Container · Project: moniepoint-prod</div></div>
+            <div>
+              <div className="flex items-center gap-3 mb-1">
+                <div className="text-[#e8eaed] text-sm font-medium">Cloud Logging — Log Explorer</div>
+                <span className="text-[#3fb950] text-[10px]">● live streaming</span>
+              </div>
+              <div className="text-[#9aa0a6] text-[10px] mb-3">Resource: GKE Container · Project: moniepoint-prod · {allGlobalLogs.length} entries</div>
+            </div>
             <div className="flex flex-wrap items-center gap-2 mb-2">
               <span className="text-[#9aa0a6] text-[10px]">Range:</span>
               {[5, 15, 30, 60].map(m => (
@@ -580,21 +714,22 @@ export default function GCPConsole({ systemState }: GCPConsoleProps) {
                   style={{ color: LEVEL_COLOR[lvl], borderColor: LEVEL_COLOR[lvl], backgroundColor: globalFilter === lvl ? `${LEVEL_COLOR[lvl]}22` : 'transparent' }}>{lvl}
                 </button>
               ))}
-              {pinnedGlobal.length > 0 && <button onClick={() => setPinnedGlobal([])} className="text-[9px] text-[#484f58] hover:text-[#f85149] ml-auto">clear {pinnedGlobal.length} pin(s)</button>}
+              {pinnedGlobalIdx.size > 0 && <button onClick={() => setPinnedGlobalIdx(new Set())} className="text-[9px] text-[#484f58] hover:text-[#f85149] ml-auto">clear {pinnedGlobalIdx.size} pin(s)</button>}
             </div>
             <div className="bg-[#0f1011] border border-[#3c4043] rounded p-2 font-mono text-[10px] space-y-0.5 max-h-[calc(100vh-240px)] overflow-y-auto">
               {displayedGlobal.map((l, i) => (
-                <div key={i} className="flex gap-2 leading-relaxed group">
+                <div key={i} className={`flex gap-2 leading-relaxed group ${l.time === '📌' ? 'bg-[#1a1400] border-l-2 border-[#d29922] pl-1' : ''}`}>
                   <span className="text-[#484f58] flex-shrink-0 w-16">{l.time}</span>
                   <span className="font-bold flex-shrink-0 w-10" style={{ color: LEVEL_COLOR[l.level] ?? '#6b7280' }}>{l.level}</span>
-                  {l.svc && <span className="text-[#8ab4f8] flex-shrink-0 w-32 truncate">{l.svc}</span>}
+                  {l.svc && <span className="text-[#8ab4f8] flex-shrink-0 w-28 truncate">{l.svc}</span>}
                   <span className="text-[#e8eaed] break-all flex-1">{l.msg.replace(l.svc ? `[${l.svc}] ` : '', '')}</span>
-                  {(l.level === 'ERROR' || l.level === 'FATAL') && l.time !== '📌' && (
-                    <button onClick={() => setPinnedGlobal(p => p.includes(l.msg) ? p.filter(x => x !== l.msg) : [...p, l.msg])}
-                      className="opacity-0 group-hover:opacity-100 text-[#484f58] hover:text-[#d29922] flex-shrink-0 transition-opacity" title="Pin error">📌</button>
+                  {l.time !== '📌' && (
+                    <button onClick={() => setPinnedGlobalIdx(p => { const n = new Set(p); n.has(l.origIdx) ? n.delete(l.origIdx) : n.add(l.origIdx); return n })}
+                      className="opacity-0 group-hover:opacity-100 text-[#484f58] hover:text-[#d29922] flex-shrink-0 transition-opacity text-[11px]" title="Pin log line">📌</button>
                   )}
                 </div>
               ))}
+              <div ref={globalLogEndRef} />
             </div>
           </div>
         )}

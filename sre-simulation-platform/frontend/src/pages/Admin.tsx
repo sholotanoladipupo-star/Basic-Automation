@@ -15,29 +15,11 @@ interface Assignment {
   id: string
   candidate_name: string
   scenario_id: string
-  module_type: 'incident' | 'sql' | 'monitoring' | 'cognitive' | 'postmortem' | 'automation'
+  module_type: 'incident' | 'sql' | 'monitoring' | 'cognitive'
   question_id: string | null
   created_at: string
   used_at: string | null
   status: 'pending' | 'used'
-}
-
-interface Session {
-  id: string
-  candidate_name: string
-  scenario_name: string | null
-  scenario_id: string
-  started_at: string
-  ended_at: string | null
-  overall_score: number | null
-  status: string
-}
-
-interface Scorecard {
-  overall_score: number
-  dimensions: Record<string, { score: number; max: number }>
-  timeline_highlights: string[]
-  postmortem: string
 }
 
 interface SQLQuestion {
@@ -61,7 +43,7 @@ interface AdminProps {
   onBack: () => void
 }
 
-type Tab = 'assign' | 'sql' | 'monitoring' | 'postmortem' | 'automation' | 'results'
+type Tab = 'assign' | 'sql' | 'monitoring'
 
 export default function Admin({ onBack }: AdminProps) {
   const [adminKey, setAdminKey] = useState('')
@@ -72,17 +54,12 @@ export default function Admin({ onBack }: AdminProps) {
   // Assign tab
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [candidateName, setCandidateName] = useState('')
-  const [moduleType, setModuleType] = useState<'incident' | 'sql' | 'monitoring' | 'cognitive' | 'postmortem' | 'automation'>('incident')
+  const [moduleType, setModuleType] = useState<'incident' | 'sql' | 'monitoring' | 'cognitive'>('incident')
   const [scenarioId, setScenarioId] = useState('cache-db-cascade')
   const [selectedQuestionId, setSelectedQuestionId] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
   const [createSuccess, setCreateSuccess] = useState('')
-
-  // Results tab
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [expandedSession, setExpandedSession] = useState<string | null>(null)
-  const [scorecardCache, setScorecardCache] = useState<Record<string, Scorecard>>({})
 
   // SQL tab
   const [sqlQuestions, setSqlQuestions] = useState<SQLQuestion[]>([])
@@ -95,14 +72,6 @@ export default function Admin({ onBack }: AdminProps) {
   const [monForm, setMonForm] = useState({ title: '', scenario: '', difficulty: 'medium', sub_questions: '', time_limit_seconds: '600' })
   const [monFormError, setMonFormError] = useState('')
   const [monFormSuccess, setMonFormSuccess] = useState('')
-
-  // Postmortem tab
-  const [postmortemQuestions, setPostmortemQuestions] = useState<{ id: string; title: string; difficulty: string; time_limit_seconds: number; created_at: string }[]>([])
-
-  // Automation tab
-  const [automationQuestions, setAutomationQuestions] = useState<{ id: string; title: string; difficulty: string; language: string; time_limit_seconds: number; created_at: string }[]>([])
-  const [seeding, setSeeding] = useState(false)
-  const [seedMsg, setSeedMsg] = useState('')
 
   async function handleAuth(e: React.FormEvent) {
     e.preventDefault()
@@ -122,13 +91,6 @@ export default function Admin({ onBack }: AdminProps) {
     } catch { /* ignore */ }
   }
 
-  async function loadSessions() {
-    try {
-      const res = await fetch(`${API_BASE}/sessions`)
-      setSessions(await res.json() as Session[])
-    } catch { /* ignore */ }
-  }
-
   async function loadSqlQuestions() {
     try {
       const res = await fetch(`${API_BASE}/sql/admin/questions`, { headers: { 'x-admin-key': adminKey } })
@@ -143,51 +105,24 @@ export default function Admin({ onBack }: AdminProps) {
     } catch { /* ignore */ }
   }
 
-  async function loadPostmortemQuestions() {
-    try {
-      const res = await fetch(`${API_BASE}/postmortem/admin/questions`, { headers: { 'x-admin-key': adminKey } })
-      if (res.ok) setPostmortemQuestions(await res.json())
-    } catch { /* ignore */ }
-  }
-
-  async function loadAutomationQuestions() {
-    try {
-      const res = await fetch(`${API_BASE}/automation/admin/questions`, { headers: { 'x-admin-key': adminKey } })
-      if (res.ok) setAutomationQuestions(await res.json())
-    } catch { /* ignore */ }
-  }
-
   useEffect(() => {
     if (!authed) return
-    loadAssignments(); loadSessions(); loadSqlQuestions(); loadMonitoringQuestions()
-    loadPostmortemQuestions(); loadAutomationQuestions()
-    const iv = setInterval(() => { loadAssignments(); loadSessions() }, 15_000)
+    loadAssignments(); loadSqlQuestions(); loadMonitoringQuestions()
+    const iv = setInterval(() => { loadAssignments() }, 15_000)
     return () => clearInterval(iv)
   }, [authed])
-
-  async function loadScorecard(sessionId: string) {
-    if (scorecardCache[sessionId]) { setExpandedSession(expandedSession === sessionId ? null : sessionId); return }
-    try {
-      const res = await fetch(`${API_BASE}/sessions/${sessionId}/scorecard`)
-      if (res.ok) {
-        const sc = await res.json() as Scorecard
-        setScorecardCache(c => ({ ...c, [sessionId]: sc }))
-      }
-    } catch { /* ignore */ }
-    setExpandedSession(expandedSession === sessionId ? null : sessionId)
-  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     if (!candidateName.trim()) return
-    if ((moduleType === 'sql' || moduleType === 'monitoring' || moduleType === 'postmortem' || moduleType === 'automation') && !selectedQuestionId) {
+    if ((moduleType === 'sql' || moduleType === 'monitoring') && !selectedQuestionId) {
       setCreateError('Select a question for this module'); return
     }
     setCreating(true); setCreateError(''); setCreateSuccess('')
     try {
       const body: Record<string, string> = { candidate_name: candidateName.trim(), module_type: moduleType }
       if (moduleType === 'incident') body.scenario_id = scenarioId
-      if (moduleType === 'sql' || moduleType === 'monitoring' || moduleType === 'postmortem' || moduleType === 'automation') body.question_id = selectedQuestionId
+      if (moduleType === 'sql' || moduleType === 'monitoring') body.question_id = selectedQuestionId
       const res = await fetch(`${API_BASE}/admin/assignments`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-admin-key': adminKey },
@@ -200,8 +135,6 @@ export default function Admin({ onBack }: AdminProps) {
         const modLabel = moduleType === 'incident' ? SCENARIOS.find(s => s.id === scenarioId)?.name
           : moduleType === 'sql' ? sqlQuestions.find(q => q.id === selectedQuestionId)?.title
           : moduleType === 'monitoring' ? monitoringQuestions.find(q => q.id === selectedQuestionId)?.title
-          : moduleType === 'postmortem' ? postmortemQuestions.find(q => q.id === selectedQuestionId)?.title
-          : moduleType === 'automation' ? automationQuestions.find(q => q.id === selectedQuestionId)?.title
           : 'Cognitive Test'
         setCreateSuccess(`✓ Assigned "${candidateName.trim()}" → ${modLabel ?? moduleType}`)
         await loadAssignments()
@@ -258,17 +191,6 @@ export default function Admin({ onBack }: AdminProps) {
     } catch (err) { setMonFormError(String(err)) }
   }
 
-  async function handleSeedQuestions() {
-    setSeeding(true); setSeedMsg('')
-    try {
-      const res = await fetch(`${API_BASE}/admin/seed-questions`, { method: 'POST', headers: { 'x-admin-key': adminKey } })
-      if (!res.ok) { setSeedMsg('✗ Seed failed'); return }
-      await Promise.all([loadPostmortemQuestions(), loadAutomationQuestions(), loadSqlQuestions(), loadMonitoringQuestions()])
-      setSeedMsg('✓ Questions seeded and refreshed')
-    } catch { setSeedMsg('✗ Could not reach backend') }
-    finally { setSeeding(false) }
-  }
-
   async function handleDeleteMonitoringQuestion(id: string) {
     await fetch(`${API_BASE}/monitoring/admin/questions/${id}`, { method: 'DELETE', headers: { 'x-admin-key': adminKey } })
     await loadMonitoringQuestions()
@@ -277,20 +199,10 @@ export default function Admin({ onBack }: AdminProps) {
   function fmt(iso: string) {
     return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
   }
-  function scoreColor(score: number) {
-    if (score >= 80) return 'text-[#3fb950]'
-    if (score >= 50) return 'text-[#d29922]'
-    return 'text-[#f85149]'
-  }
-  function ratingLabel(score: number) {
-    return score >= 80 ? 'GOOD' : score >= 50 ? 'MANAGING' : 'LEARNING'
-  }
   function moduleLabel(mt: string) {
     if (mt === 'sql') return 'SQL'
     if (mt === 'monitoring') return 'MONITORING'
     if (mt === 'cognitive') return 'COGNITIVE'
-    if (mt === 'postmortem') return 'POSTMORTEM'
-    if (mt === 'automation') return 'AUTOMATION'
     return 'INCIDENT'
   }
 
@@ -298,8 +210,6 @@ export default function Admin({ onBack }: AdminProps) {
     if (mt === 'sql') return 'border-[#58a6ff] text-[#58a6ff]'
     if (mt === 'monitoring') return 'border-[#bc8cff] text-[#bc8cff]'
     if (mt === 'cognitive') return 'border-[#e3b341] text-[#e3b341]'
-    if (mt === 'postmortem') return 'border-[#d29922] text-[#d29922]'
-    if (mt === 'automation') return 'border-[#3fb950] text-[#3fb950]'
     return 'border-[#f85149] text-[#f85149]'
   }
 
@@ -334,9 +244,6 @@ export default function Admin({ onBack }: AdminProps) {
                 ['assign',     '📋 Assign'],
                 ['sql',        '🗄 SQL'],
                 ['monitoring', '📊 Monitoring'],
-                ['postmortem', '📄 Postmortem'],
-                ['automation', '⚙ Automation'],
-                ['results',    '🏆 Results'],
               ] as [Tab, string][]).map(([id, label]) => (
                 <button key={id} onClick={() => setTab(id)}
                   className={`px-5 py-2.5 text-xs whitespace-nowrap border-b-2 transition-colors ${tab === id ? 'border-[#3fb950] text-[#e6edf3]' : 'border-transparent text-[#8b949e] hover:text-[#e6edf3]'}`}>
@@ -363,8 +270,6 @@ export default function Admin({ onBack }: AdminProps) {
                           ['incident',   'Incident Simulation'],
                           ['sql',        'SQL Readiness'],
                           ['monitoring', 'Monitoring Design'],
-                          ['postmortem', 'Postmortem Writing'],
-                          ['automation', 'Automation Scripting'],
                           ['cognitive',  'Cognitive Test'],
                         ] as const).map(([m, label]) => (
                           <button key={m} type="button" onClick={() => { setModuleType(m); setSelectedQuestionId('') }}
@@ -423,44 +328,6 @@ export default function Admin({ onBack }: AdminProps) {
                                 <input type="radio" name="mon_question" value={q.id} checked={selectedQuestionId === q.id} onChange={() => setSelectedQuestionId(q.id)} className="accent-[#3fb950]" />
                                 <span className="text-[#e6edf3] flex-1">{q.title}</span>
                                 <span className="text-[#484f58] text-[10px] uppercase">{q.difficulty}</span>
-                              </label>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {moduleType === 'postmortem' && (
-                      <div>
-                        <label className={labelCls}>Postmortem Scenario</label>
-                        {postmortemQuestions.length === 0 ? (
-                          <div className="text-[#484f58]">No postmortem questions yet. Run /admin/seed-questions to seed them.</div>
-                        ) : (
-                          <div className="space-y-1.5">
-                            {postmortemQuestions.map(q => (
-                              <label key={q.id} className={`flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors ${selectedQuestionId === q.id ? 'border-[#3fb950] bg-[#0d1117]' : 'border-[#30363d] hover:border-[#484f58]'}`}>
-                                <input type="radio" name="pm_question" value={q.id} checked={selectedQuestionId === q.id} onChange={() => setSelectedQuestionId(q.id)} className="accent-[#3fb950]" />
-                                <span className="text-[#e6edf3] flex-1">{q.title}</span>
-                                <span className="text-[#484f58] text-[10px] uppercase">{q.difficulty} · {Math.round(q.time_limit_seconds / 60)}m</span>
-                              </label>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {moduleType === 'automation' && (
-                      <div>
-                        <label className={labelCls}>Automation Task</label>
-                        {automationQuestions.length === 0 ? (
-                          <div className="text-[#484f58]">No automation questions yet. Run /admin/seed-questions to seed them.</div>
-                        ) : (
-                          <div className="space-y-1.5">
-                            {automationQuestions.map(q => (
-                              <label key={q.id} className={`flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors ${selectedQuestionId === q.id ? 'border-[#3fb950] bg-[#0d1117]' : 'border-[#30363d] hover:border-[#484f58]'}`}>
-                                <input type="radio" name="auto_question" value={q.id} checked={selectedQuestionId === q.id} onChange={() => setSelectedQuestionId(q.id)} className="accent-[#3fb950]" />
-                                <span className="text-[#e6edf3] flex-1">{q.title}</span>
-                                <span className="text-[#484f58] text-[10px] uppercase">{q.difficulty} · {q.language}</span>
                               </label>
                             ))}
                           </div>
@@ -704,200 +571,6 @@ export default function Admin({ onBack }: AdminProps) {
               </div>
             )}
 
-            {/* ── POSTMORTEM TAB ── */}
-            {tab === 'postmortem' && (
-              <div className="space-y-5">
-                <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="text-[#8b949e] uppercase tracking-widest">Postmortem Questions</div>
-                    <div className="flex items-center gap-3">
-                      {seedMsg && <span className={`text-xs ${seedMsg.startsWith('✓') ? 'text-[#3fb950]' : 'text-[#f85149]'}`}>{seedMsg}</span>}
-                      <button onClick={handleSeedQuestions} disabled={seeding}
-                        className="text-xs px-3 py-1.5 rounded border border-[#d29922] text-[#d29922] hover:bg-[#2a1e00] disabled:opacity-50 transition-colors">
-                        {seeding ? 'Seeding…' : '⟳ Seed & Refresh'}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="text-[#484f58] text-xs mb-4">
-                    Postmortem questions are seeded automatically. Click "Seed &amp; Refresh" to add/refresh the 3 built-in scenarios.
-                  </div>
-                  {postmortemQuestions.length === 0 ? (
-                    <div className="text-[#484f58] py-4">No postmortem questions yet. Seed to add them.</div>
-                  ) : (
-                    <table className="w-full">
-                      <thead><tr className="text-[#484f58] border-b border-[#30363d]">
-                        <th className="text-left px-4 py-2">Title</th>
-                        <th className="text-left px-4 py-2">Difficulty</th>
-                        <th className="text-left px-4 py-2">Time</th>
-                        <th className="px-4 py-2"></th>
-                      </tr></thead>
-                      <tbody>
-                        {postmortemQuestions.map(q => (
-                          <tr key={q.id} className="border-b border-[#30363d] last:border-0 hover:bg-[#1c2128]">
-                            <td className="px-4 py-2.5 text-[#e6edf3]">{q.title}</td>
-                            <td className="px-4 py-2.5 text-[#8b949e] uppercase text-[10px]">{q.difficulty}</td>
-                            <td className="px-4 py-2.5 text-[#484f58]">{Math.round(q.time_limit_seconds / 60)}min</td>
-                            <td className="px-4 py-2.5 text-right">
-                              <button onClick={async () => {
-                                await fetch(`${API_BASE}/postmortem/admin/questions/${q.id}`, { method: 'DELETE', headers: { 'x-admin-key': adminKey } })
-                                await loadPostmortemQuestions()
-                              }} className="text-[#484f58] hover:text-[#f85149] transition-colors">✕</button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* ── AUTOMATION TAB ── */}
-            {tab === 'automation' && (
-              <div className="space-y-5">
-                <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="text-[#8b949e] uppercase tracking-widest">Automation Questions</div>
-                    <div className="flex items-center gap-3">
-                      {seedMsg && <span className={`text-xs ${seedMsg.startsWith('✓') ? 'text-[#3fb950]' : 'text-[#f85149]'}`}>{seedMsg}</span>}
-                      <button onClick={handleSeedQuestions} disabled={seeding}
-                        className="text-xs px-3 py-1.5 rounded border border-[#3fb950] text-[#3fb950] hover:bg-[#0f2a1a] disabled:opacity-50 transition-colors">
-                        {seeding ? 'Seeding…' : '⟳ Seed & Refresh'}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="text-[#484f58] text-xs mb-4">
-                    Automation questions are seeded automatically. Click "Seed &amp; Refresh" to add/refresh the 4 built-in tasks (Bash &amp; Python).
-                  </div>
-                  {automationQuestions.length === 0 ? (
-                    <div className="text-[#484f58] py-4">No automation questions yet. Seed to add them.</div>
-                  ) : (
-                    <table className="w-full">
-                      <thead><tr className="text-[#484f58] border-b border-[#30363d]">
-                        <th className="text-left px-4 py-2">Title</th>
-                        <th className="text-left px-4 py-2">Difficulty</th>
-                        <th className="text-left px-4 py-2">Language</th>
-                        <th className="text-left px-4 py-2">Time</th>
-                        <th className="px-4 py-2"></th>
-                      </tr></thead>
-                      <tbody>
-                        {automationQuestions.map(q => (
-                          <tr key={q.id} className="border-b border-[#30363d] last:border-0 hover:bg-[#1c2128]">
-                            <td className="px-4 py-2.5 text-[#e6edf3]">{q.title}</td>
-                            <td className="px-4 py-2.5 text-[#8b949e] uppercase text-[10px]">{q.difficulty}</td>
-                            <td className="px-4 py-2.5 text-[#3fb950] text-[10px]">{q.language}</td>
-                            <td className="px-4 py-2.5 text-[#484f58]">{Math.round(q.time_limit_seconds / 60)}min</td>
-                            <td className="px-4 py-2.5 text-right">
-                              <button onClick={async () => {
-                                await fetch(`${API_BASE}/automation/admin/questions/${q.id}`, { method: 'DELETE', headers: { 'x-admin-key': adminKey } })
-                                await loadAutomationQuestions()
-                              }} className="text-[#484f58] hover:text-[#f85149] transition-colors">✕</button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* ── RESULTS TAB ── */}
-            {tab === 'results' && (
-              <div className="space-y-3">
-                {sessions.length === 0 ? (
-                  <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-12 text-center text-[#484f58]">No completed sessions yet</div>
-                ) : sessions.map(session => {
-                  const sc = scorecardCache[session.id]
-                  const isExpanded = expandedSession === session.id
-                  const score = session.overall_score
-                  const rating = score !== null ? ratingLabel(score) : null
-                  return (
-                    <div key={session.id} className="bg-[#161b22] border border-[#30363d] rounded-lg overflow-hidden">
-                      <div className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[#1c2128] transition-colors" onClick={() => loadScorecard(session.id)}>
-                        <div className={`w-12 h-12 rounded-full border-2 flex items-center justify-center flex-shrink-0 font-bold text-sm ${
-                          score === null ? 'border-[#30363d] text-[#484f58]'
-                          : score >= 80 ? 'border-[#3fb950] text-[#3fb950]'
-                          : score >= 50 ? 'border-[#d29922] text-[#d29922]'
-                          : 'border-[#f85149] text-[#f85149]'
-                        }`}>{score ?? '—'}</div>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-[#e6edf3] font-bold">{session.candidate_name}</span>
-                            {rating && (
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${score! >= 80 ? 'border-[#3fb950] text-[#3fb950]' : score! >= 50 ? 'border-[#d29922] text-[#d29922]' : 'border-[#f85149] text-[#f85149]'}`}>
-                                {rating}
-                              </span>
-                            )}
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${session.status === 'active' ? 'border-[#3fb950] text-[#3fb950]' : 'border-[#30363d] text-[#484f58]'}`}>
-                              {session.status.toUpperCase()}
-                            </span>
-                          </div>
-                          <div className="text-[#8b949e] mt-0.5">{session.scenario_name ?? session.scenario_id}</div>
-                        </div>
-
-                        <div className="text-right text-[#484f58] flex-shrink-0">
-                          <div>{fmt(session.started_at)}</div>
-                          {session.ended_at && <div className="mt-0.5">{fmt(session.ended_at)}</div>}
-                        </div>
-                        <span className="text-[#484f58] ml-1">{isExpanded ? '▲' : '▼'}</span>
-                      </div>
-
-                      {isExpanded && sc && (
-                        <div className="border-t border-[#30363d] px-4 py-4 bg-[#0d1117] space-y-4">
-                          <div>
-                            <div className="text-[#8b949e] uppercase tracking-widest mb-2">Score Breakdown</div>
-                            <div className="space-y-2">
-                              {Object.entries(sc.dimensions).map(([key, dim]) => {
-                                const pct = Math.round((dim.score / dim.max) * 100)
-                                const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-                                return (
-                                  <div key={key}>
-                                    <div className="flex justify-between mb-1">
-                                      <span className="text-[#8b949e]">{label}</span>
-                                      <span className={scoreColor(pct)}>{dim.score}/{dim.max}</span>
-                                    </div>
-                                    <div className="h-1.5 bg-[#161b22] rounded overflow-hidden">
-                                      <div className={`h-full rounded ${pct >= 80 ? 'bg-[#3fb950]' : pct >= 50 ? 'bg-[#d29922]' : 'bg-[#f85149]'}`} style={{ width: `${pct}%` }} />
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-
-                          {sc.timeline_highlights?.length > 0 && (
-                            <div>
-                              <div className="text-[#8b949e] uppercase tracking-widest mb-2">Highlights</div>
-                              <div className="space-y-1">
-                                {sc.timeline_highlights.map((h, i) => (
-                                  <div key={i} className="flex gap-2"><span className="text-[#3fb950]">✓</span><span className="text-[#e6edf3]">{h}</span></div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {sc.postmortem && (
-                            <div>
-                              <div className="text-[#8b949e] uppercase tracking-widest mb-2">Summary</div>
-                              <div className="text-[#e6edf3] leading-relaxed bg-[#161b22] rounded p-3 border border-[#30363d]">{sc.postmortem}</div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {isExpanded && !sc && session.status !== 'active' && (
-                        <div className="border-t border-[#30363d] px-4 py-4 bg-[#0d1117] text-[#484f58] text-center">No scorecard available yet</div>
-                      )}
-                      {isExpanded && session.status === 'active' && (
-                        <div className="border-t border-[#30363d] px-4 py-4 bg-[#0d1117] text-[#3fb950] text-center">● Session in progress…</div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
           </div>
         )}
       </div>
