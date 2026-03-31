@@ -155,6 +155,63 @@ function generateEvents(svcName: string, status: string) {
   ]
 }
 
+// --- Log histogram ---
+interface HistogramProps { logs: { time: string; level: string }[] }
+function LogHistogram({ logs }: HistogramProps) {
+  const BUCKETS = 10
+  const now = Date.now()
+  // Build minute-buckets for last 10 minutes
+  const buckets = Array.from({ length: BUCKETS }, (_, i) => {
+    const bucketStart = now - (BUCKETS - i) * 60000
+    const bucketEnd = bucketStart + 60000
+    const label = new Date(bucketStart).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    let errors = 0, warns = 0, infos = 0
+    for (const l of logs) {
+      // Parse time HH:MM:SS back to ms (approximate, same day)
+      const parts = l.time.split(':').map(Number)
+      if (parts.length < 3) continue
+      const d = new Date(); d.setHours(parts[0], parts[1], parts[2], 0)
+      const t = d.getTime()
+      if (t >= bucketStart && t < bucketEnd) {
+        if (l.level === 'ERROR' || l.level === 'FATAL') errors++
+        else if (l.level === 'WARN') warns++
+        else infos++
+      }
+    }
+    return { label, errors, warns, infos }
+  })
+  const maxVal = Math.max(1, ...buckets.map(b => b.errors + b.warns + b.infos))
+
+  return (
+    <div className="bg-[#1e1f22] border border-[#3c4043] rounded p-3 mb-3">
+      <div className="text-[#9aa0a6] text-[10px] uppercase tracking-widest mb-2">Log Volume — Last 10 min</div>
+      <div className="flex items-end gap-1 h-16">
+        {buckets.map((b, i) => {
+          const total = b.errors + b.warns + b.infos
+          const pct = total / maxVal
+          const errPct = b.errors / Math.max(1, total)
+          const warnPct = b.warns / Math.max(1, total)
+          return (
+            <div key={i} className="flex-1 flex flex-col justify-end items-stretch gap-0 group relative" title={`${b.label} — ${b.errors} errors, ${b.warns} warns, ${b.infos} info`}>
+              <div style={{ height: `${pct * 52}px` }} className="flex flex-col justify-end overflow-hidden rounded-sm">
+                <div style={{ height: `${errPct * 100}%` }} className="bg-[#f85149] min-h-[1px]" />
+                <div style={{ height: `${warnPct * 100}%` }} className="bg-[#d29922] min-h-[1px]" />
+                <div style={{ flex: 1 }} className="bg-[#3fb950]/40 min-h-[1px]" />
+              </div>
+              <div className="text-[8px] text-[#484f58] text-center mt-0.5 hidden group-hover:block absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap z-10">{b.label}</div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex items-center gap-3 mt-2">
+        <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-sm bg-[#f85149]"/><span className="text-[#9aa0a6] text-[9px]">error/fatal</span></div>
+        <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-sm bg-[#d29922]"/><span className="text-[#9aa0a6] text-[9px]">warn</span></div>
+        <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-sm bg-[#3fb950]/40"/><span className="text-[#9aa0a6] text-[9px]">info/debug</span></div>
+      </div>
+    </div>
+  )
+}
+
 // --- Scale state ---
 interface ScaleEntry { desired: number; current: number; isScaling: boolean }
 
@@ -702,6 +759,7 @@ export default function GCPConsole({ systemState }: GCPConsoleProps) {
               </div>
               <div className="text-[#9aa0a6] text-[10px] mb-3">Resource: GKE Container · Project: moniepoint-prod · {allGlobalLogs.length} entries</div>
             </div>
+            <LogHistogram logs={allGlobalLogs} />
             <div className="flex flex-wrap items-center gap-2 mb-2">
               <span className="text-[#9aa0a6] text-[10px]">Range:</span>
               {[5, 15, 30, 60].map(m => (

@@ -45,6 +45,11 @@ export default function Simulation({ state, actions }: SimulationProps) {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [elapsedAtDismissal, setElapsedAtDismissal] = useState<number | null>(null)
   const [expandedCenter, setExpandedCenter] = useState(false)
+  const [leftCollapsed, setLeftCollapsed] = useState(false)
+  const [showCommsDrawer, setShowCommsDrawer] = useState(false)
+  const [showEscalateModal, setShowEscalateModal] = useState(false)
+  const [escalateTo, setEscalateTo] = useState('')
+  const [escalateMsg, setEscalateMsg] = useState('')
 
   // Auto-request fullscreen when simulation loads
   useEffect(() => {
@@ -79,7 +84,11 @@ export default function Simulation({ state, actions }: SimulationProps) {
     setShowTour(false)
   }
 
-  const services = systemState ? Object.values(systemState.services) : []
+  function handleEscalateSubmit() {
+    if (!escalateTo.trim() || !escalateMsg.trim()) return
+    actions.escalate(escalateTo.trim(), escalateMsg.trim())
+    setEscalateTo(''); setEscalateMsg(''); setShowEscalateModal(false)
+  }
 
   const timeLimitSeconds = (sessionInfo?.time_limit_minutes ?? 15) * 60
   // Timer counts from when the user dismissed the onboarding modal
@@ -156,19 +165,49 @@ export default function Simulation({ state, actions }: SimulationProps) {
         </div>
       </div>
 
-      {/* Main layout: left | centre | right */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left: Alert panel — hidden when expanded */}
-        <div className={`flex-shrink-0 overflow-hidden transition-all duration-200 ${expandedCenter ? 'w-0' : 'w-64'}`}>
-          <AlertPanel
-            alerts={state.alerts}
-            onAcknowledge={actions.acknowledgeAlert}
-            sessionStartedAt={state.sessionStartedAt}
-          />
+      {/* Main layout: left panel | centre */}
+      <div className="flex-1 flex overflow-hidden relative">
+
+        {/* Left: Alerts + Incident stacked — collapsible */}
+        <div className={`flex-shrink-0 flex flex-col overflow-hidden transition-all duration-200 border-r border-[#30363d] ${leftCollapsed || expandedCenter ? 'w-0' : 'w-64'}`}>
+          {/* Alerts (top half) */}
+          <div className="flex-1 overflow-hidden min-h-0">
+            <AlertPanel
+              alerts={state.alerts}
+              onAcknowledge={actions.acknowledgeAlert}
+              sessionStartedAt={state.sessionStartedAt}
+            />
+          </div>
+          {/* Incident (bottom half) */}
+          <div className="flex-shrink-0 border-t border-[#30363d] overflow-y-auto" style={{ maxHeight: '55%' }}>
+            <IncidentPanel
+              severityDeclared={severityDeclared}
+              incidentResolved={state.incidentResolved}
+              elapsedSeconds={elapsedSeconds}
+              availableRunbooks={sessionInfo?.available_runbooks ?? []}
+              onDeclareSeverity={actions.declareSeverity}
+              onEscalate={actions.escalate}
+              onResolveIncident={actions.resolveIncident}
+              onCallRunbook={actions.callRunbook}
+              hideEscalate
+            />
+          </div>
         </div>
 
+        {/* Collapse/expand toggle for left panel */}
+        {!expandedCenter && (
+          <button
+            onClick={() => setLeftCollapsed(c => !c)}
+            className="absolute top-1/2 -translate-y-1/2 z-20 bg-[#21262d] border border-[#30363d] hover:border-[#58a6ff] text-[#484f58] hover:text-[#58a6ff] rounded-r text-[10px] py-3 px-0.5 transition-colors"
+            style={{ left: leftCollapsed ? 0 : 256 }}
+            title={leftCollapsed ? 'Expand left panel' : 'Collapse left panel'}
+          >
+            {leftCollapsed ? '›' : '‹'}
+          </button>
+        )}
+
         {/* Centre: tabs + panel */}
-        <div className="flex-1 flex flex-col overflow-hidden border-x border-[#30363d]">
+        <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-shrink-0 flex bg-[#161b22] border-b border-[#30363d] overflow-x-auto items-center">
             {TABS.map(tab => {
               const disabled = tab.id === 'runbook' && !state.openRunbook
@@ -176,7 +215,7 @@ export default function Simulation({ state, actions }: SimulationProps) {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => { handleTabClick(tab.id); if (tab.id !== 'gcp-console' && tab.id !== 'new-relic') setExpandedCenter(false) }}
+                  onClick={() => handleTabClick(tab.id)}
                   disabled={disabled}
                   className={`px-4 py-2 text-xs transition-colors border-b-2 whitespace-nowrap flex-shrink-0 ${
                     isActive ? 'text-[#e6edf3] border-[#3fb950]'
@@ -188,16 +227,14 @@ export default function Simulation({ state, actions }: SimulationProps) {
                 </button>
               )
             })}
-            {/* Expand button only for GCP/New Relic panels */}
-            {(activePanel === 'gcp-console' || activePanel === 'new-relic') && (
-              <button
-                onClick={() => setExpandedCenter(e => !e)}
-                className="ml-auto mr-2 text-[#484f58] hover:text-[#e6edf3] px-2 py-1 transition-colors text-[11px] border border-[#30363d] rounded"
-                title={expandedCenter ? 'Collapse' : 'Expand full width'}
-              >
-                {expandedCenter ? '⊡ Collapse' : '⤢ Expand'}
-              </button>
-            )}
+            {/* Expand/collapse full-width toggle */}
+            <button
+              onClick={() => setExpandedCenter(e => !e)}
+              className="ml-auto mr-2 text-[#484f58] hover:text-[#e6edf3] px-2 py-1 transition-colors text-[11px] border border-[#30363d] rounded flex-shrink-0"
+              title={expandedCenter ? 'Restore panels' : 'Full-width view'}
+            >
+              {expandedCenter ? '⊡ Restore' : '⤢ Full'}
+            </button>
           </div>
           <div className="flex-1 overflow-hidden">
             {activePanel === 'terminal' && (
@@ -218,21 +255,81 @@ export default function Simulation({ state, actions }: SimulationProps) {
           </div>
         </div>
 
-        {/* Right: Incident + Comms — hidden when expanded */}
-        <div className={`flex-shrink-0 flex flex-col overflow-hidden transition-all duration-200 ${expandedCenter ? 'w-0' : 'w-64'}`}>
-          <div className="flex-1 overflow-y-auto min-h-0">
-            <IncidentPanel
-              severityDeclared={severityDeclared}
-              incidentResolved={state.incidentResolved}
-              elapsedSeconds={elapsedSeconds}
-              availableRunbooks={sessionInfo?.available_runbooks ?? []}
-              onDeclareSeverity={actions.declareSeverity}
-              onEscalate={actions.escalate}
-              onResolveIncident={actions.resolveIncident}
-              onCallRunbook={actions.callRunbook}
-            />
+        {/* Floating action buttons — bottom-right */}
+        <div className="absolute bottom-5 right-4 flex flex-col items-end gap-3 z-30">
+          {/* Escalate float button */}
+          <div className="relative">
+            {showEscalateModal && (
+              <div className="absolute bottom-12 right-0 w-72 bg-[#161b22] border border-[#f85149]/60 rounded-lg shadow-2xl p-4 font-mono text-xs">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[#f85149] font-bold uppercase tracking-widest text-[10px]">Escalate</span>
+                  <button onClick={() => setShowEscalateModal(false)} className="text-[#484f58] hover:text-[#e6edf3]">✕</button>
+                </div>
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={escalateTo}
+                    onChange={e => setEscalateTo(e.target.value)}
+                    placeholder="To (e.g. sre-lead, eng-manager)"
+                    className="w-full bg-[#0d1117] border border-[#30363d] text-[#e6edf3] text-xs px-2 py-1.5 rounded focus:outline-none focus:border-[#f85149] font-mono"
+                    autoFocus
+                  />
+                  <textarea
+                    value={escalateMsg}
+                    onChange={e => setEscalateMsg(e.target.value)}
+                    placeholder="Describe the situation and what help you need…"
+                    rows={3}
+                    className="w-full bg-[#0d1117] border border-[#30363d] text-[#e6edf3] text-xs px-2 py-1.5 rounded focus:outline-none focus:border-[#f85149] font-mono resize-none"
+                  />
+                  <button
+                    onClick={handleEscalateSubmit}
+                    disabled={!escalateTo.trim() || !escalateMsg.trim()}
+                    className="w-full bg-[#f85149] hover:bg-[#ff6b63] disabled:opacity-40 text-white font-bold text-xs py-1.5 rounded transition-colors"
+                  >
+                    Send Escalation
+                  </button>
+                </div>
+              </div>
+            )}
+            <button
+              onClick={() => { setShowEscalateModal(e => !e); setShowCommsDrawer(false) }}
+              className={`w-12 h-12 rounded-full shadow-lg border-2 flex items-center justify-center text-xl transition-all ${showEscalateModal ? 'bg-[#f85149] border-[#f85149] text-white' : 'bg-[#161b22] border-[#f85149]/60 text-[#f85149] hover:bg-[#2a0a0a]'}`}
+              title="Escalate"
+            >
+              🚨
+            </button>
           </div>
-          <CommsPanel messages={state.slackMessages} onSendMessage={actions.sendSlack} />
+
+          {/* Slack / Comms float button */}
+          <div className="relative">
+            {showCommsDrawer && (
+              <div className="absolute bottom-14 right-0 w-80 shadow-2xl rounded-lg overflow-hidden border border-[#30363d]">
+                <div className="flex items-center justify-between bg-[#161b22] px-3 py-2 border-b border-[#30363d]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">💬</span>
+                    <span className="text-[#e6edf3] text-xs font-bold font-mono">Slack</span>
+                  </div>
+                  <button onClick={() => setShowCommsDrawer(false)} className="text-[#484f58] hover:text-[#e6edf3] text-xs">✕</button>
+                </div>
+                <CommsPanel messages={state.slackMessages} onSendMessage={actions.sendSlack} />
+              </div>
+            )}
+            {/* Unread badge */}
+            <div className="relative">
+              {state.slackMessages.length > 0 && !showCommsDrawer && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#3fb950] rounded-full text-[9px] font-bold text-black flex items-center justify-center z-10">
+                  {Math.min(state.slackMessages.length, 9)}
+                </span>
+              )}
+              <button
+                onClick={() => { setShowCommsDrawer(d => !d); setShowEscalateModal(false) }}
+                className={`w-12 h-12 rounded-full shadow-lg border-2 flex items-center justify-center text-xl transition-all ${showCommsDrawer ? 'bg-[#238636] border-[#3fb950] text-white' : 'bg-[#161b22] border-[#3fb950]/60 text-[#3fb950] hover:bg-[#0f2a1a]'}`}
+                title="Slack / Comms"
+              >
+                💬
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 

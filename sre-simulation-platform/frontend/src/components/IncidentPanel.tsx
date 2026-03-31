@@ -9,6 +9,7 @@ interface IncidentPanelProps {
   onEscalate: (to: string, message: string) => void
   onResolveIncident: () => void
   onCallRunbook: (id: string) => void
+  hideEscalate?: boolean
 }
 
 function formatTime(seconds: number): string {
@@ -19,7 +20,7 @@ function formatTime(seconds: number): string {
 
 export default function IncidentPanel({
   severityDeclared, incidentResolved, elapsedSeconds,
-  availableRunbooks, onDeclareSeverity, onEscalate, onResolveIncident, onCallRunbook
+  availableRunbooks, onDeclareSeverity, onEscalate, onResolveIncident, onCallRunbook, hideEscalate,
 }: IncidentPanelProps) {
   const [escalateTo, setEscalateTo] = useState('')
   const [escalateMsg, setEscalateMsg] = useState('')
@@ -86,33 +87,35 @@ export default function IncidentPanel({
           </div>
         )}
 
-        {/* Escalate */}
-        <div>
-          <div className="text-[#8b949e] uppercase tracking-widest mb-2">Escalate</div>
-          <div className="space-y-1.5">
-            <input
-              type="text"
-              value={escalateTo}
-              onChange={e => setEscalateTo(e.target.value)}
-              placeholder="To (e.g. sre-lead)"
-              className="w-full bg-[#0d1117] border border-[#30363d] text-[#e6edf3] text-xs px-2 py-1.5 rounded focus:outline-none focus:border-[#58a6ff] font-mono"
-            />
-            <input
-              type="text"
-              value={escalateMsg}
-              onChange={e => setEscalateMsg(e.target.value)}
-              placeholder="Message..."
-              className="w-full bg-[#0d1117] border border-[#30363d] text-[#e6edf3] text-xs px-2 py-1.5 rounded focus:outline-none focus:border-[#58a6ff] font-mono"
-            />
-            <button
-              onClick={handleEscalate}
-              disabled={!escalateTo.trim() || !escalateMsg.trim()}
-              className="w-full bg-[#21262d] hover:bg-[#30363d] disabled:opacity-40 border border-[#30363d] text-[#e6edf3] text-xs py-1.5 rounded transition-colors"
-            >
-              Send Escalation
-            </button>
+        {/* Escalate (hidden when moved to floating button) */}
+        {!hideEscalate && (
+          <div>
+            <div className="text-[#8b949e] uppercase tracking-widest mb-2">Escalate</div>
+            <div className="space-y-1.5">
+              <input
+                type="text"
+                value={escalateTo}
+                onChange={e => setEscalateTo(e.target.value)}
+                placeholder="To (e.g. sre-lead)"
+                className="w-full bg-[#0d1117] border border-[#30363d] text-[#e6edf3] text-xs px-2 py-1.5 rounded focus:outline-none focus:border-[#58a6ff] font-mono"
+              />
+              <input
+                type="text"
+                value={escalateMsg}
+                onChange={e => setEscalateMsg(e.target.value)}
+                placeholder="Message..."
+                className="w-full bg-[#0d1117] border border-[#30363d] text-[#e6edf3] text-xs px-2 py-1.5 rounded focus:outline-none focus:border-[#58a6ff] font-mono"
+              />
+              <button
+                onClick={handleEscalate}
+                disabled={!escalateTo.trim() || !escalateMsg.trim()}
+                className="w-full bg-[#21262d] hover:bg-[#30363d] disabled:opacity-40 border border-[#30363d] text-[#e6edf3] text-xs py-1.5 rounded transition-colors"
+              >
+                Send Escalation
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Resolve */}
         <div>
