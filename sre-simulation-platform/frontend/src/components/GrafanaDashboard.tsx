@@ -201,121 +201,92 @@ export default function GrafanaDashboard({ systemState }: Props) {
           </div>
         </CollapsibleRow>
 
-        {/* Row 2: System Resource Overview */}
-        <CollapsibleRow title="System Resource Overview" defaultOpen={true}>
+        {/* Row 2: Redis Metrics */}
+        <CollapsibleRow title="Redis Metrics" defaultOpen={true}>
           <div className="p-3 space-y-3">
-            {/* Service CPU + memory sparklines */}
-            <div className="grid grid-cols-2 gap-3">
-              {services.map(svc => {
-                const cpu = cpuPct(svc.status)
-                const mem = memPct(svc.status)
-                const cpuHist = sampleHistory(cpu)
-                const memHist = sampleHistory(mem)
-                const cpuColor = cpu >= 85 ? '#f85149' : cpu >= 60 ? '#ff7c21' : '#3fb950'
-                const memColor = mem >= 85 ? '#f85149' : mem >= 60 ? '#ff7c21' : '#3fb950'
-                return (
-                  <div key={svc.name} className="bg-[#1a1d2b] border border-[#2c3235] rounded p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[#e6edf3] font-bold text-[11px]">{svc.name}</span>
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                        svc.status === 'down' ? 'bg-[#2a0a0a] text-[#f85149]'
-                        : svc.status === 'degraded' ? 'bg-[#2a1800] text-[#ff7c21]'
-                        : 'bg-[#0f2a1a] text-[#3fb950]'
-                      }`}>{svc.status.toUpperCase()}</span>
+            {caches.length === 0 ? (
+              <div className="text-[#6b7280] text-[11px] py-4 text-center">No cache instances in system state</div>
+            ) : caches.map(cache => {
+              const hitRate = Math.round(cache.hit_rate * 100)
+              const memUsedPct = Math.round((cache.memory_used_mb / cache.memory_total_mb) * 100)
+              const isDown = cache.status === 'down'
+              const isDeg = cache.status === 'degraded'
+
+              // Derived Redis metrics from cache state
+              const readLatency  = isDown ? 0  : isDeg ? 42 + Math.floor(Math.random() * 20) : 1 + Math.floor(Math.random() * 2)
+              const writeLatency = isDown ? 0  : isDeg ? 38 + Math.floor(Math.random() * 18) : 1 + Math.floor(Math.random() * 2)
+              const opsPerSec    = isDown ? 0  : isDeg ? 2800 + Math.floor(Math.random() * 400) : 18400 + Math.floor(Math.random() * 2000)
+              const evictionRate = isDown ? 0  : isDeg ? 12.4 : cache.hit_rate < 0.5 ? 8.1 : 0.2
+              const connectedClients = isDown ? 0 : isDeg ? 8 : 142
+
+              const hitColor    = hitRate < 30 ? '#f85149' : hitRate < 70 ? '#ff7c21' : '#3fb950'
+              const readColor   = readLatency > 20 ? '#f85149' : readLatency > 10 ? '#ff7c21' : '#3fb950'
+              const evictColor  = evictionRate > 5 ? '#f85149' : evictionRate > 1 ? '#ff7c21' : '#3fb950'
+              const opsColor    = opsPerSec < 1000 ? '#f85149' : '#8ab4f8'
+
+              const hitHist     = sampleHistory(hitRate)
+              const readHist    = sampleHistory(readLatency * 2).map(v => v / 2)
+              const opsHist     = sampleHistory(isDown ? 0 : isDeg ? 30 : 85)
+
+              return (
+                <div key={cache.name} className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[#e6edf3] font-bold text-[11px]">● {cache.name}</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isDown ? 'bg-[#2a0a0a] text-[#f85149]' : isDeg ? 'bg-[#2a1800] text-[#ff7c21]' : 'bg-[#0f2a1a] text-[#3fb950]'}`}>
+                      {cache.status.toUpperCase()}
+                    </span>
+                  </div>
+
+                  {/* KPI tiles */}
+                  <div className="grid grid-cols-5 gap-2">
+                    {[
+                      { label: 'Hit Rate',       value: `${hitRate}%`,         color: hitColor,   sub: hitRate < 30 ? 'CRITICAL' : hitRate < 70 ? 'LOW' : 'GOOD' },
+                      { label: 'Read Latency',   value: isDown ? '—' : `${readLatency}ms`,  color: readColor,  sub: readLatency > 20 ? 'HIGH' : 'OK' },
+                      { label: 'Write Latency',  value: isDown ? '—' : `${writeLatency}ms`, color: readColor,  sub: writeLatency > 20 ? 'HIGH' : 'OK' },
+                      { label: 'Ops / sec',      value: isDown ? '0' : opsPerSec.toLocaleString(), color: opsColor, sub: isDown ? 'DOWN' : isDeg ? 'DEGRADED' : 'NOMINAL' },
+                      { label: 'Eviction Rate',  value: isDown ? '0' : `${evictionRate}/s`, color: evictColor, sub: evictionRate > 5 ? 'HIGH' : 'LOW' },
+                    ].map(t => (
+                      <div key={t.label} className="bg-[#111217] border border-[#2c3235] rounded p-2.5">
+                        <div className="text-[9px] text-[#555] uppercase tracking-widest mb-1">{t.label}</div>
+                        <div className="text-base font-bold tabular-nums leading-none mb-1" style={{ color: t.color }}>{t.value}</div>
+                        <div className="text-[9px]" style={{ color: t.color }}>{t.sub}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Sparkline charts */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-[#111217] border border-[#2c3235] rounded p-3">
+                      <div className="text-[#555] text-[10px] mb-1.5">Cache Hit Rate (%)</div>
+                      <Sparkline values={hitHist} color={hitColor} />
+                      <div className="text-[9px] mt-1 text-[#555]">Now: <span style={{ color: hitColor }}>{hitRate}%</span></div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[9px] text-[#6b7280]">CPU</span>
-                          <span className="text-[10px] font-bold tabular-nums" style={{ color: cpuColor }}>{cpu}%</span>
-                        </div>
-                        <Sparkline values={cpuHist} color={cpuColor} />
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[9px] text-[#6b7280]">MEM</span>
-                          <span className="text-[10px] font-bold tabular-nums" style={{ color: memColor }}>{mem}%</span>
-                        </div>
-                        <Sparkline values={memHist} color={memColor} />
-                      </div>
+                    <div className="bg-[#111217] border border-[#2c3235] rounded p-3">
+                      <div className="text-[#555] text-[10px] mb-1.5">Read Latency (ms)</div>
+                      <Sparkline values={readHist} color={readColor} />
+                      <div className="text-[9px] mt-1 text-[#555]">Now: <span style={{ color: readColor }}>{isDown ? '—' : `${readLatency}ms`}</span></div>
+                    </div>
+                    <div className="bg-[#111217] border border-[#2c3235] rounded p-3">
+                      <div className="text-[#555] text-[10px] mb-1.5">Operations / sec</div>
+                      <Sparkline values={opsHist} color={opsColor} />
+                      <div className="text-[9px] mt-1 text-[#555]">Now: <span style={{ color: opsColor }}>{isDown ? '0' : opsPerSec.toLocaleString()}</span></div>
                     </div>
                   </div>
-                )
-              })}
-            </div>
 
-            {/* Database panels */}
-            {databases.length > 0 && (
-              <div>
-                <div className="text-[9px] text-[#6b7280] uppercase tracking-widest mb-2">Databases</div>
-                <div className="grid grid-cols-2 gap-2">
-                  {databases.map(db => {
-                    const connPct = Math.round((db.connection_count / db.max_connections) * 100)
-                    const qColor = db.query_latency_ms > 2000 ? '#f85149' : db.query_latency_ms > 500 ? '#ff7c21' : '#3fb950'
-                    return (
-                      <div key={db.name} className="bg-[#1a1d2b] border border-[#2c3235] rounded p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[#e6edf3] font-bold text-[11px]">{db.name}</span>
-                          <span className={`text-[10px] font-bold`} style={{ color: db.status === 'healthy' ? '#3fb950' : db.status === 'degraded' ? '#ff7c21' : '#f85149' }}>
-                            {db.status.toUpperCase()}
-                          </span>
-                        </div>
-                        <div className="space-y-1.5">
-                          <div>
-                            <div className="text-[9px] text-[#6b7280] mb-0.5">Connections ({db.connection_count}/{db.max_connections})</div>
-                            <Bar pct={connPct} warn={70} crit={90} />
-                          </div>
-                          <div className="flex items-center justify-between text-[10px]">
-                            <span className="text-[#6b7280]">Query p99</span>
-                            <span className="font-bold tabular-nums" style={{ color: qColor }}>
-                              {db.query_latency_ms === 999999 ? '∞' : `${db.query_latency_ms}ms`}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
+                  {/* Memory + connections bar */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-[#1a1d2b] border border-[#2c3235] rounded p-3">
+                      <div className="text-[9px] text-[#6b7280] mb-1.5">Memory Used — {cache.memory_used_mb}/{cache.memory_total_mb} MB</div>
+                      <Bar pct={memUsedPct} warn={75} crit={90} />
+                    </div>
+                    <div className="bg-[#1a1d2b] border border-[#2c3235] rounded p-3">
+                      <div className="text-[9px] text-[#6b7280] mb-1">Connected Clients</div>
+                      <div className="text-lg font-bold tabular-nums" style={{ color: connectedClients === 0 ? '#f85149' : '#e6edf3' }}>{connectedClients}</div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            )}
-
-            {/* Cache panels */}
-            {caches.length > 0 && (
-              <div>
-                <div className="text-[9px] text-[#6b7280] uppercase tracking-widest mb-2">Cache Layer</div>
-                <div className="grid grid-cols-2 gap-2">
-                  {caches.map(cache => {
-                    const memPct2 = Math.round((cache.memory_used_mb / cache.memory_total_mb) * 100)
-                    const hitColor = cache.hit_rate < 0.3 ? '#f85149' : cache.hit_rate < 0.7 ? '#ff7c21' : '#3fb950'
-                    const hitHist = sampleHistory(Math.round(cache.hit_rate * 100))
-                    return (
-                      <div key={cache.name} className="bg-[#1a1d2b] border border-[#2c3235] rounded p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[#e6edf3] font-bold text-[11px]">{cache.name}</span>
-                          <span style={{ color: cache.status === 'healthy' ? '#3fb950' : cache.status === 'degraded' ? '#ff7c21' : '#f85149' }} className="text-[10px] font-bold">
-                            {cache.status.toUpperCase()}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-[9px] text-[#6b7280]">Hit Rate</span>
-                              <span className="text-[10px] font-bold" style={{ color: hitColor }}>{Math.round(cache.hit_rate * 100)}%</span>
-                            </div>
-                            <Sparkline values={hitHist} color={hitColor} />
-                          </div>
-                          <div>
-                            <div className="text-[9px] text-[#6b7280] mb-0.5">Memory</div>
-                            <Bar pct={memPct2} warn={75} crit={90} />
-                            <div className="text-[9px] text-[#6b7280] mt-0.5">{cache.memory_used_mb}/{cache.memory_total_mb} MB</div>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
+              )
+            })}
           </div>
         </CollapsibleRow>
 
@@ -400,7 +371,10 @@ export default function GrafanaDashboard({ systemState }: Props) {
           </div>
         </CollapsibleRow>
 
-        {/* MySQL Database row */}
+        {/* Row 4: Kafka / Confluent */}
+        <KafkaRow systemState={systemState} />
+
+        {/* Row 5: MySQL Database row */}
         <MySQLRow systemState={systemState} />
       </div>
     </div>
@@ -410,6 +384,147 @@ export default function GrafanaDashboard({ systemState }: Props) {
 function txWindow_placeholder(rpm: number) {
   const diff = rpm > 1000 ? '+3%' : rpm > 400 ? '-67%' : '-85%'
   return diff
+}
+
+// ─── Kafka / Confluent Row ────────────────────────────────────────────────────
+
+const KAFKA_TOPICS = [
+  { name: 'transactions',        partitions: 24, baseLag: 120,    baseRate: 14200 },
+  { name: 'user-events',         partitions: 12, baseLag: 8,      baseRate: 5800 },
+  { name: 'payment-events',      partitions: 16, baseLag: 45,     baseRate: 9100 },
+  { name: 'order-lifecycle',     partitions: 8,  baseLag: 3,      baseRate: 2300 },
+  { name: 'notification-queue',  partitions: 6,  baseLag: 22,     baseRate: 1600 },
+  { name: 'audit-log',           partitions: 4,  baseLag: 0,      baseRate: 800  },
+]
+
+const SOURCE_CONNECTORS = [
+  { name: 'postgres-cdc-source',  type: 'PostgreSQL CDC', status: 'RUNNING', topics: 'transactions, accounts' },
+  { name: 'mysql-orders-source',  type: 'MySQL CDC',      status: 'RUNNING', topics: 'order-lifecycle' },
+]
+const SINK_CONNECTORS = [
+  { name: 'bigquery-analytics-sink', type: 'BigQuery',   status: 'RUNNING', topics: 'transactions, user-events' },
+  { name: 's3-audit-sink',           type: 'S3',         status: 'RUNNING', topics: 'audit-log' },
+  { name: 'elasticsearch-search-sink', type: 'Elasticsearch', status: 'RUNNING', topics: 'user-events, order-lifecycle' },
+]
+
+function KafkaRow({ systemState }: { systemState: SystemState | null }) {
+  const [open, setOpen] = useState(false)
+
+  const isIncident = systemState ? Object.values(systemState.services).some(s => s.status !== 'healthy') : false
+  const isKafkaIncident = systemState?.scenario_id === 'kafka-consumer-lag'
+
+  const topics = KAFKA_TOPICS.map(t => {
+    const lagMultiplier = isKafkaIncident && t.name === 'transactions' ? 18000 : isIncident ? 4 : 1
+    const lag = Math.round(t.baseLag * lagMultiplier + (Math.random() * t.baseLag * 0.2))
+    const produceRate = Math.round(t.baseRate * (isIncident ? 0.92 : 1) + Math.random() * t.baseRate * 0.05)
+    const consumeRate = Math.round(t.baseRate * (isKafkaIncident && t.name === 'transactions' ? 0.02 : isIncident ? 0.85 : 0.99) + Math.random() * t.baseRate * 0.05)
+    const lagColor = lag > 10000 ? '#f85149' : lag > 500 ? '#ff7c21' : '#3fb950'
+    return { ...t, lag, produceRate, consumeRate, lagColor }
+  })
+
+  const totalLag = topics.reduce((s, t) => s + t.lag, 0)
+  const totalProduce = topics.reduce((s, t) => s + t.produceRate, 0)
+  const totalConsume = topics.reduce((s, t) => s + t.consumeRate, 0)
+  const lagHistory = sampleHistory(isKafkaIncident ? 95 : isIncident ? 40 : 5)
+
+  return (
+    <div className="mb-1">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-3 py-1.5 bg-[#1e2030] hover:bg-[#252838] border border-[#2c3235] text-[11px] text-[#9fa8be] font-medium transition-colors"
+      >
+        <span className="text-[#ff7c21]">{open ? '▼' : '▶'}</span>
+        <span className="uppercase tracking-widest text-[10px]">Kafka / Confluent</span>
+        <div className="flex-1 h-px bg-[#2c3235] ml-2" />
+        {totalLag > 1000 && <span className="text-[#f85149] text-[10px] font-bold animate-pulse ml-2">⚠ High Consumer Lag</span>}
+      </button>
+      {open && (
+        <div className="border-x border-b border-[#2c3235] p-3 space-y-4">
+          {/* Summary tiles */}
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              { label: 'Total Consumer Lag', value: totalLag.toLocaleString(), color: totalLag > 10000 ? '#f85149' : totalLag > 1000 ? '#ff7c21' : '#3fb950' },
+              { label: 'Produce Rate / s',   value: totalProduce.toLocaleString(), color: '#8ab4f8' },
+              { label: 'Consume Rate / s',   value: totalConsume.toLocaleString(), color: '#8ab4f8' },
+              { label: 'Active Topics',      value: String(topics.length), color: '#e6edf3' },
+            ].map(t => (
+              <div key={t.label} className="bg-[#111217] border border-[#2c3235] rounded p-2.5">
+                <div className="text-[9px] text-[#555] uppercase tracking-widest mb-1">{t.label}</div>
+                <div className="text-base font-bold tabular-nums" style={{ color: t.color }}>{t.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Consumer lag trend */}
+          <div className="bg-[#111217] border border-[#2c3235] rounded p-3">
+            <div className="text-[#555] text-[10px] mb-2">Consumer Lag Trend — Last 20min</div>
+            <Sparkline values={lagHistory} color={totalLag > 10000 ? '#f85149' : totalLag > 500 ? '#ff7c21' : '#3fb950'} />
+          </div>
+
+          {/* Topics table */}
+          <div>
+            <div className="text-[9px] text-[#6b7280] uppercase tracking-widest mb-2">Topics — Consumer Group: sre-consumers</div>
+            <div className="bg-[#1a1d2b] border border-[#2c3235] rounded overflow-hidden">
+              <table className="w-full text-[11px]">
+                <thead className="bg-[#111217] border-b border-[#2c3235]">
+                  <tr>
+                    <th className="text-left px-3 py-1.5 text-[#6b7280] font-normal">Topic</th>
+                    <th className="text-left px-3 py-1.5 text-[#6b7280] font-normal">Partitions</th>
+                    <th className="text-left px-3 py-1.5 text-[#6b7280] font-normal">Consumer Lag</th>
+                    <th className="text-left px-3 py-1.5 text-[#6b7280] font-normal">Produce/s</th>
+                    <th className="text-left px-3 py-1.5 text-[#6b7280] font-normal">Consume/s</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topics.map(t => (
+                    <tr key={t.name} className="border-b border-[#2c3235] last:border-0 hover:bg-[#1e2030]">
+                      <td className="px-3 py-2 text-[#8ab4f8] font-mono">{t.name}</td>
+                      <td className="px-3 py-2 text-[#9fa8be]">{t.partitions}</td>
+                      <td className="px-3 py-2 font-bold tabular-nums" style={{ color: t.lagColor }}>{t.lag.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-[#9fa8be] tabular-nums">{t.produceRate.toLocaleString()}</td>
+                      <td className="px-3 py-2 tabular-nums" style={{ color: t.consumeRate < t.produceRate * 0.5 ? '#f85149' : '#9fa8be' }}>{t.consumeRate.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Connectors */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-[9px] text-[#6b7280] uppercase tracking-widest mb-2">Source Connectors</div>
+              <div className="space-y-1">
+                {SOURCE_CONNECTORS.map(c => (
+                  <div key={c.name} className="bg-[#1a1d2b] border border-[#2c3235] rounded px-3 py-2 flex items-center justify-between">
+                    <div>
+                      <div className="text-[#e6edf3] text-[11px]">{c.name}</div>
+                      <div className="text-[9px] text-[#6b7280]">{c.type} → {c.topics}</div>
+                    </div>
+                    <span className="text-[9px] font-bold text-[#3fb950] bg-[#0f2a1a] px-1.5 py-0.5 rounded">{c.status}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="text-[9px] text-[#6b7280] uppercase tracking-widest mb-2">Sink Connectors</div>
+              <div className="space-y-1">
+                {SINK_CONNECTORS.map(c => (
+                  <div key={c.name} className="bg-[#1a1d2b] border border-[#2c3235] rounded px-3 py-2 flex items-center justify-between">
+                    <div>
+                      <div className="text-[#e6edf3] text-[11px]">{c.name}</div>
+                      <div className="text-[9px] text-[#6b7280]">{c.type} ← {c.topics}</div>
+                    </div>
+                    <span className="text-[9px] font-bold text-[#3fb950] bg-[#0f2a1a] px-1.5 py-0.5 rounded">{c.status}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── MySQL Database Monitoring Row ──────────────────────────────────────────

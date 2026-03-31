@@ -48,11 +48,11 @@ export default function IncidentPanel({
           <div className="text-[#8b949e] uppercase tracking-widest mb-2">Severity</div>
           {severityDeclared ? (
             <div className={`text-center py-1.5 rounded font-bold ${severityDeclared === 'sev1' ? 'bg-[#f85149] text-white' : severityDeclared === 'sev2' ? 'bg-[#d18616] text-white' : 'bg-[#d29922] text-black'}`}>
-              {severityDeclared.toUpperCase()} DECLARED
+              {severityDeclared === 'sev1' ? 'P1' : severityDeclared === 'sev2' ? 'P2' : 'P3'} DECLARED
             </div>
           ) : (
             <div className="flex gap-1.5">
-              {(['sev1', 'sev2', 'sev3'] as const).map(sev => (
+              {([['sev1','P1'], ['sev2','P2'], ['sev3','P3']] as const).map(([sev, label]) => (
                 <button
                   key={sev}
                   onClick={() => onDeclareSeverity(sev)}
@@ -62,7 +62,7 @@ export default function IncidentPanel({
                     'border-[#d29922] text-[#d29922] hover:bg-[#d29922] hover:text-black'
                   }`}
                 >
-                  {sev.toUpperCase()}
+                  {label}
                 </button>
               ))}
             </div>

@@ -524,6 +524,265 @@ function DeployDetail({ name, status, kind, extraData, scale, podSuffixes, onBac
   )
 }
 
+// --- Cloud SQL Panel ---
+const SQL_DBS: Record<string, string[]> = {
+  'payments-db':  ['payments_db', 'audit_db', 'reporting_db'],
+  'postgres-primary': ['payments_db', 'orders_db', 'users_db'],
+  'user-db':      ['users_db', 'sessions_db'],
+  'orders-db':    ['orders_db', 'inventory_db'],
+}
+const SLOW_QUERIES = [
+  { query: 'SELECT * FROM transactions WHERE account_id = ? AND status = ?', avg: '2840ms', calls: 1423, rows: 84200, plan: 'Seq Scan (missing index)' },
+  { query: 'UPDATE accounts SET balance = balance - ? WHERE id = ?', avg: '1200ms', calls: 8712, rows: 1, plan: 'Index Scan on accounts_pkey' },
+  { query: 'SELECT COUNT(*) FROM payment_methods WHERE user_id IN (SELECT id FROM users WHERE ...)', avg: '3100ms', calls: 412, rows: 1, plan: 'Nested Loop / Hash Join' },
+  { query: 'DELETE FROM sessions WHERE expires_at < NOW()', avg: '890ms', calls: 24, rows: 120400, plan: 'Seq Scan on sessions' },
+  { query: 'SELECT * FROM ledger_entries ORDER BY created_at DESC LIMIT 100', avg: '450ms', calls: 5623, rows: 100, plan: 'Sort + Seq Scan (no index on created_at)' },
+]
+
+function CloudSQLPanel({ databases }: { databases: { name: string; status: string; connection_count: number; max_connections: number; query_latency_ms: number }[] }) {
+  const [selectedDb, setSelectedDb] = useState<string | null>(null)
+  const [sqlTab, setSqlTab] = useState<'overview' | 'databases' | 'queryinsights' | 'systeminsights'>('overview')
+
+  const db = databases.find(d => d.name === selectedDb) ?? databases[0] ?? null
+
+  if (!db) return (
+    <div className="p-4 text-[#9aa0a6] text-xs">No Cloud SQL instances found.</div>
+  )
+
+  const connPct = db.connection_count / db.max_connections
+  const memUsedMb = db.status === 'down' ? 800 : db.status === 'degraded' ? 6800 : 3200
+  const memTotalMb = 8192
+  const memPct = memUsedMb / memTotalMb
+  const diskUsedGb = db.status === 'degraded' ? 180 : 95
+  const diskTotalGb = 500
+  const cpuPct = db.status === 'down' ? 0 : db.status === 'degraded' ? 87 : 32
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Instance selector */}
+      <div className="px-4 pt-3 pb-0">
+        <div className="text-[#e8eaed] text-sm font-medium mb-1">Cloud SQL — Instances</div>
+        <div className="flex gap-2 mb-3 flex-wrap">
+          {databases.map(d => (
+            <button key={d.name} onClick={() => { setSelectedDb(d.name); setSqlTab('overview') }}
+              className={`px-2.5 py-1 rounded text-[10px] font-mono border transition-colors ${
+                (selectedDb ?? databases[0]?.name) === d.name
+                  ? 'bg-[#8ab4f8] text-[#202124] border-[#8ab4f8] font-bold'
+                  : 'bg-[#292a2d] border-[#3c4043] text-[#9aa0a6] hover:border-[#8ab4f8]/40'
+              }`}>
+              <span className={`mr-1 ${d.status === 'down' ? 'text-[#f85149]' : d.status === 'degraded' ? 'text-[#d29922]' : 'text-[#3fb950]'}`}>●</span>
+              {d.name}
+            </button>
+          ))}
+        </div>
+        {/* Sub-tabs */}
+        <div className="flex border-b border-[#3c4043] mb-0">
+          {([['overview','Overview'],['databases','Databases'],['queryinsights','Query Insights'],['systeminsights','System Insights']] as const).map(([t, l]) => (
+            <button key={t} onClick={() => setSqlTab(t)}
+              className={`px-3 py-1.5 text-[10px] border-b-2 transition-colors -mb-px ${sqlTab === t ? 'text-[#8ab4f8] border-[#8ab4f8]' : 'text-[#9aa0a6] border-transparent hover:text-[#e8eaed]'}`}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {sqlTab === 'overview' && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              {/* Connection pool */}
+              <div className="bg-[#292a2d] border border-[#3c4043] rounded p-3">
+                <div className="text-[#9aa0a6] text-[9px] uppercase tracking-widest mb-2">Connections</div>
+                <div className={`text-lg font-bold tabular-nums ${connPct > 0.85 ? 'text-[#f85149]' : connPct > 0.6 ? 'text-[#d29922]' : 'text-[#3fb950]'}`}>
+                  {db.connection_count} <span className="text-[#9aa0a6] text-xs font-normal">/ {db.max_connections}</span>
+                </div>
+                <div className="h-1.5 bg-[#3c4043] rounded mt-2 overflow-hidden">
+                  <div className="h-full rounded transition-all" style={{ width: `${connPct * 100}%`, background: connPct > 0.85 ? '#f85149' : connPct > 0.6 ? '#d29922' : '#3fb950' }} />
+                </div>
+                <div className="text-[#9aa0a6] text-[9px] mt-1">{(connPct * 100).toFixed(0)}% utilization</div>
+              </div>
+              {/* Query latency */}
+              <div className="bg-[#292a2d] border border-[#3c4043] rounded p-3">
+                <div className="text-[#9aa0a6] text-[9px] uppercase tracking-widest mb-2">Query p99 Latency</div>
+                <div className={`text-lg font-bold tabular-nums ${db.query_latency_ms > 2000 ? 'text-[#f85149]' : db.query_latency_ms > 500 ? 'text-[#d29922]' : 'text-[#3fb950]'}`}>
+                  {db.query_latency_ms === 999999 ? '∞' : `${db.query_latency_ms}ms`}
+                </div>
+                <div className="text-[#9aa0a6] text-[9px] mt-1">p50: {Math.round(db.query_latency_ms * 0.4)}ms · p95: {Math.round(db.query_latency_ms * 0.85)}ms</div>
+              </div>
+              {/* Memory */}
+              <div className="bg-[#292a2d] border border-[#3c4043] rounded p-3">
+                <div className="text-[#9aa0a6] text-[9px] uppercase tracking-widest mb-2">Memory</div>
+                <div className={`text-lg font-bold tabular-nums ${memPct > 0.85 ? 'text-[#f85149]' : memPct > 0.7 ? 'text-[#d29922]' : 'text-[#e8eaed]'}`}>
+                  {(memUsedMb / 1024).toFixed(1)} <span className="text-[#9aa0a6] text-xs font-normal">GB / {memTotalMb / 1024} GB</span>
+                </div>
+                <div className="h-1.5 bg-[#3c4043] rounded mt-2 overflow-hidden">
+                  <div className="h-full rounded transition-all" style={{ width: `${memPct * 100}%`, background: memPct > 0.85 ? '#f85149' : memPct > 0.7 ? '#d29922' : '#8ab4f8' }} />
+                </div>
+                <div className="text-[#9aa0a6] text-[9px] mt-1">{(memPct * 100).toFixed(0)}% used</div>
+              </div>
+              {/* Disk */}
+              <div className="bg-[#292a2d] border border-[#3c4043] rounded p-3">
+                <div className="text-[#9aa0a6] text-[9px] uppercase tracking-widest mb-2">Storage</div>
+                <div className="text-lg font-bold tabular-nums text-[#e8eaed]">
+                  {diskUsedGb} <span className="text-[#9aa0a6] text-xs font-normal">GB / {diskTotalGb} GB</span>
+                </div>
+                <div className="h-1.5 bg-[#3c4043] rounded mt-2 overflow-hidden">
+                  <div className="h-full bg-[#8ab4f8] rounded" style={{ width: `${(diskUsedGb / diskTotalGb) * 100}%` }} />
+                </div>
+                <div className="text-[#9aa0a6] text-[9px] mt-1">{((diskUsedGb / diskTotalGb) * 100).toFixed(0)}% used · SSD</div>
+              </div>
+            </div>
+            {/* Instance info */}
+            <div className="bg-[#292a2d] border border-[#3c4043] rounded p-3 text-[10px] space-y-1.5">
+              <div className="text-[#9aa0a6] text-[9px] uppercase tracking-widest mb-2">Instance Details</div>
+              {[
+                ['Instance ID', db.name],
+                ['Database version', 'PostgreSQL 15.4'],
+                ['Machine type', 'db-custom-4-8192'],
+                ['Region', 'us-central1-c'],
+                ['Public IP', 'Disabled'],
+                ['Private IP', '10.128.0.5'],
+                ['Maintenance window', 'Sunday 02:00 UTC'],
+                ['Status', db.status.toUpperCase()],
+              ].map(([k, v]) => (
+                <div key={k} className="flex justify-between">
+                  <span className="text-[#9aa0a6]">{k}</span>
+                  <span className={`font-mono ${k === 'Status' ? (db.status === 'down' ? 'text-[#f85149]' : db.status === 'degraded' ? 'text-[#d29922]' : 'text-[#3fb950]') : 'text-[#e8eaed]'}`}>{v}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {sqlTab === 'databases' && (
+          <div>
+            <div className="text-[#9aa0a6] text-[9px] uppercase tracking-widest mb-3">Databases in {db.name}</div>
+            <div className="bg-[#292a2d] border border-[#3c4043] rounded overflow-hidden">
+              <table className="w-full text-[10px]">
+                <thead className="bg-[#1e1f22] border-b border-[#3c4043]">
+                  <tr>
+                    <th className="text-left px-3 py-2 text-[#9aa0a6] font-normal">Database</th>
+                    <th className="text-left px-3 py-2 text-[#9aa0a6] font-normal">Owner</th>
+                    <th className="text-right px-3 py-2 text-[#9aa0a6] font-normal">Size</th>
+                    <th className="text-right px-3 py-2 text-[#9aa0a6] font-normal">Tables</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(SQL_DBS[db.name] ?? ['payments_db', 'audit_db']).map((dbName, i) => (
+                    <tr key={i} className="border-b border-[#3c4043] last:border-0 hover:bg-[#1e1f22]">
+                      <td className="px-3 py-2 text-[#8ab4f8] font-mono">{dbName}</td>
+                      <td className="px-3 py-2 text-[#9aa0a6]">postgres</td>
+                      <td className="px-3 py-2 text-right text-[#e8eaed]">{[24, 8, 3, 61, 14][i] ?? 5} GB</td>
+                      <td className="px-3 py-2 text-right text-[#e8eaed]">{[42, 18, 7, 95, 23][i] ?? 12}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {sqlTab === 'queryinsights' && (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[#9aa0a6] text-[9px] uppercase tracking-widest">Top Queries by Avg Latency</div>
+              <span className={`text-[9px] font-bold ${db.status !== 'healthy' ? 'text-[#f85149]' : 'text-[#3fb950]'}`}>
+                {db.status !== 'healthy' ? '⚠ Slow queries detected' : '✓ Normal'}
+              </span>
+            </div>
+            <div className="space-y-2">
+              {SLOW_QUERIES.map((q, i) => (
+                <div key={i} className="bg-[#292a2d] border border-[#3c4043] rounded p-3">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <code className="text-[#e8eaed] text-[9px] break-all flex-1">{q.query}</code>
+                    <span className={`text-[9px] font-bold flex-shrink-0 ${parseFloat(q.avg) > 2000 ? 'text-[#f85149]' : parseFloat(q.avg) > 800 ? 'text-[#d29922]' : 'text-[#3fb950]'}`}>{q.avg}</span>
+                  </div>
+                  <div className="flex gap-4 text-[9px] text-[#9aa0a6]">
+                    <span>Calls: <span className="text-[#e8eaed]">{q.calls.toLocaleString()}</span></span>
+                    <span>Rows scanned: <span className="text-[#e8eaed]">{q.rows.toLocaleString()}</span></span>
+                    <span className="text-[#d29922] flex-1 truncate">⚡ {q.plan}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {sqlTab === 'systeminsights' && (
+          <div className="space-y-4">
+            {/* CPU chart */}
+            <div className="bg-[#292a2d] border border-[#3c4043] rounded p-3">
+              <div className="text-[#9aa0a6] text-[9px] uppercase tracking-widest mb-3">CPU Utilization (last 30m)</div>
+              <svg viewBox="0 0 300 60" className="w-full" style={{ height: 60 }}>
+                {(() => {
+                  const vals = Array.from({ length: 30 }, (_, i) => {
+                    const base = cpuPct
+                    return Math.max(0, Math.min(100, base + Math.sin(i * 0.8) * 12 + (Math.random() * 8 - 4)))
+                  })
+                  const pts = vals.map((v, i) => `${(i / 29) * 300},${60 - (v / 100) * 56}`).join(' ')
+                  return (
+                    <>
+                      <defs>
+                        <linearGradient id="cpuGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={cpuPct > 80 ? '#f85149' : '#8ab4f8'} stopOpacity="0.3" />
+                          <stop offset="100%" stopColor={cpuPct > 80 ? '#f85149' : '#8ab4f8'} stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                      <polygon points={`0,60 ${pts} 300,60`} fill="url(#cpuGrad)" />
+                      <polyline points={pts} fill="none" stroke={cpuPct > 80 ? '#f85149' : '#8ab4f8'} strokeWidth="1.5" />
+                    </>
+                  )
+                })()}
+              </svg>
+              <div className="flex justify-between text-[8px] text-[#484f58] mt-1">
+                <span>-30m</span><span>-20m</span><span>-10m</span><span>now</span>
+              </div>
+              <div className="text-[#e8eaed] text-xs font-bold mt-1">{cpuPct}% <span className="text-[#9aa0a6] font-normal text-[9px]">avg</span></div>
+            </div>
+            {/* Memory chart */}
+            <div className="bg-[#292a2d] border border-[#3c4043] rounded p-3">
+              <div className="text-[#9aa0a6] text-[9px] uppercase tracking-widest mb-3">Memory Usage (last 30m)</div>
+              <div className="space-y-1.5 text-[10px]">
+                {[
+                  { label: 'Total RAM', value: `${memTotalMb / 1024} GB`, bar: 100, color: '#3c4043' },
+                  { label: 'Buffer Pool', value: `${((memUsedMb * 0.6) / 1024).toFixed(1)} GB`, bar: 60, color: '#8ab4f8' },
+                  { label: 'OS Cache', value: `${((memUsedMb * 0.25) / 1024).toFixed(1)} GB`, bar: 25, color: '#3fb950' },
+                  { label: 'WAL Buffers', value: `${((memUsedMb * 0.05) / 1024).toFixed(1)} GB`, bar: 5, color: '#d29922' },
+                  { label: 'Free', value: `${((memTotalMb - memUsedMb) / 1024).toFixed(1)} GB`, bar: ((memTotalMb - memUsedMb) / memTotalMb) * 100, color: '#555' },
+                ].map(r => (
+                  <div key={r.label} className="flex items-center gap-2">
+                    <span className="text-[#9aa0a6] w-24 flex-shrink-0">{r.label}</span>
+                    <div className="flex-1 h-2 bg-[#1e1f22] rounded overflow-hidden">
+                      <div className="h-full rounded" style={{ width: `${r.bar}%`, background: r.color }} />
+                    </div>
+                    <span className="text-[#e8eaed] w-16 text-right">{r.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* I/O */}
+            <div className="bg-[#292a2d] border border-[#3c4043] rounded p-3">
+              <div className="text-[#9aa0a6] text-[9px] uppercase tracking-widest mb-2">I/O & Locks</div>
+              <div className="grid grid-cols-3 gap-3 text-[10px]">
+                {[
+                  { label: 'Read IOPS', value: db.status === 'degraded' ? '4200' : '1100' },
+                  { label: 'Write IOPS', value: db.status === 'degraded' ? '8800' : '2300' },
+                  { label: 'Active Locks', value: db.status === 'degraded' ? '47' : '3' },
+                ].map(m => (
+                  <div key={m.label}>
+                    <div className="text-[#9aa0a6] mb-0.5">{m.label}</div>
+                    <span className={`font-bold ${parseInt(m.value) > 5000 || m.label === 'Active Locks' && parseInt(m.value) > 10 ? 'text-[#f85149]' : 'text-[#e8eaed]'}`}>{m.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // --- Main GCPConsole ---
 export default function GCPConsole({ systemState }: GCPConsoleProps) {
   const [activeSection, setActiveSection] = useState('gke')
@@ -733,21 +992,7 @@ export default function GCPConsole({ systemState }: GCPConsoleProps) {
         )}
 
         {activeSection === 'cloudsql' && (
-          <div className="p-4 space-y-4">
-            <div><div className="text-[#e8eaed] text-sm font-medium mb-1">Cloud SQL — Instances</div><div className="text-[#9aa0a6] text-[10px] mb-3">PostgreSQL 15 · Region: us-central1</div></div>
-            {databases.map(db => (
-              <div key={db.name}
-                onClick={() => setSelectedDeploy({ name: db.name, status: db.status, kind: 'database', extra: { 'Connections': `${db.connection_count}/${db.max_connections}`, 'Query p99': db.query_latency_ms === 999999 ? '∞' : `${db.query_latency_ms}ms` } })}
-                className="bg-[#292a2d] border border-[#3c4043] rounded p-3 mb-2 cursor-pointer hover:border-[#8ab4f8]/40">
-                <div className="flex items-center justify-between mb-2"><span className="text-[#8ab4f8] font-medium">{db.name}</span><StatusChip status={db.status} /></div>
-                <div className="grid grid-cols-3 gap-3 text-[10px]">
-                  <div><div className="text-[#9aa0a6] mb-0.5">Active Connections</div><span className={`font-bold ${db.connection_count / db.max_connections > 0.85 ? 'text-[#f85149]' : 'text-[#e8eaed]'}`}>{db.connection_count} / {db.max_connections}</span></div>
-                  <div><div className="text-[#9aa0a6] mb-0.5">Query p99</div><span className={`font-bold ${db.query_latency_ms > 2000 ? 'text-[#f85149]' : db.query_latency_ms > 500 ? 'text-[#d29922]' : 'text-[#3fb950]'}`}>{db.query_latency_ms === 999999 ? '∞' : `${db.query_latency_ms}ms`}</span></div>
-                  <div><div className="text-[#9aa0a6] mb-0.5">Click to view →</div><span className="text-[#8ab4f8] text-[10px]">Logs · Events</span></div>
-                </div>
-              </div>
-            ))}
-          </div>
+          <CloudSQLPanel databases={databases} />
         )}
 
         {activeSection === 'logging' && (

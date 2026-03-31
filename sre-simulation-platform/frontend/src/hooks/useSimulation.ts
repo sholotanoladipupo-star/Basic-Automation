@@ -41,7 +41,7 @@ function playBeep() {
 }
 
 export type AppScreen = 'home' | 'simulation' | 'scorecard' | 'submitted'
-export type ActivePanel = 'terminal' | 'logs' | 'dashboard' | 'runbook' | 'incident' | 'comms' | 'gcp-console' | 'new-relic'
+export type ActivePanel = 'terminal' | 'logs' | 'dashboard' | 'runbook' | 'incident' | 'comms' | 'gcp-console' | 'new-relic' | 'db-console'
 
 export interface DashboardEntry {
   name: string

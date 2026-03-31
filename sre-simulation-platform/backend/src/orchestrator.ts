@@ -5,6 +5,12 @@ import { getCacheDatabaseCascadeScenario, checkResolutionAttempt } from './scena
 import { getDbSlowQueriesScenario, checkDbSlowQueriesResolution } from './scenarios/db-slow-queries'
 import { getSpannerHighUtilizationScenario, checkSpannerResolution } from './scenarios/spanner-high-utilization'
 import { getPodCrashLoopScenario, checkPodCrashLoopResolution } from './scenarios/pod-crashloop'
+import { getDbReplicaIpChangeScenario, checkDbReplicaIpChangeResolution } from './scenarios/db-replica-ip-change'
+import { getMissingTableScenario, checkMissingTableResolution } from './scenarios/missing-table'
+import { getKafkaConsumerLagScenario, checkKafkaConsumerLagResolution } from './scenarios/kafka-consumer-lag'
+import { getConfigKeyMissingScenario, checkConfigKeyMissingResolution } from './scenarios/config-key-missing'
+import { getPodOomKilledScenario, checkPodOomKilledResolution } from './scenarios/pod-oom-killed'
+import { getNetworkPolicyBlockScenario, checkNetworkPolicyBlockResolution } from './scenarios/network-policy-block'
 import { runSimulator } from './agents/simulator'
 import { runEvaluator } from './agents/evaluator'
 import {
@@ -165,6 +171,12 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
     scenarioId === 'db-slow-queries' ? getDbSlowQueriesScenario(sessionId) :
     scenarioId === 'spanner-high-utilization' ? getSpannerHighUtilizationScenario(sessionId) :
     scenarioId === 'pod-crashloop' ? getPodCrashLoopScenario(sessionId) :
+    scenarioId === 'db-replica-ip-change' ? getDbReplicaIpChangeScenario(sessionId) :
+    scenarioId === 'missing-table' ? getMissingTableScenario(sessionId) :
+    scenarioId === 'kafka-consumer-lag' ? getKafkaConsumerLagScenario(sessionId) :
+    scenarioId === 'config-key-missing' ? getConfigKeyMissingScenario(sessionId) :
+    scenarioId === 'pod-oom-killed' ? getPodOomKilledScenario(sessionId) :
+    scenarioId === 'network-policy-block' ? getNetworkPolicyBlockScenario(sessionId) :
     getCacheDatabaseCascadeScenario(sessionId)
 
   // Apply step 0 (t=0 failure) immediately
@@ -367,12 +379,24 @@ async function handleRunCommand(ws: SREWebSocket, payload: { cmd: string }): Pro
     scenId === 'db-slow-queries' ? checkDbSlowQueriesResolution(payload.cmd) :
     scenId === 'spanner-high-utilization' ? checkSpannerResolution(payload.cmd) :
     scenId === 'pod-crashloop' ? checkPodCrashLoopResolution(payload.cmd) :
+    scenId === 'db-replica-ip-change' ? checkDbReplicaIpChangeResolution(payload.cmd) :
+    scenId === 'missing-table' ? checkMissingTableResolution(payload.cmd) :
+    scenId === 'kafka-consumer-lag' ? checkKafkaConsumerLagResolution(payload.cmd) :
+    scenId === 'config-key-missing' ? checkConfigKeyMissingResolution(payload.cmd) :
+    scenId === 'pod-oom-killed' ? checkPodOomKilledResolution(payload.cmd) :
+    scenId === 'network-policy-block' ? checkNetworkPolicyBlockResolution(payload.cmd) :
     checkResolutionAttempt(payload.cmd)
 
   if (isResolution) {
     const target = scenId === 'db-slow-queries' ? 'postgres-primary' :
       scenId === 'spanner-high-utilization' ? 'spanner-primary' :
-      scenId === 'pod-crashloop' ? 'checkout-service' : 'redis-primary'
+      scenId === 'pod-crashloop' ? 'checkout-service' :
+      scenId === 'db-replica-ip-change' ? 'postgres-read-replica' :
+      scenId === 'missing-table' ? 'postgres-primary' :
+      scenId === 'kafka-consumer-lag' ? 'transaction-processor' :
+      scenId === 'config-key-missing' ? 'checkout-service' :
+      scenId === 'pod-oom-killed' ? 'payment-service' :
+      scenId === 'network-policy-block' ? 'user-service' : 'redis-primary'
     await logEvent(session, 'remediation_attempted', { cmd: payload.cmd, target })
     if (session.recovery_ticks === 0) {
       session.recovery_ticks = 1

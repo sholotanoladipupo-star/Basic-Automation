@@ -10,6 +10,8 @@ import OnboardingModal from '../components/OnboardingModal'
 import GCPConsole from '../components/GCPConsole'
 import NewRelicPanel from '../components/NewRelicPanel'
 import TourGuide from '../components/TourGuide'
+import WarRoom from '../components/WarRoom'
+import DBConsole from '../components/DBConsole'
 
 interface SimulationProps {
   state: SimulationState
@@ -27,12 +29,14 @@ const SEVERITY_STYLE: Record<string, string> = {
   sev2: 'bg-[#d18616] text-white',
   sev3: 'bg-[#d29922] text-black'
 }
+const SEVERITY_LABEL: Record<string, string> = { sev1: 'P1', sev2: 'P2', sev3: 'P3' }
 
 const TABS = [
   { id: 'terminal', label: '⌨ Terminal' },
   { id: 'dashboard', label: '📊 Grafana' },
   { id: 'gcp-console', label: '🌐 GCP Console' },
   { id: 'new-relic', label: '📈 New Relic' },
+  { id: 'db-console', label: '🗄 DB Console' },
   { id: 'runbook', label: '📖 Runbook' },
 ] as const
 
@@ -48,6 +52,7 @@ export default function Simulation({ state, actions }: SimulationProps) {
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [showCommsDrawer, setShowCommsDrawer] = useState(false)
   const [showEscalateModal, setShowEscalateModal] = useState(false)
+  const [showWarRoom, setShowWarRoom] = useState(false)
   const [escalateTo, setEscalateTo] = useState('')
   const [escalateMsg, setEscalateMsg] = useState('')
 
@@ -126,7 +131,7 @@ export default function Simulation({ state, actions }: SimulationProps) {
         <div className="ml-auto flex items-center gap-2">
           {severityDeclared && (
             <span className={`text-xs px-2 py-0.5 rounded font-bold ${SEVERITY_STYLE[severityDeclared] ?? ''}`}>
-              {severityDeclared.toUpperCase()}
+              {SEVERITY_LABEL[severityDeclared] ?? severityDeclared.toUpperCase()}
             </span>
           )}
 
@@ -252,11 +257,23 @@ export default function Simulation({ state, actions }: SimulationProps) {
             {activePanel === 'new-relic' && (
               <NewRelicPanel systemState={systemState} />
             )}
+            {activePanel === 'db-console' && (
+              <DBConsole systemState={systemState} />
+            )}
           </div>
         </div>
 
         {/* Floating action buttons — bottom-right */}
         <div className="absolute bottom-5 right-4 flex flex-col items-end gap-3 z-30">
+          {/* War Room float button */}
+          <button
+            onClick={() => { setShowWarRoom(true); setShowEscalateModal(false); setShowCommsDrawer(false) }}
+            className={`w-12 h-12 rounded-full shadow-lg border-2 flex items-center justify-center text-xl transition-all ${showWarRoom ? 'bg-[#58a6ff] border-[#58a6ff] text-white' : 'bg-[#161b22] border-[#58a6ff]/60 text-[#58a6ff] hover:bg-[#0d2a4a]'}`}
+            title="War Room Call"
+          >
+            📞
+          </button>
+
           {/* Escalate float button */}
           <div className="relative">
             {showEscalateModal && (
@@ -332,6 +349,9 @@ export default function Simulation({ state, actions }: SimulationProps) {
           </div>
         </div>
       </div>
+
+      {/* War Room modal */}
+      <WarRoom isOpen={showWarRoom} onClose={() => setShowWarRoom(false)} />
 
       {/* Session-ended overlay */}
       {state.sessionEnded && !state.scorecard && (

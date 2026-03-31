@@ -5,6 +5,7 @@ interface Props { systemState: SystemState | null }
 
 const NR_NAV = [
   { id: 'apm', label: 'APM & Services' },
+  { id: 'servicemap', label: 'Service Map' },
   { id: 'infra', label: 'Infrastructure' },
 ]
 
@@ -578,6 +579,201 @@ export default function NewRelicPanel({ systemState }: Props) {
             })}
           </>
         )}
+
+        {activeTab === 'servicemap' && (() => {
+          // Static topology — positions fixed, health colors from live state
+          const svcMap: Record<string, { x: number; y: number; label: string; type: 'svc' | 'infra' | 'ext' }> = {
+            'internet':           { x: 60,  y: 200, label: 'Internet',         type: 'ext' },
+            'api-gateway':        { x: 200, y: 200, label: 'api-gateway',      type: 'svc' },
+            'payment-service':    { x: 380, y: 100, label: 'payment-service',  type: 'svc' },
+            'user-service':       { x: 380, y: 220, label: 'user-service',     type: 'svc' },
+            'notification-service':{ x: 380, y: 340, label: 'notif-service',  type: 'svc' },
+            'postgres-primary':   { x: 560, y: 80,  label: 'postgres-primary', type: 'infra' },
+            'redis-cache':        { x: 560, y: 200, label: 'redis-cache',      type: 'infra' },
+            'kafka':              { x: 560, y: 340, label: 'kafka',            type: 'infra' },
+          }
+          const edges: [string, string][] = [
+            ['internet', 'api-gateway'],
+            ['api-gateway', 'payment-service'],
+            ['api-gateway', 'user-service'],
+            ['api-gateway', 'notification-service'],
+            ['payment-service', 'postgres-primary'],
+            ['user-service', 'postgres-primary'],
+            ['user-service', 'redis-cache'],
+            ['notification-service', 'kafka'],
+          ]
+          const W = 660, H = 440
+          const R = 28
+
+          function nodeColor(id: string) {
+            if (svcMap[id].type === 'ext') return '#4a4a6a'
+            if (svcMap[id].type === 'infra') {
+              // Match infra from systemState
+              const db = databases.find(d => d.name.toLowerCase().includes(id.split('-')[0]))
+              const ca = caches.find(c => c.name.toLowerCase().includes(id.split('-')[0]))
+              const item = db ?? ca
+              if (!item) return '#2d5a3d'
+              return item.status === 'down' ? '#5a1a1a' : item.status === 'degraded' ? '#4a3a00' : '#1a4a2d'
+            }
+            const s = services.find(sv => sv.name.toLowerCase().replace(/[\s_]/g, '-') === id || sv.name === id)
+            if (!s) return '#1a2a4a'
+            return s.status === 'down' ? '#5a1a1a' : s.status === 'degraded' ? '#4a3a00' : '#1a4a2d'
+          }
+
+          function nodeTextColor(id: string) {
+            if (svcMap[id].type === 'ext') return '#888'
+            if (svcMap[id].type === 'infra') {
+              const db = databases.find(d => d.name.toLowerCase().includes(id.split('-')[0]))
+              const ca = caches.find(c => c.name.toLowerCase().includes(id.split('-')[0]))
+              const item = db ?? ca
+              if (!item) return '#00b4a0'
+              return item.status === 'down' ? '#f85149' : item.status === 'degraded' ? '#d29922' : '#00b4a0'
+            }
+            const s = services.find(sv => sv.name.toLowerCase().replace(/[\s_]/g, '-') === id || sv.name === id)
+            if (!s) return '#4a90d9'
+            return s.status === 'down' ? '#f85149' : s.status === 'degraded' ? '#d29922' : '#00b4a0'
+          }
+
+          function edgeColor(from: string, to: string) {
+            const tc = nodeTextColor(to)
+            return tc === '#f85149' ? '#f85149' : tc === '#d29922' ? '#d29922' : '#2d2f45'
+          }
+
+          return (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[#888] text-[10px] uppercase tracking-widest">Service Map — click a node to drill down</span>
+                <div className="flex items-center gap-3 text-[9px]">
+                  {[['#00b4a0','Healthy'],['#d29922','Degraded'],['#f85149','Down']].map(([c,l]) => (
+                    <span key={l} className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full inline-block" style={{ background: c }} />{l}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-[#0d0e14] border border-[#2d2f45] rounded overflow-hidden">
+                <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 340 }}>
+                  {/* Grid lines */}
+                  {Array.from({ length: 8 }, (_, i) => (
+                    <line key={`h${i}`} x1={0} y1={i * 60} x2={W} y2={i * 60} stroke="#1a1d2e" strokeWidth={1} />
+                  ))}
+                  {Array.from({ length: 12 }, (_, i) => (
+                    <line key={`v${i}`} x1={i * 60} y1={0} x2={i * 60} y2={H} stroke="#1a1d2e" strokeWidth={1} />
+                  ))}
+
+                  {/* Edges */}
+                  {edges.map(([from, to], i) => {
+                    const f = svcMap[from], t = svcMap[to]
+                    const ec = edgeColor(from, to)
+                    const mx = (f.x + t.x) / 2
+                    return (
+                      <g key={i}>
+                        <path
+                          d={`M ${f.x + R} ${f.y} C ${mx} ${f.y} ${mx} ${t.y} ${t.x - R} ${t.y}`}
+                          fill="none" stroke={ec} strokeWidth={ec === '#2d2f45' ? 1.5 : 2}
+                          strokeDasharray={ec === '#f85149' ? '4 2' : undefined}
+                          opacity={0.7}
+                        />
+                        {/* Arrowhead */}
+                        <polygon
+                          points={`${t.x - R},${t.y} ${t.x - R - 7},${t.y - 4} ${t.x - R - 7},${t.y + 4}`}
+                          fill={ec} opacity={0.7}
+                        />
+                        {/* Error rate label on degraded/down edges */}
+                        {ec !== '#2d2f45' && (() => {
+                          const s = services.find(sv => sv.name.toLowerCase().replace(/[\s_]/g,'-') === to || sv.name === to)
+                          if (!s) return null
+                          const ep = (s.error_rate * 100).toFixed(0)
+                          return (
+                            <text x={mx} y={(f.y + t.y) / 2 - 4} textAnchor="middle" fill={ec} fontSize={8} fontFamily="monospace">
+                              {ep}% err
+                            </text>
+                          )
+                        })()}
+                      </g>
+                    )
+                  })}
+
+                  {/* Nodes */}
+                  {Object.entries(svcMap).map(([id, node]) => {
+                    const bg = nodeColor(id)
+                    const tc = nodeTextColor(id)
+                    const isInfra = node.type === 'infra'
+                    const isExt = node.type === 'ext'
+                    const isClickable = node.type === 'svc'
+                    const matchedSvc = services.find(sv => sv.name.toLowerCase().replace(/[\s_]/g,'-') === id || sv.name === id)
+                    const isPulsing = matchedSvc && matchedSvc.status === 'down'
+                    return (
+                      <g key={id}
+                        style={{ cursor: isClickable ? 'pointer' : 'default' }}
+                        onClick={() => isClickable && matchedSvc && setSelectedService(matchedSvc.name)}
+                      >
+                        {/* Pulse ring for down services */}
+                        {isPulsing && (
+                          <circle cx={node.x} cy={node.y} r={R + 8} fill="none" stroke="#f85149" strokeWidth={1.5} opacity={0.4}>
+                            <animate attributeName="r" values={`${R+4};${R+14};${R+4}`} dur="2s" repeatCount="indefinite" />
+                            <animate attributeName="opacity" values="0.4;0;0.4" dur="2s" repeatCount="indefinite" />
+                          </circle>
+                        )}
+                        {/* Node shape: rect for infra, circle for services */}
+                        {isInfra ? (
+                          <rect x={node.x - R} y={node.y - R * 0.7} width={R * 2} height={R * 1.4}
+                            rx={4} fill={bg} stroke={tc} strokeWidth={1.5} />
+                        ) : (
+                          <circle cx={node.x} cy={node.y} r={R} fill={bg} stroke={tc} strokeWidth={isExt ? 1 : 2} strokeDasharray={isExt ? '3 2' : undefined} />
+                        )}
+                        {/* Icon */}
+                        <text x={node.x} y={node.y - 4} textAnchor="middle" fontSize={11} fill={tc}>
+                          {isExt ? '🌐' : isInfra
+                            ? (id.includes('redis') ? '⚡' : id.includes('kafka') ? '📨' : '🗄')
+                            : (id.includes('gateway') ? '🔀' : id.includes('payment') ? '💳' : id.includes('user') ? '👤' : '🔔')}
+                        </text>
+                        {/* Service name */}
+                        <text x={node.x} y={node.y + R + 14} textAnchor="middle" fontSize={9} fill={tc} fontFamily="monospace">
+                          {node.label}
+                        </text>
+                        {/* Status badge */}
+                        {matchedSvc && (
+                          <text x={node.x} y={node.y + R + 24} textAnchor="middle" fontSize={8} fill={tc} opacity={0.8} fontFamily="monospace">
+                            {matchedSvc.status === 'down' ? '● DOWN' : matchedSvc.status === 'degraded' ? '● DEG' : '● OK'}
+                          </text>
+                        )}
+                        {/* p99 on hover — show always for compactness */}
+                        {matchedSvc && matchedSvc.status !== 'healthy' && (
+                          <text x={node.x} y={node.y + 6} textAnchor="middle" fontSize={8} fill={tc} fontFamily="monospace">
+                            {matchedSvc.p99_latency_ms}ms
+                          </text>
+                        )}
+                      </g>
+                    )
+                  })}
+
+                  {/* Column labels */}
+                  {[['Client', 60], ['Gateway', 200], ['Services', 380], ['Infra', 560]].map(([lbl, x]) => (
+                    <text key={lbl as string} x={x as number} y={H - 12} textAnchor="middle" fontSize={9} fill="#333" fontFamily="monospace" letterSpacing={1}>
+                      {(lbl as string).toUpperCase()}
+                    </text>
+                  ))}
+                </svg>
+              </div>
+
+              {/* Quick stats row */}
+              <div className="grid grid-cols-3 gap-2 mt-3">
+                {[
+                  { label: 'Total Services', value: services.length, color: '#d4d4d4' },
+                  { label: 'Degraded / Down', value: services.filter(s => s.status !== 'healthy').length, color: services.some(s => s.status !== 'healthy') ? '#f85149' : '#00b4a0' },
+                  { label: 'Avg Error Rate', value: services.length ? `${(services.reduce((a, s) => a + s.error_rate, 0) / services.length * 100).toFixed(1)}%` : '—', color: '#d29922' },
+                ].map(t => (
+                  <div key={t.label} className="bg-[#1a1d2e] border border-[#2d2f45] rounded p-2.5">
+                    <div className="text-[#555] text-[9px] uppercase tracking-widest mb-1">{t.label}</div>
+                    <div className="font-bold text-sm tabular-nums" style={{ color: t.color }}>{t.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })()}
 
         {activeTab === 'infra' && (
           <>

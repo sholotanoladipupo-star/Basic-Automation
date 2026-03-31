@@ -5,10 +5,16 @@ const API_BASE = (import.meta.env.VITE_WS_URL ?? 'ws://localhost:3001')
   .replace('wss://', 'https://')
 
 const SCENARIOS = [
-  { id: 'cache-db-cascade', name: 'Redis Cache → DB Cascade', difficulty: 'SENIOR', timeLimit: 10 },
-  { id: 'db-slow-queries', name: 'Database Slow Queries — Connection Pool Exhaustion', difficulty: 'SENIOR', timeLimit: 10 },
+  { id: 'cache-db-cascade',       name: 'Redis Cache → DB Cascade',                         difficulty: 'SENIOR', timeLimit: 10 },
+  { id: 'db-slow-queries',        name: 'Database Slow Queries — Connection Pool Exhaustion', difficulty: 'SENIOR', timeLimit: 10 },
   { id: 'spanner-high-utilization', name: 'Cloud Spanner Node CPU Spike — Hot Key Hotspot', difficulty: 'SENIOR', timeLimit: 10 },
-  { id: 'pod-crashloop', name: 'checkout-service Pods in CrashLoopBackOff', difficulty: 'SENIOR', timeLimit: 10 },
+  { id: 'pod-crashloop',          name: 'checkout-service Pods in CrashLoopBackOff',          difficulty: 'SENIOR', timeLimit: 10 },
+  { id: 'db-replica-ip-change',   name: 'DB Replica IP Change — Connection Refused',          difficulty: 'MID',    timeLimit: 10 },
+  { id: 'missing-table',          name: 'Missing DB Table — payment_intents Not Found',       difficulty: 'MID',    timeLimit: 10 },
+  { id: 'kafka-consumer-lag',     name: 'Kafka Consumer Lag — Event Processing Stalled',      difficulty: 'MID',    timeLimit: 10 },
+  { id: 'config-key-missing',     name: 'Config Key Missing — Service Startup Failure',       difficulty: 'MID',    timeLimit: 10 },
+  { id: 'pod-oom-killed',         name: 'Pod OOMKilled — Memory Limit Exceeded',              difficulty: 'MID',    timeLimit: 10 },
+  { id: 'network-policy-block',   name: 'Network Policy Block — Service Unreachable',         difficulty: 'MID',    timeLimit: 10 },
 ]
 
 interface Assignment {
