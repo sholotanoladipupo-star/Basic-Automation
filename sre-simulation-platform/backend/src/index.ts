@@ -182,16 +182,24 @@ app.get('/sessions/:id/scorecard', async (req, res) => {
       scorecard.candidate_query = sqlAttempt.rows[0].candidate_query
       scorecard.sql_score = sqlAttempt.rows[0].score
       scorecard.sql_rating = sqlAttempt.rows[0].rating
+      scorecard.module_type = 'sql'
+      // Extract SQL-specific dimension scores for detailed breakdown
+      const rawDims = raw.dimensions ?? {}
+      scorecard.syntax_accuracy = rawDims.syntax_accuracy?.score ?? 0
+      scorecard.query_correctness = rawDims.query_correctness?.score ?? 0
+      scorecard.result_completeness = rawDims.result_completeness?.score ?? 0
       // Fetch the SQL question details for side-by-side view
       if (sqlAttempt.rows[0].question_id) {
         const sqlQ = await pool.query(
-          'SELECT title, description, schema_hint, starter_query, expected_output FROM sql_questions WHERE id = $1',
+          'SELECT title, description, schema_hint, starter_query, expected_output, solution_query FROM sql_questions WHERE id = $1',
           [sqlAttempt.rows[0].question_id]
         )
         if (sqlQ.rows[0]) {
           scorecard.sql_question = sqlQ.rows[0]
         }
       }
+    } else {
+      scorecard.module_type = 'incident'
     }
     // Enrich with monitoring answers if this is a monitoring session
     const monAttempt = await pool.query(

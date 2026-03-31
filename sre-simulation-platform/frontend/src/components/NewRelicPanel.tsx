@@ -235,47 +235,8 @@ function ServiceDetail({ service, onBack }: ServiceDetailProps) {
         )}
 
         {tab === 'transactions' && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-[#666] text-[10px] uppercase tracking-widest">Top Transactions</div>
-              <div className="flex items-center gap-1">
-                <span className="text-[#555] text-[10px] mr-1">Window:</span>
-                {(['1h', '6h', '24h'] as const).map(w => (
-                  <button key={w} onClick={() => setTxWindow(w)}
-                    className={`px-2 py-0.5 rounded text-[10px] transition-colors ${
-                      txWindow === w ? 'bg-[#00b4a0] text-[#12131a] font-bold' : 'bg-[#1a1d2e] border border-[#2d2f45] text-[#666] hover:text-[#d4d4d4]'
-                    }`}>{w}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {[
-              { name: `POST /api/v1/${service.name.replace('-service', '')}/create`, calls: 1243, avgMs: Math.round(service.p99_latency_ms * 0.6), errPct: errPct * 0.8 },
-              { name: `GET /api/v1/${service.name.replace('-service', '')}/list`, calls: 3891, avgMs: Math.round(service.p99_latency_ms * 0.35), errPct: errPct * 0.4 },
-              { name: `PUT /api/v1/${service.name.replace('-service', '')}/update`, calls: 547, avgMs: Math.round(service.p99_latency_ms * 0.8), errPct: errPct * 1.2 },
-              { name: `DELETE /api/v1/${service.name.replace('-service', '')}/remove`, calls: 89, avgMs: Math.round(service.p99_latency_ms * 0.5), errPct: errPct * 0.3 },
-              { name: `GET /api/v1/${service.name.replace('-service', '')}/health`, calls: 12490, avgMs: 2, errPct: 0 },
-            ].map((tx, i) => {
-              const sparkData = spikeHist(tx.avgMs * 0.8, tx.avgMs, pointCount, 0.3, 0.7, tx.avgMs * 0.1)
-              const latC = tx.avgMs > 2000 ? '#f85149' : tx.avgMs > 500 ? '#d29922' : '#00b4a0'
-              return (
-                <div key={i} className="bg-[#12131a] border border-[#2d2f45] hover:border-[#00b4a0]/30 rounded p-2.5 text-[11px] cursor-pointer transition-colors">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[#8ab4f8] truncate flex-1 font-mono text-[10px]">{tx.name}</span>
-                  </div>
-                  <div className="grid grid-cols-4 gap-2 text-[10px] items-center">
-                    <div><span className="text-[#555]">Calls: </span><span className="text-[#d4d4d4]">{tx.calls.toLocaleString()}</span></div>
-                    <div><span className="text-[#555]">Avg: </span><span style={{ color: latC }}>{tx.avgMs}ms</span></div>
-                    <div><span className="text-[#555]">Errors: </span><span style={{ color: tx.errPct > 5 ? '#f85149' : '#d4d4d4' }}>{Math.max(0, tx.errPct).toFixed(1)}%</span></div>
-                    <div className="w-20"><Spark values={sparkData} color={latC} h={20} /></div>
-                  </div>
-                </div>
-              )
-            })}
-            <div className="text-[#555] text-[10px] mt-2 text-center">
-              Showing {txWindow} window · Spike visible around incident start
-            </div>
-          </div>
+          <TxTab service={service} errPct={errPct} txWindow={txWindow} setTxWindow={setTxWindow}
+            pointCount={pointCount} txTimeLabels={txTimeLabels} />
         )}
 
         {tab === 'errors' && (
@@ -337,6 +298,182 @@ function ServiceDetail({ service, onBack }: ServiceDetailProps) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ─── Transaction tab with time axis + clickable P90 breakdown ───────────────
+
+interface TxTabProps {
+  service: NonNullable<SystemState>['services'][string]
+  errPct: number
+  txWindow: '1h' | '6h' | '24h'
+  setTxWindow: (w: '1h' | '6h' | '24h') => void
+  pointCount: number
+  txTimeLabels: string[]
+}
+
+function TxBreakdown({ tx, errPct, onClose }: { tx: { name: string; avgMs: number; calls: number }; errPct: number; onClose: () => void }) {
+  const p90 = Math.round(tx.avgMs * 1.35)
+  const p95 = Math.round(tx.avgMs * 1.55)
+  const p99 = Math.round(tx.avgMs * 2.1)
+  const apdex = tx.avgMs < 500 ? ((1 + (tx.avgMs < 2000 ? 0.5 : 0)) / 2).toFixed(2) : (tx.avgMs < 2000 ? 0.7 : 0.3).toFixed(2)
+  const latC = tx.avgMs > 2000 ? '#f85149' : tx.avgMs > 500 ? '#d29922' : '#00b4a0'
+  // Segment breakdown: DB, external, app code
+  const dbPct = errPct > 5 ? 72 : 35
+  const extPct = 8
+  const appPct = 100 - dbPct - extPct
+  return (
+    <div className="bg-[#0d0e17] border border-[#00b4a0]/40 rounded p-4 mt-2 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[#00b4a0] font-bold text-[11px] uppercase tracking-widest">Transaction Detail</div>
+        <button onClick={onClose} className="text-[#555] hover:text-[#d4d4d4] text-[11px] transition-colors">✕</button>
+      </div>
+      <div className="text-[#8ab4f8] font-mono text-[10px] truncate">{tx.name}</div>
+
+      {/* Latency percentiles */}
+      <div className="grid grid-cols-4 gap-2">
+        {[
+          { label: 'Avg', val: `${tx.avgMs}ms`, color: latC },
+          { label: 'P90', val: `${p90}ms`, color: p90 > 2000 ? '#f85149' : p90 > 500 ? '#d29922' : '#00b4a0' },
+          { label: 'P95', val: `${p95}ms`, color: p95 > 2000 ? '#f85149' : p95 > 500 ? '#d29922' : '#00b4a0' },
+          { label: 'P99', val: `${p99}ms`, color: p99 > 2000 ? '#f85149' : p99 > 500 ? '#d29922' : '#00b4a0' },
+        ].map(s => (
+          <div key={s.label} className="bg-[#12131a] border border-[#2d2f45] rounded p-2 text-center">
+            <div className="text-[#555] text-[9px] mb-0.5">{s.label}</div>
+            <div className="font-bold text-[11px]" style={{ color: s.color }}>{s.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Apdex + calls */}
+      <div className="grid grid-cols-3 gap-2 text-[10px]">
+        <div className="bg-[#12131a] border border-[#2d2f45] rounded p-2">
+          <div className="text-[#555] text-[9px] mb-0.5">Apdex</div>
+          <div className={`font-bold ${parseFloat(apdex) > 0.85 ? 'text-[#00b4a0]' : parseFloat(apdex) > 0.7 ? 'text-[#d29922]' : 'text-[#f85149]'}`}>{apdex}</div>
+        </div>
+        <div className="bg-[#12131a] border border-[#2d2f45] rounded p-2">
+          <div className="text-[#555] text-[9px] mb-0.5">Total Calls</div>
+          <div className="text-[#d4d4d4] font-bold">{tx.calls.toLocaleString()}</div>
+        </div>
+        <div className="bg-[#12131a] border border-[#2d2f45] rounded p-2">
+          <div className="text-[#555] text-[9px] mb-0.5">Error Rate</div>
+          <div className={`font-bold ${errPct > 5 ? 'text-[#f85149]' : 'text-[#d4d4d4]'}`}>{Math.max(0, errPct).toFixed(1)}%</div>
+        </div>
+      </div>
+
+      {/* Call breakdown bar */}
+      <div>
+        <div className="text-[#555] text-[9px] mb-1.5 uppercase tracking-widest">Time Breakdown</div>
+        <div className="flex h-4 rounded overflow-hidden">
+          <div style={{ width: `${dbPct}%`, backgroundColor: errPct > 5 ? '#f85149' : '#2a5298' }} title={`Database: ${dbPct}%`} />
+          <div style={{ width: `${extPct}%`, backgroundColor: '#8ab4f8' }} title={`External: ${extPct}%`} />
+          <div style={{ width: `${appPct}%`, backgroundColor: '#00b4a0' }} title={`App code: ${appPct}%`} />
+        </div>
+        <div className="flex gap-4 mt-1.5 text-[9px]">
+          <span><span className="inline-block w-2 h-2 rounded-sm mr-1" style={{ backgroundColor: errPct > 5 ? '#f85149' : '#2a5298' }}/>Database {dbPct}%</span>
+          <span><span className="inline-block w-2 h-2 rounded-sm mr-1 bg-[#8ab4f8]"/>External {extPct}%</span>
+          <span><span className="inline-block w-2 h-2 rounded-sm mr-1 bg-[#00b4a0]"/>App code {appPct}%</span>
+        </div>
+        {errPct > 5 && (
+          <div className="text-[#f85149] text-[10px] mt-1.5">⚠ High DB time — possible slow query or connection pool exhaustion</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TxTab({ service, errPct, txWindow, setTxWindow, pointCount, txTimeLabels }: TxTabProps) {
+  const [openTx, setOpenTx] = useState<number | null>(null)
+  const transactions = [
+    { name: `POST /api/v1/${service.name.replace('-service', '')}/create`, calls: 1243, avgMs: Math.round(service.p99_latency_ms * 0.6), errPct: errPct * 0.8 },
+    { name: `GET /api/v1/${service.name.replace('-service', '')}/list`, calls: 3891, avgMs: Math.round(service.p99_latency_ms * 0.35), errPct: errPct * 0.4 },
+    { name: `PUT /api/v1/${service.name.replace('-service', '')}/update`, calls: 547, avgMs: Math.round(service.p99_latency_ms * 0.8), errPct: errPct * 1.2 },
+    { name: `DELETE /api/v1/${service.name.replace('-service', '')}/remove`, calls: 89, avgMs: Math.round(service.p99_latency_ms * 0.5), errPct: errPct * 0.3 },
+    { name: `GET /api/v1/${service.name.replace('-service', '')}/health`, calls: 12490, avgMs: 2, errPct: 0 },
+  ]
+
+  // Pick 5 evenly spaced time labels for the sparkline axis
+  const axisLabels = [0, 0.25, 0.5, 0.75, 1].map(frac => {
+    const idx = Math.round(frac * (txTimeLabels.length - 1))
+    return txTimeLabels[idx]
+  })
+  const showAxis = txWindow === '6h' || txWindow === '24h'
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-[#666] text-[10px] uppercase tracking-widest">Top Transactions</div>
+        <div className="flex items-center gap-1">
+          <span className="text-[#555] text-[10px] mr-1">Window:</span>
+          {(['1h', '6h', '24h'] as const).map(w => (
+            <button key={w} onClick={() => setTxWindow(w)}
+              className={`px-2 py-0.5 rounded text-[10px] transition-colors ${
+                txWindow === w ? 'bg-[#00b4a0] text-[#12131a] font-bold' : 'bg-[#1a1d2e] border border-[#2d2f45] text-[#666] hover:text-[#d4d4d4]'
+              }`}>{w}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {transactions.map((tx, i) => {
+        const sparkData = spikeHist(tx.avgMs * 0.8, tx.avgMs, pointCount, 0.3, 0.7, tx.avgMs * 0.1)
+        const latC = tx.avgMs > 2000 ? '#f85149' : tx.avgMs > 500 ? '#d29922' : '#00b4a0'
+        const isOpen = openTx === i
+        return (
+          <div key={i} className="space-y-0">
+            <div
+              onClick={() => setOpenTx(isOpen ? null : i)}
+              className={`bg-[#12131a] border rounded p-2.5 text-[11px] cursor-pointer transition-colors ${
+                isOpen ? 'border-[#00b4a0]' : 'border-[#2d2f45] hover:border-[#00b4a0]/30'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[#8ab4f8] truncate flex-1 font-mono text-[10px]">{tx.name}</span>
+                <span className="text-[#555] text-[9px] ml-2">{isOpen ? '▲ collapse' : '▼ detail'}</span>
+              </div>
+              <div className="grid gap-2 text-[10px]" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
+                <div><span className="text-[#555]">Calls: </span><span className="text-[#d4d4d4]">{tx.calls.toLocaleString()}</span></div>
+                <div><span className="text-[#555]">Avg: </span><span style={{ color: latC }}>{tx.avgMs}ms</span></div>
+                <div><span className="text-[#555]">Errors: </span><span style={{ color: tx.errPct > 5 ? '#f85149' : '#d4d4d4' }}>{Math.max(0, tx.errPct).toFixed(1)}%</span></div>
+                <div>
+                  {/* Sparkline with optional time axis */}
+                  <div className="relative">
+                    <Spark values={sparkData} color={latC} h={20} />
+                    {showAxis && (
+                      <div className="flex justify-between text-[8px] text-[#444] mt-0.5">
+                        <span>{axisLabels[0]}</span>
+                        <span>{axisLabels[2]}</span>
+                        <span>{axisLabels[4]}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+            {isOpen && (
+              <TxBreakdown tx={tx} errPct={tx.errPct} onClose={() => setOpenTx(null)} />
+            )}
+          </div>
+        )
+      })}
+
+      {showAxis && (
+        <div className="bg-[#12131a] border border-[#2d2f45] rounded p-2 text-[10px]">
+          <div className="text-[#555] text-[9px] mb-1 uppercase tracking-widest">Time Axis — {txWindow} window</div>
+          <div className="flex justify-between text-[#484f58]">
+            {axisLabels.map((l, i) => <span key={i}>{l}</span>)}
+          </div>
+          <div className="h-px bg-[#2d2f45] mt-1" />
+          <div className="text-[#484f58] text-[9px] mt-1">Spike visible at {txWindow === '6h' ? 'approx. 2h ago' : 'approx. 7h ago'} — incident onset</div>
+        </div>
+      )}
+
+      {!showAxis && (
+        <div className="text-[#555] text-[10px] mt-2 text-center">
+          Showing last {txWindow} · Click any row to see P90/P95/P99 + call breakdown
+        </div>
+      )}
     </div>
   )
 }

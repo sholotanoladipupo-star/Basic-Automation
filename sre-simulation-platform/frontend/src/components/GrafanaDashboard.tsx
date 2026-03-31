@@ -399,6 +399,9 @@ export default function GrafanaDashboard({ systemState }: Props) {
             })()}
           </div>
         </CollapsibleRow>
+
+        {/* MySQL Database row */}
+        <MySQLRow systemState={systemState} />
       </div>
     </div>
   )
@@ -407,4 +410,235 @@ export default function GrafanaDashboard({ systemState }: Props) {
 function txWindow_placeholder(rpm: number) {
   const diff = rpm > 1000 ? '+3%' : rpm > 400 ? '-67%' : '-85%'
   return diff
+}
+
+// ─── MySQL Database Monitoring Row ──────────────────────────────────────────
+
+const TIME_RANGES = ['1m', '2m', '5m', '15m', '1h', '3h', '6h', '24h'] as const
+type MysqlTimeRange = typeof TIME_RANGES[number]
+
+function slowQueriesForRange(range: MysqlTimeRange, isDegraded: boolean): number {
+  const base = isDegraded ? 14 : 1
+  const multiplier: Record<MysqlTimeRange, number> = { '1m': 1, '2m': 2, '5m': 5, '15m': 9, '1h': 22, '3h': 47, '6h': 81, '24h': 180 }
+  return isDegraded ? Math.round(base * (multiplier[range] * 0.6 + Math.random() * 3)) : Math.floor(Math.random() * 2)
+}
+
+function slowQuerySeries(range: MysqlTimeRange, isDegraded: boolean, count = 20) {
+  // Spike starts ~40% in (incident onset) if degraded
+  return Array.from({ length: count }, (_, i) => {
+    const frac = i / (count - 1)
+    if (!isDegraded) return Math.random() * 0.5
+    if (frac < 0.35) return Math.random() * 1.5
+    if (frac < 0.55) return 12 + Math.random() * 8   // spike
+    return 10 + Math.random() * 6                     // sustained high
+  })
+}
+
+function fmtTime(d: Date, range: MysqlTimeRange): string {
+  if (range === '1m' || range === '2m' || range === '5m' || range === '15m') {
+    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  }
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+}
+
+function MySQLRow({ systemState }: { systemState: SystemState | null }) {
+  const [range, setRange] = useState<MysqlTimeRange>('5m')
+  const [open, setOpen] = useState(false)
+
+  const dbs = systemState?.infrastructure.databases ?? []
+  const isDegraded = dbs.some(d => d.status === 'degraded' || d.status === 'down')
+  const isDown = dbs.every(d => d.status === 'down') && dbs.length > 0
+
+  const now = new Date()
+  const dbStatus = isDown ? 'down' : isDegraded ? 'degraded' : 'healthy'
+
+  const cpu = isDown ? 1 : isDegraded ? 88 : 22
+  const mem = isDown ? 3 : isDegraded ? 91 : 45
+  const disk = isDegraded ? 74 : 52
+  const activeConns = isDown ? 0 : isDegraded ? 498 : 42
+  const slowCount = slowQueriesForRange(range, isDegraded)
+  const series = slowQuerySeries(range, isDegraded)
+
+  // Generate slow query rows
+  const activeSlowQueries = isDegraded ? [
+    { duration: '00:04:23', query: 'SELECT o.*, p.name, p.sku FROM orders o JOIN products p ON o.product_id = p.id WHERE o.status = \'pending\' AND o.created_at > NOW() - INTERVAL \'1 hour\'', db: 'moniepoint_prod', user: 'app_user', rows: 48203 },
+    { duration: '00:03:47', query: 'UPDATE wallets SET balance = balance - ? WHERE user_id IN (SELECT user_id FROM pending_transactions WHERE created_at < NOW() - INTERVAL \'30 min\')', db: 'moniepoint_prod', user: 'txn_worker', rows: 12041 },
+    { duration: '00:03:12', query: 'SELECT COUNT(*) FROM audit_logs WHERE action = \'payment_attempt\' AND timestamp BETWEEN ? AND ? GROUP BY user_id HAVING count > 5', db: 'moniepoint_prod', user: 'analytics', rows: 892440 },
+    { duration: '00:02:58', query: 'SELECT * FROM sessions s JOIN session_events se ON s.id = se.session_id WHERE s.started_at > NOW() - INTERVAL \'1 day\'', db: 'moniepoint_prod', user: 'app_user', rows: 312000 },
+  ] : []
+
+  const slowQueryHistory = isDegraded ? [
+    { started: new Date(now.getTime() - 8 * 60000), duration: '00:08:14', query: 'ANALYZE TABLE orders', db: 'moniepoint_prod', user: 'root' },
+    { started: new Date(now.getTime() - 22 * 60000), duration: '00:01:52', query: 'SELECT * FROM transactions WHERE amount > 10000 ORDER BY created_at DESC', db: 'moniepoint_prod', user: 'report_svc' },
+    { started: new Date(now.getTime() - 41 * 60000), duration: '00:00:47', query: 'UPDATE product_inventory SET stock_count = stock_count - 1 WHERE id IN (...)', db: 'moniepoint_prod', user: 'inventory_worker' },
+  ] : [
+    { started: new Date(now.getTime() - 180 * 60000), duration: '00:00:12', query: 'OPTIMIZE TABLE session_logs', db: 'moniepoint_prod', user: 'root' },
+  ]
+
+  const rangeMs: Record<MysqlTimeRange, number> = { '1m': 60000, '2m': 120000, '5m': 300000, '15m': 900000, '1h': 3600000, '3h': 10800000, '6h': 21600000, '24h': 86400000 }
+
+  const chartLabels = [0, 0.25, 0.5, 0.75, 1].map(frac => {
+    const t = new Date(now.getTime() - rangeMs[range] * (1 - frac))
+    return fmtTime(t, range)
+  })
+
+  const maxSeries = Math.max(...series, 1)
+  const w = 500, h = 60
+  const sparkPts = series.map((v, i) =>
+    `${(i / (series.length - 1)) * w},${h - (v / maxSeries) * (h - 4)}`
+  ).join(' ')
+  const fillPts = `0,${h} ${sparkPts} ${w},${h}`
+  const sparkColor = isDegraded ? '#f85149' : '#3fb950'
+
+  return (
+    <div className="mb-1">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-3 py-1.5 bg-[#1e2030] hover:bg-[#252838] border border-[#2c3235] text-[11px] text-[#9fa8be] font-medium transition-colors"
+      >
+        <span className="text-[#ff7c21]">{open ? '▼' : '▶'}</span>
+        <span className="uppercase tracking-widest text-[10px]">MySQL Database</span>
+        {isDegraded && <span className="text-[10px] text-[#f85149] font-bold animate-pulse ml-1">● DEGRADED</span>}
+        <div className="flex-1 h-px bg-[#2c3235] ml-2" />
+        <span className="text-[9px] text-[#484f58]">moniepoint-mysql-prod</span>
+      </button>
+
+      {open && (
+        <div className="border-x border-b border-[#2c3235] p-3 space-y-4 bg-[#111217]">
+          {/* Time range selector */}
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-[#484f58] text-[10px] mr-2">Time range:</span>
+            {TIME_RANGES.map(r => (
+              <button
+                key={r}
+                onClick={() => setRange(r)}
+                className={`px-2 py-0.5 text-[10px] rounded border transition-colors ${
+                  range === r
+                    ? 'bg-[#ff7c21]/20 border-[#ff7c21] text-[#ff7c21]'
+                    : 'border-[#2c3235] text-[#484f58] hover:text-[#9fa8be]'
+                }`}
+              >
+                {r}
+              </button>
+            ))}
+            <span className="ml-auto text-[#484f58] text-[10px]">{now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+          </div>
+
+          {/* Server stat tiles */}
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              { label: 'CPU Utilization', value: `${cpu}%`, color: cpu >= 85 ? '#f85149' : cpu >= 60 ? '#ff7c21' : '#3fb950' },
+              { label: 'Memory Usage', value: `${mem}%`, color: mem >= 85 ? '#f85149' : mem >= 70 ? '#ff7c21' : '#3fb950' },
+              { label: 'Disk Usage', value: `${disk}%`, color: disk >= 85 ? '#f85149' : disk >= 70 ? '#ff7c21' : '#3fb950' },
+              { label: 'Active Connections', value: String(activeConns), color: activeConns >= 450 ? '#f85149' : activeConns >= 300 ? '#ff7c21' : '#3fb950' },
+            ].map(t => (
+              <div key={t.label} className="bg-[#1a1d2b] border border-[#2c3235] rounded p-2.5">
+                <div className="text-[9px] text-[#6b7280] uppercase tracking-widest mb-1">{t.label}</div>
+                <div className="text-xl font-bold tabular-nums" style={{ color: t.color }}>{t.value}</div>
+                <div className="text-[9px] mt-0.5" style={{ color: t.color }}>{dbStatus.toUpperCase()}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Slow query sparkline with time axis */}
+          <div className="bg-[#1a1d2b] border border-[#2c3235] rounded p-3">
+            <div className="flex justify-between items-center mb-2">
+              <div className="text-[#6b7280] text-[10px] uppercase tracking-widest">Slow Queries / sec</div>
+              <div className={`text-sm font-bold tabular-nums ${isDegraded ? 'text-[#f85149]' : 'text-[#3fb950]'}`}>{slowCount} total in {range}</div>
+            </div>
+            <svg width="100%" viewBox={`0 0 ${w} ${h + 20}`} preserveAspectRatio="none" className="overflow-visible">
+              <defs>
+                <linearGradient id="mysql-grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={sparkColor} stopOpacity="0.4" />
+                  <stop offset="100%" stopColor={sparkColor} stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <polygon points={fillPts} fill="url(#mysql-grad)" />
+              <polyline points={sparkPts} fill="none" stroke={sparkColor} strokeWidth="1.5" strokeLinejoin="round" />
+              {/* Time axis labels */}
+              {chartLabels.map((label, i) => (
+                <text
+                  key={i}
+                  x={(i / (chartLabels.length - 1)) * w}
+                  y={h + 16}
+                  textAnchor={i === 0 ? 'start' : i === chartLabels.length - 1 ? 'end' : 'middle'}
+                  fontSize="8"
+                  fill="#484f58"
+                >
+                  {label}
+                </text>
+              ))}
+            </svg>
+          </div>
+
+          {/* Running slow queries table */}
+          <div>
+            <div className="text-[#6b7280] text-[10px] uppercase tracking-widest mb-2 flex items-center gap-2">
+              Running Slow Queries
+              {activeSlowQueries.length > 0 && (
+                <span className="text-[#f85149] font-bold animate-pulse">{activeSlowQueries.length} active</span>
+              )}
+            </div>
+            {activeSlowQueries.length === 0 ? (
+              <div className="bg-[#1a1d2b] border border-[#2c3235] rounded p-3 text-[#484f58] text-[10px] text-center">
+                ✓ No slow queries currently running
+              </div>
+            ) : (
+              <div className="bg-[#1a1d2b] border border-[#2c3235] rounded overflow-hidden">
+                <table className="w-full text-[10px]">
+                  <thead>
+                    <tr className="border-b border-[#2c3235] text-[#484f58]">
+                      <th className="text-left px-3 py-1.5">Duration</th>
+                      <th className="text-left px-3 py-1.5">Query</th>
+                      <th className="text-left px-3 py-1.5">DB</th>
+                      <th className="text-left px-3 py-1.5">User</th>
+                      <th className="text-right px-3 py-1.5">Rows</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeSlowQueries.map((q, i) => (
+                      <tr key={i} className="border-b border-[#2c3235] last:border-0 hover:bg-[#252838]">
+                        <td className="px-3 py-1.5 text-[#f85149] font-bold tabular-nums whitespace-nowrap">{q.duration}</td>
+                        <td className="px-3 py-1.5 text-[#9fa8be] max-w-xs truncate font-mono" title={q.query}>{q.query}</td>
+                        <td className="px-3 py-1.5 text-[#58a6ff]">{q.db}</td>
+                        <td className="px-3 py-1.5 text-[#d29922]">{q.user}</td>
+                        <td className="px-3 py-1.5 text-[#484f58] text-right tabular-nums">{q.rows.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Slow query history */}
+          <div>
+            <div className="text-[#6b7280] text-[10px] uppercase tracking-widest mb-2">Slow Query History</div>
+            <div className="bg-[#1a1d2b] border border-[#2c3235] rounded overflow-hidden">
+              <table className="w-full text-[10px]">
+                <thead>
+                  <tr className="border-b border-[#2c3235] text-[#484f58]">
+                    <th className="text-left px-3 py-1.5">Started At</th>
+                    <th className="text-left px-3 py-1.5">Duration</th>
+                    <th className="text-left px-3 py-1.5">Query</th>
+                    <th className="text-left px-3 py-1.5">User</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {slowQueryHistory.map((q, i) => (
+                    <tr key={i} className="border-b border-[#2c3235] last:border-0 hover:bg-[#252838]">
+                      <td className="px-3 py-1.5 text-[#484f58] tabular-nums whitespace-nowrap">{fmtTime(q.started, range)}</td>
+                      <td className="px-3 py-1.5 text-[#d29922] tabular-nums whitespace-nowrap">{q.duration}</td>
+                      <td className="px-3 py-1.5 text-[#9fa8be] max-w-xs truncate font-mono" title={q.query}>{q.query}</td>
+                      <td className="px-3 py-1.5 text-[#484f58]">{q.user}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }

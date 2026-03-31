@@ -19,10 +19,12 @@ interface TimelineHighlight {
 
 interface Scorecard {
   session_id: string
+  module_type?: string
   total_score: number
   passing_score: number
   passed: boolean
   duration_minutes: number
+  // Incident dimensions
   incident_coordination: number
   incident_resolution: number
   technical_depth: number
@@ -31,16 +33,30 @@ interface Scorecard {
   resolution_notes?: string
   technical_notes?: string
   observability_notes?: string
+  // SQL dimensions
+  syntax_accuracy?: number
+  query_correctness?: number
+  result_completeness?: number
+  // Common
   highlights: (string | TimelineHighlight)[]
   improvements: string[]
   postmortem_summary: string
+  postmortem?: string
+  // SQL session fields
   candidate_query?: string
   sql_score?: number
   sql_rating?: string
-  sql_question?: { title: string; description: string; schema_hint: string; starter_query: string; expected_output: unknown }
+  sql_question?: {
+    title: string
+    description: string
+    schema_hint: string
+    starter_query: string
+    solution_query?: string
+    expected_output: unknown
+  }
+  // Monitoring
   monitoring_answers?: { id: string; answer: string }[]
   overall_score?: number
-  postmortem?: string
 }
 
 interface SessionWithScore extends Session {
@@ -77,15 +93,17 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
 
   useEffect(() => {
     if (!unlocked) return
+    setLoading(true)
     async function load() {
       try {
         const res = await fetch(`${API_BASE}/sessions`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const data: Session[] = await res.json()
-        // Fetch scorecards for completed sessions
+        // Fetch scorecards for all sessions that have ended (any terminal status)
         const withScores: SessionWithScore[] = await Promise.all(
           data.map(async session => {
-            if (session.status === 'ended' || session.status === 'completed' || session.status === 'time_limit') {
+            const terminal = ['ended', 'completed', 'time_limit', 'resolved', 'abandoned']
+            if (terminal.includes(session.status) || session.ended_at) {
               try {
                 const sc = await fetch(`${API_BASE}/sessions/${session.id}/scorecard`)
                 if (sc.ok) {
@@ -119,6 +137,22 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
     if (score >= passing) return 'text-[#3fb950]'
     if (score >= passing * 0.7) return 'text-[#d29922]'
     return 'text-[#f85149]'
+  }
+
+  function barColor(score: number) {
+    if (score >= 65) return 'bg-[#3fb950]'
+    if (score >= 45) return 'bg-[#d29922]'
+    return 'bg-[#f85149]'
+  }
+
+  function moduleLabel(session: Session, sc?: Scorecard) {
+    const mt = sc?.module_type ?? session.scenario_id
+    if (mt === 'sql') return { label: 'SQL', color: '#58a6ff' }
+    if (mt === 'monitoring') return { label: 'MONITORING', color: '#bc8cff' }
+    if (mt === 'cognitive') return { label: 'COGNITIVE', color: '#e3b341' }
+    if (mt === 'postmortem') return { label: 'POSTMORTEM', color: '#ff7c21' }
+    if (mt === 'automation') return { label: 'AUTOMATION', color: '#3fb950' }
+    return { label: 'INCIDENT', color: '#f85149' }
   }
 
   if (!unlocked) {
@@ -159,13 +193,10 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
 
   return (
     <div className="min-h-screen bg-[#0d1117] font-mono text-xs px-4 py-8">
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
-          <button
-            onClick={onBack}
-            className="text-[#58a6ff] hover:text-[#79c0ff] transition-colors"
-          >
+          <button onClick={onBack} className="text-[#58a6ff] hover:text-[#79c0ff] transition-colors">
             ← Back
           </button>
           <div>
@@ -190,7 +221,7 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
         {!loading && !error && sessions.length === 0 && (
           <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-12 text-center text-[#8b949e]">
             <div className="text-3xl mb-3">📋</div>
-            No sessions yet. Start a simulation to see your history here.
+            No sessions yet. Start a simulation to see history here.
           </div>
         )}
 
@@ -199,23 +230,19 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
             {sessions.map(session => {
               const sc = session.scorecard
               const isExpanded = expanded === session.id
+              const mod = moduleLabel(session, sc)
+              const isSql = sc?.module_type === 'sql' || sc?.candidate_query !== undefined
               return (
-                <div
-                  key={session.id}
-                  className="bg-[#161b22] border border-[#30363d] rounded-lg overflow-hidden"
-                >
+                <div key={session.id} className="bg-[#161b22] border border-[#30363d] rounded-lg overflow-hidden">
                   {/* Row header */}
                   <div
                     className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[#1c2128] transition-colors"
                     onClick={() => setExpanded(isExpanded ? null : session.id)}
                   >
                     {/* Score circle */}
-                    <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center flex-shrink-0 font-bold ${
-                      sc
-                        ? sc.passed
-                          ? 'border-[#3fb950] text-[#3fb950]'
-                          : 'border-[#f85149] text-[#f85149]'
-                        : 'border-[#30363d] text-[#484f58]'
+                    <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center flex-shrink-0 font-bold text-sm ${
+                      sc ? (sc.passed ? 'border-[#3fb950] text-[#3fb950]' : 'border-[#f85149] text-[#f85149]')
+                          : 'border-[#30363d] text-[#484f58]'
                     }`}>
                       {sc ? sc.total_score : '–'}
                     </div>
@@ -223,23 +250,27 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[#e6edf3] font-bold">{session.candidate_name}</span>
+                        {/* Module type badge */}
+                        <span className="text-[10px] px-1.5 py-0.5 rounded border font-bold"
+                          style={{ borderColor: mod.color, color: mod.color }}>
+                          {mod.label}
+                        </span>
                         {sc && (
                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ${
-                            sc.passed
-                              ? 'border-[#3fb950] text-[#3fb950]'
-                              : 'border-[#f85149] text-[#f85149]'
+                            sc.passed ? 'border-[#3fb950] text-[#3fb950]' : 'border-[#f85149] text-[#f85149]'
                           }`}>
                             {sc.passed ? 'PASS' : 'FAIL'}
                           </span>
                         )}
                         <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
                           session.status === 'time_limit' ? 'border-[#d29922] text-[#d29922]'
-                          : session.status === 'ended' || session.status === 'completed' ? 'border-[#30363d] text-[#8b949e]'
-                          : 'border-[#3fb950] text-[#3fb950]'
+                          : session.status === 'abandoned' ? 'border-[#484f58] text-[#484f58]'
+                          : 'border-[#30363d] text-[#8b949e]'
                         }`}>
                           {session.status === 'time_limit' ? 'TIME LIMIT'
-                           : session.status === 'ended' || session.status === 'completed' ? 'COMPLETED'
-                           : session.status.toUpperCase()}
+                           : session.status === 'abandoned' ? 'ABANDONED'
+                           : session.status === 'active' ? 'IN PROGRESS'
+                           : 'COMPLETED'}
                         </span>
                       </div>
                       <div className="text-[#8b949e] mt-0.5">{session.scenario_name ?? session.scenario_id}</div>
@@ -249,7 +280,6 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
                       <div className="text-[#8b949e]">{formatDate(session.started_at)}</div>
                       {sc && <div className="text-[#484f58] mt-0.5">{sc.duration_minutes} min</div>}
                     </div>
-
                     <span className="text-[#484f58] ml-2">{isExpanded ? '▲' : '▼'}</span>
                   </div>
 
@@ -270,30 +300,52 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
                         </div>
                       )}
 
-                      {/* Score Breakdown */}
+                      {/* Score Breakdown — SQL vs Incident */}
                       <div>
                         <div className="text-[#8b949e] uppercase tracking-widest mb-2 text-[10px]">Score Breakdown</div>
                         <div className="space-y-2">
-                          {[
-                            { label: 'Coordination', score: sc.incident_coordination, weight: 25, notes: sc.coordination_notes },
-                            { label: 'Resolution', score: sc.incident_resolution, weight: 35, notes: sc.resolution_notes },
-                            { label: 'Technical Depth', score: sc.technical_depth, weight: 25, notes: sc.technical_notes },
-                            { label: 'Observability', score: sc.observability_usage, weight: 15, notes: sc.observability_notes },
-                          ].map(d => (
-                            <div key={d.label} className="bg-[#161b22] rounded p-2.5 border border-[#30363d]">
-                              <div className="flex justify-between mb-1">
-                                <span className="text-[#8b949e]">{d.label} <span className="text-[#484f58]">({d.weight}%)</span></span>
-                                <span className={scoreColor(d.score, 65)}>{d.score}/100</span>
-                              </div>
-                              <div className="h-1.5 bg-[#0d1117] rounded overflow-hidden mb-1.5">
-                                <div
-                                  className={`h-full rounded transition-all ${d.score >= 65 ? 'bg-[#3fb950]' : d.score >= 45 ? 'bg-[#d29922]' : 'bg-[#f85149]'}`}
-                                  style={{ width: `${d.score}%` }}
-                                />
-                              </div>
-                              {d.notes && <div className="text-[#8b949e] text-[10px] leading-relaxed">{d.notes}</div>}
-                            </div>
-                          ))}
+                          {isSql ? (
+                            // SQL-specific breakdown
+                            <>
+                              {[
+                                { label: 'Query Correctness', score: sc.query_correctness ?? 0, weight: 60, notes: 'Whether the query returned the expected result set and all required columns/rows.' },
+                                { label: 'Syntax Accuracy', score: sc.syntax_accuracy ?? 0, weight: 20, notes: 'Query syntax validity — no parser errors, proper use of SQL keywords and operators.' },
+                                { label: 'Result Completeness', score: sc.result_completeness ?? 0, weight: 20, notes: 'Whether the result set is fully complete — right number of rows and correct column values.' },
+                              ].map(d => (
+                                <div key={d.label} className="bg-[#161b22] rounded p-2.5 border border-[#30363d]">
+                                  <div className="flex justify-between mb-1">
+                                    <span className="text-[#8b949e]">{d.label} <span className="text-[#484f58]">({d.weight}%)</span></span>
+                                    <span className={scoreColor(d.score, 65)}>{d.score}/100</span>
+                                  </div>
+                                  <div className="h-1.5 bg-[#0d1117] rounded overflow-hidden mb-1.5">
+                                    <div className={`h-full rounded transition-all ${barColor(d.score)}`} style={{ width: `${d.score}%` }} />
+                                  </div>
+                                  <div className="text-[#484f58] text-[10px] leading-relaxed">{d.notes}</div>
+                                </div>
+                              ))}
+                            </>
+                          ) : (
+                            // Incident simulation breakdown
+                            <>
+                              {[
+                                { label: 'Coordination', score: sc.incident_coordination, weight: 25, notes: sc.coordination_notes },
+                                { label: 'Resolution', score: sc.incident_resolution, weight: 35, notes: sc.resolution_notes },
+                                { label: 'Technical Depth', score: sc.technical_depth, weight: 25, notes: sc.technical_notes },
+                                { label: 'Observability', score: sc.observability_usage, weight: 15, notes: sc.observability_notes },
+                              ].map(d => (
+                                <div key={d.label} className="bg-[#161b22] rounded p-2.5 border border-[#30363d]">
+                                  <div className="flex justify-between mb-1">
+                                    <span className="text-[#8b949e]">{d.label} <span className="text-[#484f58]">({d.weight}%)</span></span>
+                                    <span className={scoreColor(d.score, 65)}>{d.score}/100</span>
+                                  </div>
+                                  <div className="h-1.5 bg-[#0d1117] rounded overflow-hidden mb-1.5">
+                                    <div className={`h-full rounded transition-all ${barColor(d.score)}`} style={{ width: `${d.score}%` }} />
+                                  </div>
+                                  {d.notes && <div className="text-[#8b949e] text-[10px] leading-relaxed">{d.notes}</div>}
+                                </div>
+                              ))}
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -323,41 +375,83 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
                         </div>
                       )}
 
-                      {/* SQL side-by-side view */}
-                      {sc.candidate_query !== undefined && (
-                        <div>
-                          <div className="flex items-center gap-3 mb-2">
+                      {/* SQL side-by-side view — detailed report */}
+                      {isSql && (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-3">
                             <div className="text-[#8b949e] uppercase tracking-widest text-[10px]">SQL Submission</div>
                             {sc.sql_score !== undefined && (
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                                (sc.sql_score ?? 0) >= 70 ? 'border-[#3fb950] text-[#3fb950]' : (sc.sql_score ?? 0) >= 50 ? 'border-[#d29922] text-[#d29922]' : 'border-[#f85149] text-[#f85149]'
-                              }`}>AI Score: {sc.sql_score}/100 · {sc.sql_rating}</span>
+                                (sc.sql_score ?? 0) >= 70 ? 'border-[#3fb950] text-[#3fb950]'
+                                : (sc.sql_score ?? 0) >= 50 ? 'border-[#d29922] text-[#d29922]'
+                                : 'border-[#f85149] text-[#f85149]'
+                              }`}>
+                                Score: {sc.sql_score}/100 · {sc.sql_rating}
+                              </span>
                             )}
                           </div>
+
+                          {/* Question context */}
                           {sc.sql_question && (
-                            <div className="mb-3 bg-[#161b22] rounded p-3 border border-[#30363d]">
+                            <div className="bg-[#161b22] rounded p-3 border border-[#30363d]">
                               <div className="text-[#58a6ff] font-bold mb-1 text-[11px]">{sc.sql_question.title}</div>
-                              <div className="text-[#e6edf3] text-[11px] mb-2">{sc.sql_question.description}</div>
+                              <div className="text-[#e6edf3] text-[11px] mb-2 leading-relaxed">{sc.sql_question.description}</div>
                               {sc.sql_question.schema_hint && (
-                                <pre className="text-[#8b949e] text-[10px] bg-[#0d1117] rounded p-2 border border-[#30363d] overflow-x-auto whitespace-pre-wrap font-mono">{sc.sql_question.schema_hint}</pre>
+                                <>
+                                  <div className="text-[#484f58] text-[10px] mb-1 uppercase tracking-widest">Schema</div>
+                                  <pre className="text-[#8b949e] text-[10px] bg-[#0d1117] rounded p-2 border border-[#30363d] overflow-x-auto whitespace-pre-wrap font-mono">{sc.sql_question.schema_hint}</pre>
+                                </>
                               )}
                             </div>
                           )}
+
+                          {/* Side-by-side: expected vs candidate */}
                           <div className="grid grid-cols-2 gap-3">
-                            {sc.sql_question?.starter_query && (
-                              <div>
-                                <div className="text-[#484f58] text-[10px] mb-1 uppercase">Starter / Expected</div>
-                                <pre className="text-[#8b949e] text-[11px] leading-relaxed bg-[#0d1117] rounded p-3 border border-[#30363d] overflow-x-auto whitespace-pre-wrap font-mono h-full">
-                                  {sc.sql_question.starter_query}
-                                </pre>
+                            <div>
+                              <div className="text-[#484f58] text-[10px] mb-1 uppercase tracking-widest">Expected / Solution Query</div>
+                              <pre className="text-[#8b949e] text-[11px] leading-relaxed bg-[#0d1117] rounded p-3 border border-[#30363d] overflow-x-auto whitespace-pre-wrap font-mono min-h-[80px]">
+                                {sc.sql_question?.solution_query || sc.sql_question?.starter_query || <span className="text-[#484f58] italic">No reference query available</span>}
+                              </pre>
+                            </div>
+                            <div>
+                              <div className="text-[#484f58] text-[10px] mb-1 uppercase tracking-widest">
+                                Candidate's Query
+                                {sc.sql_score !== undefined && (
+                                  <span className={`ml-2 ${(sc.sql_score ?? 0) >= 70 ? 'text-[#3fb950]' : (sc.sql_score ?? 0) >= 50 ? 'text-[#d29922]' : 'text-[#f85149]'}`}>
+                                    — {(sc.sql_score ?? 0) >= 70 ? 'Correct result' : (sc.sql_score ?? 0) >= 50 ? 'Partial match' : 'Needs improvement'}
+                                  </span>
+                                )}
                               </div>
-                            )}
-                            <div className={sc.sql_question?.starter_query ? '' : 'col-span-2'}>
-                              <div className="text-[#484f58] text-[10px] mb-1 uppercase">Candidate's Query</div>
-                              <pre className="text-[#e6edf3] text-[11px] leading-relaxed bg-[#0d1117] rounded p-3 border border-[#30363d] overflow-x-auto whitespace-pre-wrap font-mono">
+                              <pre className="text-[#e6edf3] text-[11px] leading-relaxed bg-[#0d1117] rounded p-3 border border-[#58a6ff]/20 overflow-x-auto whitespace-pre-wrap font-mono min-h-[80px]">
                                 {sc.candidate_query || <span className="text-[#484f58] italic">No query submitted</span>}
                               </pre>
                             </div>
+                          </div>
+
+                          {/* SQL fundamentals assessment */}
+                          <div className="bg-[#161b22] rounded p-3 border border-[#30363d]">
+                            <div className="text-[#8b949e] uppercase tracking-widest text-[10px] mb-2">Assessment Summary</div>
+                            <div className="grid grid-cols-3 gap-3 text-center">
+                              {[
+                                { label: 'Syntax Accuracy', score: sc.syntax_accuracy ?? 0, icon: '{ }' },
+                                { label: 'Query Correctness', score: sc.query_correctness ?? 0, icon: '✓' },
+                                { label: 'Result Completeness', score: sc.result_completeness ?? 0, icon: '◉' },
+                              ].map(item => (
+                                <div key={item.label} className="bg-[#0d1117] rounded p-2 border border-[#30363d]">
+                                  <div className="text-[#484f58] text-base mb-1">{item.icon}</div>
+                                  <div className={`text-lg font-bold tabular-nums ${item.score >= 65 ? 'text-[#3fb950]' : item.score >= 40 ? 'text-[#d29922]' : 'text-[#f85149]'}`}>{item.score}</div>
+                                  <div className="text-[#484f58] text-[9px] mt-0.5">{item.label}</div>
+                                </div>
+                              ))}
+                            </div>
+                            {sc.sql_score !== undefined && (
+                              <div className={`mt-3 text-[11px] text-center font-bold ${(sc.sql_score ?? 0) >= 70 ? 'text-[#3fb950]' : (sc.sql_score ?? 0) >= 50 ? 'text-[#d29922]' : 'text-[#f85149]'}`}>
+                                {(sc.sql_score ?? 0) >= 80 ? 'Strong SQL skills demonstrated.' :
+                                 (sc.sql_score ?? 0) >= 60 ? 'Core SQL knowledge present — review JOIN syntax and aggregations.' :
+                                 (sc.sql_score ?? 0) >= 40 ? 'SQL fundamentals need more work — review JOINs, WHERE conditions, and GROUP BY.' :
+                                 'SQL fundamentals need significant improvement — revisit core query patterns.'}
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
@@ -381,8 +475,24 @@ export default function SessionHistory({ onBack }: SessionHistoryProps) {
 
                   {/* Expanded but no scorecard */}
                   {isExpanded && !sc && (
-                    <div className="border-t border-[#30363d] px-4 py-4 bg-[#0d1117] text-[#484f58] text-center">
-                      No scorecard available — session may still be in progress or ended without resolution.
+                    <div className="border-t border-[#30363d] px-4 py-4 bg-[#0d1117] space-y-3">
+                      <div className="text-[#484f58] text-center text-[11px]">
+                        {session.status === 'active'
+                          ? '⏳ Session still in progress — scorecard will appear after completion.'
+                          : session.status === 'abandoned'
+                          ? '⚠ Session was abandoned before completion. No scorecard generated.'
+                          : '◉ Scorecard is being generated by AI — refresh in a moment.'}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-[10px]">
+                        <div className="bg-[#161b22] rounded p-2 border border-[#30363d]">
+                          <div className="text-[#484f58] uppercase tracking-widest mb-1">Scenario</div>
+                          <div className="text-[#e6edf3]">{session.scenario_name ?? session.scenario_id}</div>
+                        </div>
+                        <div className="bg-[#161b22] rounded p-2 border border-[#30363d]">
+                          <div className="text-[#484f58] uppercase tracking-widest mb-1">Started</div>
+                          <div className="text-[#e6edf3]">{formatDate(session.started_at)}</div>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
