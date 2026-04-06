@@ -64,6 +64,7 @@ export default function WarRoom({ isOpen, onClose }: WarRoomProps) {
   const [textFallback, setTextFallback] = useState('')
   const [hasSpeechRecognition, setHasSpeechRecognition] = useState(false)
   const [voicesLoaded, setVoicesLoaded] = useState(false)
+  const [liveTranscript, setLiveTranscript] = useState('')
 
   const transcriptEndRef = useRef<HTMLDivElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -84,16 +85,27 @@ export default function WarRoom({ isOpen, onClose }: WarRoomProps) {
   // Load voices
   useEffect(() => {
     if (!isOpen) return
-    const load = () => setVoicesLoaded(true)
-    if (window.speechSynthesis) {
-      if (window.speechSynthesis.getVoices().length > 0) {
+
+    function tryLoadVoices() {
+      if (window.speechSynthesis?.getVoices().length > 0) {
         setVoicesLoaded(true)
-      } else {
-        window.speechSynthesis.addEventListener('voiceschanged', load, { once: true })
+        return true
       }
+      return false
     }
+
+    if (tryLoadVoices()) return
+
+    // Listen for voiceschanged
+    const onVoicesChanged = () => { tryLoadVoices(); setVoicesLoaded(true) }
+    window.speechSynthesis?.addEventListener('voiceschanged', onVoicesChanged)
+
+    // Fallback: after 3s, start anyway even if no custom voices
+    const fallbackTimer = setTimeout(() => setVoicesLoaded(true), 3000)
+
     return () => {
-      window.speechSynthesis?.removeEventListener('voiceschanged', load)
+      window.speechSynthesis?.removeEventListener('voiceschanged', onVoicesChanged)
+      clearTimeout(fallbackTimer)
     }
   }, [isOpen])
 
@@ -152,7 +164,8 @@ export default function WarRoom({ isOpen, onClose }: WarRoomProps) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const recognition: any = new SR()
       recognition.lang = 'en-US'
-      recognition.interimResults = false
+      recognition.continuous = true
+      recognition.interimResults = true
       recognition.maxAlternatives = 1
       recognitionRef.current = recognition
 
@@ -160,28 +173,32 @@ export default function WarRoom({ isOpen, onClose }: WarRoomProps) {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       recognition.onresult = (event: any) => {
-        finalText = event.results[0]?.[0]?.transcript ?? ''
+        let interim = ''
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i]
+          if (result.isFinal) {
+            finalText += result[0].transcript
+          } else {
+            interim += result[0].transcript
+          }
+        }
+        setLiveTranscript(finalText + interim)
       }
 
       recognition.onend = () => {
         setIsRecording(false)
-        if (timeoutRef.current) clearTimeout(timeoutRef.current)
+        setLiveTranscript('')
         onResult(finalText || '[no response recorded]')
       }
 
       recognition.onerror = () => {
         setIsRecording(false)
-        if (timeoutRef.current) clearTimeout(timeoutRef.current)
-        onResult('[no response recorded]')
+        setLiveTranscript('')
+        onResult(finalText || '[no response recorded]')
       }
 
       setIsRecording(true)
       recognition.start()
-
-      // 8-second timeout
-      timeoutRef.current = setTimeout(() => {
-        recognition.stop()
-      }, 8000)
     },
     []
   )
@@ -396,37 +413,50 @@ export default function WarRoom({ isOpen, onClose }: WarRoomProps) {
                   </button>
                 </div>
               ) : hasSpeechRecognition ? (
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleSpeak}
-                    disabled={speakDisabled}
-                    className={`flex items-center gap-2 px-4 py-1.5 rounded text-xs font-semibold border transition-all ${
-                      isRecording
-                        ? 'bg-[#f85149]/20 text-[#f85149] border-[#f85149]/60 cursor-not-allowed'
-                        : speakDisabled
-                        ? 'bg-[#161b22] text-[#484f58] border-[#30363d] cursor-not-allowed'
-                        : 'bg-[#3fb950]/10 text-[#3fb950] border-[#3fb950]/40 hover:bg-[#3fb950]/20 cursor-pointer'
-                    }`}
-                  >
-                    {isRecording ? (
-                      <>
-                        <span
-                          className="inline-block w-2 h-2 rounded-full bg-[#f85149]"
-                          style={{ animation: 'pulse 0.7s ease-in-out infinite' }}
-                        />
-                        Listening…
-                      </>
-                    ) : (
-                      '🎙 Speak'
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleSpeak}
+                      disabled={speakDisabled}
+                      className={`flex items-center gap-2 px-4 py-1.5 rounded text-xs font-semibold border transition-all ${
+                        isRecording
+                          ? 'bg-[#f85149]/20 text-[#f85149] border-[#f85149]/60 cursor-not-allowed'
+                          : speakDisabled
+                          ? 'bg-[#161b22] text-[#484f58] border-[#30363d] cursor-not-allowed'
+                          : 'bg-[#3fb950]/10 text-[#3fb950] border-[#3fb950]/40 hover:bg-[#3fb950]/20 cursor-pointer'
+                      }`}
+                    >
+                      {isRecording ? (
+                        <>
+                          <span
+                            className="inline-block w-2 h-2 rounded-full bg-[#f85149]"
+                            style={{ animation: 'pulse 0.7s ease-in-out infinite' }}
+                          />
+                          Listening…
+                        </>
+                      ) : (
+                        '🎙 Speak'
+                      )}
+                    </button>
+                    {isRecording && (
+                      <button
+                        onClick={() => recognitionRef.current?.stop()}
+                        className="px-3 py-1 rounded text-xs bg-[#f85149]/20 text-[#f85149] border border-[#f85149]/40"
+                      >
+                        ■ Done Speaking
+                      </button>
                     )}
-                  </button>
-                  <span className="text-[10px] text-[#484f58]">
-                    {isSREturn
-                      ? 'Click to record your response (8s limit)'
-                      : isSpeaking
-                      ? 'Wait — participant is speaking…'
-                      : ''}
-                  </span>
+                    <span className="text-[10px] text-[#484f58]">
+                      {isSREturn
+                        ? 'Click to record — speak freely, press Done when finished'
+                        : isSpeaking
+                        ? 'Wait — participant is speaking…'
+                        : ''}
+                    </span>
+                  </div>
+                  {isRecording && liveTranscript && (
+                    <div className="text-[#8b949e] text-[10px] italic mt-1 max-w-xs truncate">"{liveTranscript}"</div>
+                  )}
                 </div>
               ) : (
                 // Text fallback

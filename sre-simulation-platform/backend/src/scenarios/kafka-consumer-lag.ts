@@ -72,7 +72,7 @@ export function getKafkaConsumerLagScenario(sessionId: string): ScenarioTemplate
 
   return {
     id: 'kafka-consumer-lag',
-    name: 'Kafka Consumer Lag — Transaction Processing Backlog',
+    name: 'Event Processing Degradation',
     difficulty: 'senior',
     description: 'A code regression in the transaction-processor service causes it to process messages 50x slower. Consumer lag on the transactions topic has grown to 2M+ messages.',
     topology_description: `E-commerce platform on Kubernetes (prod-us-east-1, 12 nodes).

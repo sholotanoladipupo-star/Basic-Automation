@@ -9,12 +9,12 @@ const SCENARIOS = [
   { id: 'db-slow-queries',        name: 'Database Slow Queries — Connection Pool Exhaustion', difficulty: 'SENIOR', timeLimit: 10 },
   { id: 'spanner-high-utilization', name: 'Cloud Spanner Node CPU Spike — Hot Key Hotspot', difficulty: 'SENIOR', timeLimit: 10 },
   { id: 'pod-crashloop',          name: 'checkout-service Pods in CrashLoopBackOff',          difficulty: 'SENIOR', timeLimit: 10 },
-  { id: 'db-replica-ip-change',   name: 'DB Replica IP Change — Connection Refused',          difficulty: 'MID',    timeLimit: 10 },
-  { id: 'missing-table',          name: 'Missing DB Table — payment_intents Not Found',       difficulty: 'MID',    timeLimit: 10 },
-  { id: 'kafka-consumer-lag',     name: 'Kafka Consumer Lag — Event Processing Stalled',      difficulty: 'MID',    timeLimit: 10 },
-  { id: 'config-key-missing',     name: 'Config Key Missing — Service Startup Failure',       difficulty: 'MID',    timeLimit: 10 },
-  { id: 'pod-oom-killed',         name: 'Pod OOMKilled — Memory Limit Exceeded',              difficulty: 'MID',    timeLimit: 10 },
-  { id: 'network-policy-block',   name: 'Network Policy Block — Service Unreachable',         difficulty: 'MID',    timeLimit: 10 },
+  { id: 'db-replica-ip-change',   name: 'Database Connectivity Issues',        difficulty: 'MID',    timeLimit: 10 },
+  { id: 'missing-table',          name: 'Payment Processing Errors',           difficulty: 'MID',    timeLimit: 10 },
+  { id: 'kafka-consumer-lag',     name: 'Event Processing Degradation',        difficulty: 'MID',    timeLimit: 10 },
+  { id: 'config-key-missing',     name: 'Service Deployment Anomaly',          difficulty: 'MID',    timeLimit: 10 },
+  { id: 'pod-oom-killed',         name: 'Container Resource Pressure',         difficulty: 'MID',    timeLimit: 10 },
+  { id: 'network-policy-block',   name: 'Network Connectivity Anomaly',        difficulty: 'MID',    timeLimit: 10 },
 ]
 
 interface Assignment {
@@ -548,9 +548,22 @@ export default function Admin({ onBack }: AdminProps) {
                 </div>
 
                 <div className="bg-[#161b22] border border-[#30363d] rounded-lg overflow-hidden">
-                  <div className="px-5 py-3 border-b border-[#30363d] text-[#8b949e] uppercase tracking-widest">Questions ({monitoringQuestions.length})</div>
+                  <div className="px-5 py-3 border-b border-[#30363d] flex items-center justify-between">
+                    <span className="text-[#8b949e] uppercase tracking-widest">Questions ({monitoringQuestions.length})</span>
+                    <button
+                      onClick={async () => {
+                        const r = await fetch(`${API_BASE}/monitoring/admin/seed`, { method: 'POST', headers: { 'x-admin-key': adminKey } })
+                        const data = await r.json() as { inserted: number; skipped: number }
+                        await loadMonitoringQuestions()
+                        alert(`Seeded ${data.inserted} question(s). ${data.skipped} already existed.`)
+                      }}
+                      className="text-[10px] px-3 py-1 rounded border border-[#bc8cff]/40 text-[#bc8cff] hover:bg-[#bc8cff]/10 transition-colors"
+                    >
+                      ⚡ Seed Default Questions
+                    </button>
+                  </div>
                   {monitoringQuestions.length === 0 ? (
-                    <div className="px-5 py-8 text-center text-[#484f58]">No monitoring questions yet. Run <code className="text-[#8b949e]">npm run db:seed-questions</code> on the backend to seed examples.</div>
+                    <div className="px-5 py-8 text-center text-[#484f58]">No monitoring questions yet. Click "Seed Default Questions" above to add 3 pre-built questions.</div>
                   ) : (
                     <table className="w-full">
                       <thead><tr className="text-[#484f58] border-b border-[#30363d]">

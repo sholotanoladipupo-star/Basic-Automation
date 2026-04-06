@@ -2,6 +2,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 import { useState, useMemo } from 'react';
 const NR_NAV = [
     { id: 'apm', label: 'APM & Services' },
+    { id: 'servicemap', label: 'Service Map' },
     { id: 'infra', label: 'Infrastructure' },
 ];
 // Tiny SVG sparkline
@@ -147,7 +148,95 @@ export default function NewRelicPanel({ systemState }) {
                                 return (_jsxs("div", { onClick: () => setSelectedService(svc.name), className: "bg-[#1a1d2e] border border-[#2d2f45] hover:border-[#00b4a0]/50 rounded p-3 cursor-pointer transition-colors", children: [_jsxs("div", { className: "flex items-center justify-between mb-2", children: [_jsx("span", { className: "text-[#d4d4d4] font-bold", children: svc.name }), _jsxs("div", { className: "flex items-center gap-2", children: [_jsx("span", { className: `text-[10px] font-bold px-1.5 py-0.5 rounded ${svc.status === 'down' ? 'bg-[#2a0a0a] text-[#f85149]'
                                                                 : svc.status === 'degraded' ? 'bg-[#2a1e00] text-[#d29922]'
                                                                     : 'bg-[#0a2a20] text-[#00b4a0]'}`, children: svc.status.toUpperCase() }), _jsx("span", { className: "text-[#555] text-[10px]", children: "\u2192" })] })] }), _jsxs("div", { className: "grid grid-cols-3 gap-3 text-[10px]", children: [_jsxs("div", { children: [_jsx("div", { className: "text-[#555] mb-0.5", children: "Error Rate" }), _jsxs("span", { className: "font-bold tabular-nums", style: { color: errColor }, children: [errPct.toFixed(1), "%"] })] }), _jsxs("div", { children: [_jsx("div", { className: "text-[#555] mb-0.5", children: "p99 Latency" }), _jsxs("span", { className: "font-bold tabular-nums", style: { color: latColor }, children: [svc.p99_latency_ms, "ms"] })] }), _jsxs("div", { children: [_jsx("div", { className: "text-[#555] mb-0.5", children: "Throughput" }), _jsxs("span", { className: "font-bold tabular-nums text-[#d4d4d4]", children: [svc.status === 'down' ? '0' : svc.status === 'degraded' ? '134' : '847', " rpm"] })] })] })] }, svc.name));
-                            })] })), activeTab === 'infra' && (_jsxs(_Fragment, { children: [_jsx("div", { className: "text-[#888] text-[10px] uppercase tracking-widest mb-3", children: "Infrastructure \u2014 click to drill down" }), [...caches, ...databases].map((item, i) => (_jsxs("div", { onClick: () => { }, className: "bg-[#1a1d2e] border border-[#2d2f45] rounded p-3", children: [_jsxs("div", { className: "flex items-center justify-between mb-1.5", children: [_jsx("span", { className: "text-[#d4d4d4] font-bold", children: item.name }), _jsx("span", { className: `text-[10px] font-bold px-1.5 py-0.5 rounded ${item.status === 'down' ? 'bg-[#2a0a0a] text-[#f85149]'
+                            })] })), activeTab === 'servicemap' && (() => {
+                        // Static topology — positions fixed, health colors from live state
+                        const svcMap = {
+                            'internet': { x: 60, y: 200, label: 'Internet', type: 'ext' },
+                            'api-gateway': { x: 200, y: 200, label: 'api-gateway', type: 'svc' },
+                            'payment-service': { x: 380, y: 100, label: 'payment-service', type: 'svc' },
+                            'user-service': { x: 380, y: 220, label: 'user-service', type: 'svc' },
+                            'notification-service': { x: 380, y: 340, label: 'notif-service', type: 'svc' },
+                            'postgres-primary': { x: 560, y: 80, label: 'postgres-primary', type: 'infra' },
+                            'redis-cache': { x: 560, y: 200, label: 'redis-cache', type: 'infra' },
+                            'kafka': { x: 560, y: 340, label: 'kafka', type: 'infra' },
+                        };
+                        const edges = [
+                            ['internet', 'api-gateway'],
+                            ['api-gateway', 'payment-service'],
+                            ['api-gateway', 'user-service'],
+                            ['api-gateway', 'notification-service'],
+                            ['payment-service', 'postgres-primary'],
+                            ['user-service', 'postgres-primary'],
+                            ['user-service', 'redis-cache'],
+                            ['notification-service', 'kafka'],
+                        ];
+                        const W = 660, H = 440;
+                        const R = 28;
+                        function nodeColor(id) {
+                            if (svcMap[id].type === 'ext')
+                                return '#4a4a6a';
+                            if (svcMap[id].type === 'infra') {
+                                // Match infra from systemState
+                                const db = databases.find(d => d.name.toLowerCase().includes(id.split('-')[0]));
+                                const ca = caches.find(c => c.name.toLowerCase().includes(id.split('-')[0]));
+                                const item = db ?? ca;
+                                if (!item)
+                                    return '#2d5a3d';
+                                return item.status === 'down' ? '#5a1a1a' : item.status === 'degraded' ? '#4a3a00' : '#1a4a2d';
+                            }
+                            const s = services.find(sv => sv.name.toLowerCase().replace(/[\s_]/g, '-') === id || sv.name === id);
+                            if (!s)
+                                return '#1a2a4a';
+                            return s.status === 'down' ? '#5a1a1a' : s.status === 'degraded' ? '#4a3a00' : '#1a4a2d';
+                        }
+                        function nodeTextColor(id) {
+                            if (svcMap[id].type === 'ext')
+                                return '#888';
+                            if (svcMap[id].type === 'infra') {
+                                const db = databases.find(d => d.name.toLowerCase().includes(id.split('-')[0]));
+                                const ca = caches.find(c => c.name.toLowerCase().includes(id.split('-')[0]));
+                                const item = db ?? ca;
+                                if (!item)
+                                    return '#00b4a0';
+                                return item.status === 'down' ? '#f85149' : item.status === 'degraded' ? '#d29922' : '#00b4a0';
+                            }
+                            const s = services.find(sv => sv.name.toLowerCase().replace(/[\s_]/g, '-') === id || sv.name === id);
+                            if (!s)
+                                return '#4a90d9';
+                            return s.status === 'down' ? '#f85149' : s.status === 'degraded' ? '#d29922' : '#00b4a0';
+                        }
+                        function edgeColor(from, to) {
+                            const tc = nodeTextColor(to);
+                            return tc === '#f85149' ? '#f85149' : tc === '#d29922' ? '#d29922' : '#2d2f45';
+                        }
+                        return (_jsxs("div", { children: [_jsxs("div", { className: "flex items-center justify-between mb-3", children: [_jsx("span", { className: "text-[#888] text-[10px] uppercase tracking-widest", children: "Service Map \u2014 click a node to drill down" }), _jsx("div", { className: "flex items-center gap-3 text-[9px]", children: [['#00b4a0', 'Healthy'], ['#d29922', 'Degraded'], ['#f85149', 'Down']].map(([c, l]) => (_jsxs("span", { className: "flex items-center gap-1", children: [_jsx("span", { className: "w-2 h-2 rounded-full inline-block", style: { background: c } }), l] }, l))) })] }), _jsx("div", { className: "bg-[#0d0e14] border border-[#2d2f45] rounded overflow-hidden", children: _jsxs("svg", { viewBox: `0 0 ${W} ${H}`, className: "w-full", style: { height: 340 }, children: [Array.from({ length: 8 }, (_, i) => (_jsx("line", { x1: 0, y1: i * 60, x2: W, y2: i * 60, stroke: "#1a1d2e", strokeWidth: 1 }, `h${i}`))), Array.from({ length: 12 }, (_, i) => (_jsx("line", { x1: i * 60, y1: 0, x2: i * 60, y2: H, stroke: "#1a1d2e", strokeWidth: 1 }, `v${i}`))), edges.map(([from, to], i) => {
+                                                const f = svcMap[from], t = svcMap[to];
+                                                const ec = edgeColor(from, to);
+                                                const mx = (f.x + t.x) / 2;
+                                                return (_jsxs("g", { children: [_jsx("path", { d: `M ${f.x + R} ${f.y} C ${mx} ${f.y} ${mx} ${t.y} ${t.x - R} ${t.y}`, fill: "none", stroke: ec, strokeWidth: ec === '#2d2f45' ? 1.5 : 2, strokeDasharray: ec === '#f85149' ? '4 2' : undefined, opacity: 0.7 }), _jsx("polygon", { points: `${t.x - R},${t.y} ${t.x - R - 7},${t.y - 4} ${t.x - R - 7},${t.y + 4}`, fill: ec, opacity: 0.7 }), ec !== '#2d2f45' && (() => {
+                                                            const s = services.find(sv => sv.name.toLowerCase().replace(/[\s_]/g, '-') === to || sv.name === to);
+                                                            if (!s)
+                                                                return null;
+                                                            const ep = (s.error_rate * 100).toFixed(0);
+                                                            return (_jsxs("text", { x: mx, y: (f.y + t.y) / 2 - 4, textAnchor: "middle", fill: ec, fontSize: 8, fontFamily: "monospace", children: [ep, "% err"] }));
+                                                        })()] }, i));
+                                            }), Object.entries(svcMap).map(([id, node]) => {
+                                                const bg = nodeColor(id);
+                                                const tc = nodeTextColor(id);
+                                                const isInfra = node.type === 'infra';
+                                                const isExt = node.type === 'ext';
+                                                const isClickable = node.type === 'svc';
+                                                const matchedSvc = services.find(sv => sv.name.toLowerCase().replace(/[\s_]/g, '-') === id || sv.name === id);
+                                                const isPulsing = matchedSvc && matchedSvc.status === 'down';
+                                                return (_jsxs("g", { style: { cursor: isClickable ? 'pointer' : 'default' }, onClick: () => isClickable && matchedSvc && setSelectedService(matchedSvc.name), children: [isPulsing && (_jsxs("circle", { cx: node.x, cy: node.y, r: R + 8, fill: "none", stroke: "#f85149", strokeWidth: 1.5, opacity: 0.4, children: [_jsx("animate", { attributeName: "r", values: `${R + 4};${R + 14};${R + 4}`, dur: "2s", repeatCount: "indefinite" }), _jsx("animate", { attributeName: "opacity", values: "0.4;0;0.4", dur: "2s", repeatCount: "indefinite" })] })), isInfra ? (_jsx("rect", { x: node.x - R, y: node.y - R * 0.7, width: R * 2, height: R * 1.4, rx: 4, fill: bg, stroke: tc, strokeWidth: 1.5 })) : (_jsx("circle", { cx: node.x, cy: node.y, r: R, fill: bg, stroke: tc, strokeWidth: isExt ? 1 : 2, strokeDasharray: isExt ? '3 2' : undefined })), _jsx("text", { x: node.x, y: node.y - 4, textAnchor: "middle", fontSize: 11, fill: tc, children: isExt ? '🌐' : isInfra
+                                                                ? (id.includes('redis') ? '⚡' : id.includes('kafka') ? '📨' : '🗄')
+                                                                : (id.includes('gateway') ? '🔀' : id.includes('payment') ? '💳' : id.includes('user') ? '👤' : '🔔') }), _jsx("text", { x: node.x, y: node.y + R + 14, textAnchor: "middle", fontSize: 9, fill: tc, fontFamily: "monospace", children: node.label }), matchedSvc && (_jsx("text", { x: node.x, y: node.y + R + 24, textAnchor: "middle", fontSize: 8, fill: tc, opacity: 0.8, fontFamily: "monospace", children: matchedSvc.status === 'down' ? '● DOWN' : matchedSvc.status === 'degraded' ? '● DEG' : '● OK' })), matchedSvc && matchedSvc.status !== 'healthy' && (_jsxs("text", { x: node.x, y: node.y + 6, textAnchor: "middle", fontSize: 8, fill: tc, fontFamily: "monospace", children: [matchedSvc.p99_latency_ms, "ms"] }))] }, id));
+                                            }), [['Client', 60], ['Gateway', 200], ['Services', 380], ['Infra', 560]].map(([lbl, x]) => (_jsx("text", { x: x, y: H - 12, textAnchor: "middle", fontSize: 9, fill: "#333", fontFamily: "monospace", letterSpacing: 1, children: lbl.toUpperCase() }, lbl)))] }) }), _jsx("div", { className: "grid grid-cols-3 gap-2 mt-3", children: [
+                                        { label: 'Total Services', value: services.length, color: '#d4d4d4' },
+                                        { label: 'Degraded / Down', value: services.filter(s => s.status !== 'healthy').length, color: services.some(s => s.status !== 'healthy') ? '#f85149' : '#00b4a0' },
+                                        { label: 'Avg Error Rate', value: services.length ? `${(services.reduce((a, s) => a + s.error_rate, 0) / services.length * 100).toFixed(1)}%` : '—', color: '#d29922' },
+                                    ].map(t => (_jsxs("div", { className: "bg-[#1a1d2e] border border-[#2d2f45] rounded p-2.5", children: [_jsx("div", { className: "text-[#555] text-[9px] uppercase tracking-widest mb-1", children: t.label }), _jsx("div", { className: "font-bold text-sm tabular-nums", style: { color: t.color }, children: t.value })] }, t.label))) })] }));
+                    })(), activeTab === 'infra' && (_jsxs(_Fragment, { children: [_jsx("div", { className: "text-[#888] text-[10px] uppercase tracking-widest mb-3", children: "Infrastructure \u2014 click to drill down" }), [...caches, ...databases].map((item, i) => (_jsxs("div", { onClick: () => { }, className: "bg-[#1a1d2e] border border-[#2d2f45] rounded p-3", children: [_jsxs("div", { className: "flex items-center justify-between mb-1.5", children: [_jsx("span", { className: "text-[#d4d4d4] font-bold", children: item.name }), _jsx("span", { className: `text-[10px] font-bold px-1.5 py-0.5 rounded ${item.status === 'down' ? 'bg-[#2a0a0a] text-[#f85149]'
                                                     : item.status === 'degraded' ? 'bg-[#2a1e00] text-[#d29922]'
                                                         : 'bg-[#0a2a20] text-[#00b4a0]'}`, children: item.status.toUpperCase() })] }), 'hit_rate' in item && (_jsxs("div", { className: "text-[10px] text-[#888]", children: ["Hit rate: ", _jsxs("span", { className: "text-[#d4d4d4]", children: [(item.hit_rate * 100).toFixed(0), "%"] })] })), 'connection_count' in item && (_jsxs("div", { className: "text-[10px] text-[#888]", children: ["Connections: ", _jsxs("span", { className: "text-[#d4d4d4]", children: [item.connection_count, "/", item.max_connections] })] }))] }, i)))] }))] })] }));
 }

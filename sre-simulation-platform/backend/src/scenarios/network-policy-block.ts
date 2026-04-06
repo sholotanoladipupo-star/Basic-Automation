@@ -72,7 +72,7 @@ export function getNetworkPolicyBlockScenario(sessionId: string): ScenarioTempla
 
   return {
     id: 'network-policy-block',
-    name: 'Network Policy Misconfiguration — Auth to User Service Blocked',
+    name: 'Network Connectivity Anomaly',
     difficulty: 'chaos',
     description: 'A NetworkPolicy update accidentally removed the ingress rule allowing auth-service to reach user-service. All authentication flows are failing with connection timeout.',
     topology_description: `E-commerce platform on Kubernetes (prod-us-east-1, 12 nodes).

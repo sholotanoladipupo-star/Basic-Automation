@@ -309,3 +309,60 @@ monitoringRouter.delete('/admin/questions/:id', requireAdmin, async (req, res) =
     res.json({ ok: true })
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
+
+/** Seed default monitoring questions */
+monitoringRouter.post('/admin/seed', requireAdmin, async (_req, res) => {
+  const seeds = [
+    {
+      title: 'Design Monitoring for a Payment Service Outage',
+      scenario: `Your payment-service has just experienced a 45-minute P1 outage. Error rates hit 85%, p99 latency exceeded 8s, and 1,200 transactions failed. Post-incident, engineering leadership has asked you to design a comprehensive monitoring and alerting strategy to detect and respond to similar issues in under 5 minutes next time.\n\nSystem context:\n- payment-service (Node.js, 6 pods)\n- PostgreSQL primary + 1 read replica\n- Redis cache (session/rate-limit data)\n- Kafka topic: payment-events\n- Upstream: Stripe API, bank gateway\n- Metrics available: Prometheus + Grafana, logs in Cloud Logging`,
+      difficulty: 'hard',
+      sub_questions: [
+        { id: 'datasource', prompt: 'Design your Grafana data source and dashboard panels. Which metrics would you track on the payment-service dashboard? List at least 5 panels with the PromQL query or metric name, and the alert threshold for each.', type: 'datasource', placeholder: 'e.g.\nPanel: Payment Error Rate\nQuery: rate(http_requests_total{service="payment-service",status=~"5.."}[5m]) / rate(http_requests_total{service="payment-service"}[5m])\nThreshold: > 5% → WARNING, > 15% → CRITICAL\n\nPanel: DB Connection Pool...' },
+        { id: 'alert_rule', prompt: 'Write 3 alert rules using Grafana Alerting or Prometheus AlertManager. For each rule specify: metric/expression, evaluation interval, for-duration (how long before it fires), severity, and the message template.', type: 'alert_rule', placeholder: 'Alert 1: PaymentServiceHighErrorRate\nExpression: ...\nFor: 2m\nSeverity: critical\nMessage: ...\n\nAlert 2: ...' },
+        { id: 'contact_point', prompt: 'Define your contact points and notification routing. Where should P1 alerts go (PagerDuty? Slack? OpsGenie?)? How do you avoid alert fatigue? Describe your escalation chain if the primary on-call does not acknowledge within 5 minutes.', type: 'contact_point', placeholder: 'Contact points:\n- P1 (critical): PagerDuty → on-call engineer → 5min escalation to EM\n- P2 (warning): #payments-alerts Slack channel\n\nEscalation policy: ...' },
+        { id: 'notification_policy', prompt: 'Design the notification policy including grouping, repeat interval, and inhibition rules. How would you suppress downstream alert noise when the upstream cause (e.g., DB down) is already alerting?', type: 'notification_policy', placeholder: 'Group by: [service, severity]\nGroup wait: 30s\nRepeat interval: 4h\n\nInhibition rule: suppress payment-service alerts when postgres-primary is already DOWN\n...' },
+      ],
+      time_limit_seconds: 720,
+    },
+    {
+      title: 'SLO Design — Checkout Service Reliability',
+      scenario: `You are the SRE responsible for the checkout-service, which handles the final step of the purchase funnel. The business requires 99.9% monthly availability. Currently you have no SLOs defined and no error budget policy.\n\nSystem context:\n- checkout-service processes ~2,000 requests/minute at peak\n- 3 pods in prod, 1 in staging\n- Dependencies: payment-service, order-service, inventory-service\n- Current uptime: ~99.6% (measured by ops team doing manual checks)\n- No synthetic monitoring exists`,
+      difficulty: 'medium',
+      sub_questions: [
+        { id: 'datasource', prompt: 'Define the SLI (Service Level Indicator) for checkout-service. What exactly will you measure? Write the PromQL or metric expression. Explain why you chose this SLI over alternatives (latency vs. availability vs. error rate).', type: 'datasource', placeholder: 'SLI: Availability\nDefinition: proportion of checkout requests that return HTTP 2xx within 2s\nPromQL: sum(rate(checkout_requests_total{status=~"2.."}[5m])) / sum(rate(checkout_requests_total[5m]))\n\nWhy: ...' },
+        { id: 'alert_rule', prompt: 'Design two burn-rate alerts for your SLO: a fast-burn alert (detects rapid error budget consumption) and a slow-burn alert (detects gradual leaks). Include the burn rate multiplier, look-back window, and alert threshold for each.', type: 'alert_rule', placeholder: 'Fast burn: 14.4x burn rate over 1h → pages immediately\nExpression: ...\n\nSlow burn: 3x burn rate over 6h → creates ticket\nExpression: ...' },
+        { id: 'contact_point', prompt: 'What is your error budget policy? If 100% of the monthly error budget is consumed in week 1, what happens? Define freeze conditions, freeze duration, and which team/role makes the call to freeze deployments.', type: 'contact_point', placeholder: 'Error budget policy:\n- 0–50% consumed: normal operations\n- 50–75% consumed: increased release scrutiny, EM notified\n- 75–100% consumed: freeze new deployments, focus on reliability\n- >100% consumed: incident declared, post-incident review mandatory\n\nDecision maker: ...' },
+        { id: 'notification_policy', prompt: 'Design your SLO dashboard in Grafana. List the 4 panels you would include with their queries. How do you communicate remaining error budget to stakeholders (weekly report? Slack bot?).', type: 'notification_policy', placeholder: 'Dashboard panels:\n1. Current SLO compliance (30-day rolling): ...\n2. Error budget remaining (%): ...\n3. Burn rate (1h / 6h): ...\n4. SLI trend (7d): ...\n\nStakeholder communication: ...' },
+      ],
+      time_limit_seconds: 600,
+    },
+    {
+      title: 'Alert Triage — Noisy Alert Investigation',
+      scenario: `You are the on-call SRE. At 2:17 AM you receive 23 simultaneous PagerDuty alerts across 8 services. Your Grafana is flooded with red panels. You need to triage and determine the blast radius, find the root cause, and silence noise while working the incident.\n\nAlerts fired (all within 60 seconds):\n- api-gateway: HTTP 5xx rate 42%\n- payment-service: DB connection refused\n- user-service: DB connection refused\n- order-service: DB connection refused\n- checkout-service: DB connection refused\n- analytics-service: DB connection refused\n- postgres-primary: connection_count 198/200\n- redis-primary: HEALTH_OK (Redis is fine)\n\nYour monitoring stack: Prometheus, Grafana Alerting, PagerDuty`,
+      difficulty: 'hard',
+      sub_questions: [
+        { id: 'datasource', prompt: 'Within the first 2 minutes, which alert do you investigate first and why? What PromQL query would you run immediately to confirm your hypothesis? What does the dependency graph tell you about the blast radius?', type: 'datasource', placeholder: 'First alert I investigate: postgres-primary connection_count\nWhy: all DB connection refused alerts from 5 different services point to a common cause...\n\nImmediate PromQL: pg_stat_database_numbackends / pg_settings_max_connections * 100\n\nBlast radius: ...' },
+        { id: 'alert_rule', prompt: 'This alert storm was caused by a single root cause (DB connection pool exhausted). How would you redesign your alerting rules to prevent alert storms? Write an inhibition rule that would have suppressed the 5 downstream "DB connection refused" alerts when postgres-primary is the root cause.', type: 'alert_rule', placeholder: 'Inhibition rule:\n- Source alert: PostgresPrimaryDown or PostgresConnectionsExhausted\n- Target alerts: *ServiceDBConnectionRefused for all services\n- Match labels: cluster, environment\n\nResult: only 1 alert fires instead of 6...' },
+        { id: 'contact_point', prompt: 'While working the incident, you need to silence the 5 downstream service alerts so they stop paging the on-call team while you work on the root cause. How do you create a targeted silence in Grafana Alerting without silencing future legitimate alerts? Write the silence matchers.', type: 'contact_point', placeholder: 'Silence matchers:\n- alertname =~ ".*DBConnectionRefused"\n- service =~ "payment-service|user-service|order-service|checkout-service|analytics-service"\n- NOT matcher: alertname = "PostgresPrimaryConnectionsExhausted"\n\nDuration: 90 minutes\nComment: Working root cause — DB pool exhaustion' },
+        { id: 'notification_policy', prompt: 'Post-incident: what monitoring improvements would prevent this from happening again? Propose 2 new alert rules and 1 Grafana dashboard change that give you earlier warning before the connection pool reaches 100%.', type: 'notification_policy', placeholder: 'New alerts:\n1. PostgresConnectionPoolWarning: connections > 70% → warning (gives 15-30min buffer)\n2. PostgresConnectionPoolCritical: connections > 90% + rate increasing → critical\n\nDashboard change: Add connection pool gauge with warning/critical bands...' },
+      ],
+      time_limit_seconds: 600,
+    },
+  ]
+
+  try {
+    let inserted = 0
+    for (const seed of seeds) {
+      // Skip if a question with same title already exists
+      const existing = await pool.query(`SELECT id FROM monitoring_questions WHERE title = $1`, [seed.title])
+      if (existing.rows.length > 0) continue
+      await pool.query(
+        `INSERT INTO monitoring_questions (title, scenario, difficulty, sub_questions, time_limit_seconds) VALUES ($1,$2,$3,$4,$5)`,
+        [seed.title, seed.scenario, seed.difficulty, JSON.stringify(seed.sub_questions), seed.time_limit_seconds]
+      )
+      inserted++
+    }
+    res.json({ ok: true, inserted, skipped: seeds.length - inserted })
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})

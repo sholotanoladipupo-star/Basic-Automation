@@ -72,7 +72,7 @@ export function getPodOomKilledScenario(sessionId: string): ScenarioTemplate {
 
   return {
     id: 'pod-oom-killed',
-    name: 'Pod OOMKilled — payment-service Memory Limit Exceeded',
+    name: 'Container Resource Pressure',
     difficulty: 'senior',
     description: 'A memory leak in payment-service v2.3.1 causes RSS to grow 8MB/min. After 40 minutes, pods exceed their 512Mi limit and are OOMKilled in a continuous restart loop.',
     topology_description: `E-commerce platform on Kubernetes (prod-us-east-1, 12 nodes).

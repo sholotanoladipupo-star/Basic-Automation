@@ -72,7 +72,7 @@ export function getMissingTableScenario(sessionId: string): ScenarioTemplate {
 
   return {
     id: 'missing-table',
-    name: 'Missing Table — payment_methods Table Dropped',
+    name: 'Payment Processing Errors',
     difficulty: 'junior',
     description: 'A migration script accidentally ran DROP TABLE payment_methods in production. The payment-service is throwing SQL errors on every transaction attempt.',
     topology_description: `E-commerce platform on Kubernetes (prod-us-east-1, 12 nodes).

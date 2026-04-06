@@ -11,9 +11,9 @@ function alertTimestamp(firedAt) {
     });
 }
 const SEV_STYLES = {
-    sev1: { badge: 'bg-[#f85149] text-white', border: 'border-l-4 border-[#f85149] sev1-pulse', label: 'SEV1' },
-    sev2: { badge: 'bg-[#d18616] text-white', border: 'border-l-4 border-[#d18616]', label: 'SEV2' },
-    sev3: { badge: 'bg-[#d29922] text-black', border: 'border-l-4 border-[#d29922]', label: 'SEV3' },
+    sev1: { badge: 'bg-[#f85149] text-white', border: 'border-l-4 border-[#f85149] sev1-pulse', label: 'P1' },
+    sev2: { badge: 'bg-[#d18616] text-white', border: 'border-l-4 border-[#d18616]', label: 'P2' },
+    sev3: { badge: 'bg-[#d29922] text-black', border: 'border-l-4 border-[#d29922]', label: 'P3' },
 };
 export default function AlertPanel({ alerts, onAcknowledge }) {
     const unackedCount = alerts.filter(a => !a.acknowledged).length;

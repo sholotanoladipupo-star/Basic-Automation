@@ -62,12 +62,12 @@ function CollapsibleRow({ title, children, defaultOpen = true }: { title: string
   )
 }
 
-function StatCard({ label, value, sub, color = '#e6edf3' }: { label: string; value: string; sub?: string; color?: string }) {
+function StatCard({ label, value, sub, color = '#e6edf3', bg }: { label: string; value: string; sub?: string; color?: string; bg?: string }) {
   return (
-    <div className="bg-[#1a1d2b] border border-[#2c3235] rounded p-2.5 min-w-0">
-      <div className="text-[9px] text-[#6b7280] uppercase tracking-widest mb-1">{label}</div>
+    <div className="border rounded p-2.5 min-w-0" style={{ background: bg ?? '#1a1d2b', borderColor: bg ? color + '40' : '#2c3235' }}>
+      <div className="text-[9px] uppercase tracking-widest mb-1" style={{ color: bg ? color + 'aa' : '#6b7280' }}>{label}</div>
       <div className="text-lg font-bold tabular-nums leading-none" style={{ color }}>{value}</div>
-      {sub && <div className="text-[10px] text-[#6b7280] mt-0.5">{sub}</div>}
+      {sub && <div className="text-[10px] mt-0.5" style={{ color: bg ? color + '88' : '#6b7280' }}>{sub}</div>}
     </div>
   )
 }
@@ -111,28 +111,23 @@ export default function GrafanaDashboard({ systemState }: Props) {
 
       <div className="p-3 space-y-1">
         {/* Summary stat row */}
-        <div className="grid grid-cols-4 gap-2 mb-3">
-          <StatCard
-            label="Services Total"
-            value={String(services.length)}
-            color="#e6edf3"
-          />
-          <StatCard
-            label="Healthy"
-            value={String(services.filter(s => s.status === 'healthy').length)}
-            color="#3fb950"
-          />
-          <StatCard
-            label="Degraded"
-            value={String(services.filter(s => s.status === 'degraded').length)}
-            color="#ff7c21"
-          />
-          <StatCard
-            label="Down"
-            value={String(services.filter(s => s.status === 'down').length)}
-            color="#f85149"
-          />
-        </div>
+        {(() => {
+          const totalSvc = services.length
+          const healthyCnt = services.filter(s => s.status === 'healthy').length
+          const degradedCnt = services.filter(s => s.status === 'degraded').length
+          const downCnt = services.filter(s => s.status === 'down').length
+          return (
+            <div className="grid grid-cols-4 gap-2 mb-3">
+              <StatCard label="Services Total" value={String(totalSvc)} color="#e6edf3" bg="#1a1d2b" />
+              <StatCard label="Healthy" value={String(healthyCnt)} color="#3fb950"
+                bg={healthyCnt === totalSvc ? '#0a1f10' : healthyCnt > 0 ? '#0f2515' : '#1a1d2b'} />
+              <StatCard label="Degraded" value={String(degradedCnt)} color={degradedCnt > 0 ? '#ff7c21' : '#6b7280'}
+                bg={degradedCnt > 0 ? '#2a1800' : '#1a1d2b'} />
+              <StatCard label="Down" value={String(downCnt)} color={downCnt > 0 ? '#f85149' : '#6b7280'}
+                bg={downCnt > 0 ? '#2a0a0a' : '#1a1d2b'} />
+            </div>
+          )
+        })()}
 
         {/* Row 1: Kubernetes Pod Health */}
         <CollapsibleRow title="Kubernetes Pod Health" defaultOpen={true}>
@@ -245,13 +240,16 @@ export default function GrafanaDashboard({ systemState }: Props) {
                       { label: 'Write Latency',  value: isDown ? '—' : `${writeLatency}ms`, color: readColor,  sub: writeLatency > 20 ? 'HIGH' : 'OK' },
                       { label: 'Ops / sec',      value: isDown ? '0' : opsPerSec.toLocaleString(), color: opsColor, sub: isDown ? 'DOWN' : isDeg ? 'DEGRADED' : 'NOMINAL' },
                       { label: 'Eviction Rate',  value: isDown ? '0' : `${evictionRate}/s`, color: evictColor, sub: evictionRate > 5 ? 'HIGH' : 'LOW' },
-                    ].map(t => (
-                      <div key={t.label} className="bg-[#111217] border border-[#2c3235] rounded p-2.5">
-                        <div className="text-[9px] text-[#555] uppercase tracking-widest mb-1">{t.label}</div>
-                        <div className="text-base font-bold tabular-nums leading-none mb-1" style={{ color: t.color }}>{t.value}</div>
-                        <div className="text-[9px]" style={{ color: t.color }}>{t.sub}</div>
-                      </div>
-                    ))}
+                    ].map(t => {
+                      const tileBg = t.color === '#f85149' ? '#2a0808' : t.color === '#ff7c21' ? '#2a1400' : t.color === '#3fb950' ? '#0a1f10' : '#111217'
+                      return (
+                        <div key={t.label} className="border rounded p-2.5" style={{ background: tileBg, borderColor: t.color + '33' }}>
+                          <div className="text-[9px] uppercase tracking-widest mb-1" style={{ color: t.color + '99' }}>{t.label}</div>
+                          <div className="text-base font-bold tabular-nums leading-none mb-1" style={{ color: t.color }}>{t.value}</div>
+                          <div className="text-[9px]" style={{ color: t.color + 'bb' }}>{t.sub}</div>
+                        </div>
+                      )
+                    })}
                   </div>
 
                   {/* Sparkline charts */}

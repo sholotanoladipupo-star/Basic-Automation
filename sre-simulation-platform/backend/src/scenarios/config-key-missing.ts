@@ -72,7 +72,7 @@ export function getConfigKeyMissingScenario(sessionId: string): ScenarioTemplate
 
   return {
     id: 'config-key-missing',
-    name: 'Missing Config Key — REDIS_AUTH_TOKEN Not Set',
+    name: 'Service Deployment Anomaly',
     difficulty: 'junior',
     description: 'A new deployment of checkout-service is missing the REDIS_AUTH_TOKEN environment variable in the ConfigMap. Pods start but immediately fail on first Redis operation.',
     topology_description: `E-commerce platform on Kubernetes (prod-us-east-1, 12 nodes).

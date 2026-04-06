@@ -72,7 +72,7 @@ export function getDbReplicaIpChangeScenario(sessionId: string): ScenarioTemplat
 
   return {
     id: 'db-replica-ip-change',
-    name: 'DB Read Replica IP Change — Connection Refused',
+    name: 'Database Connectivity Issues',
     difficulty: 'senior',
     description: 'A routine infrastructure change rotated the read replica IP address. Services still pointing to the old IP receive connection refused errors, causing cascading read failures.',
     topology_description: `E-commerce platform on Kubernetes (prod-us-east-1, 12 nodes).
