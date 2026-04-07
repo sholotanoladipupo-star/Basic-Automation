@@ -135,6 +135,7 @@ Root cause: payment-service v2.3.1 introduced an unclosed gRPC channel in its pa
           s.services['order-service'].status = 'degraded'
           s.services['order-service'].error_rate = 0.60
           s.services['order-service'].p99_latency_ms = 5000
+          s.services['api-gateway'].status = 'degraded'
           s.services['api-gateway'].error_rate = 0.30
           s.services['api-gateway'].p99_latency_ms = 1600
           s.services['checkout-service'].status = 'degraded'
@@ -143,6 +144,10 @@ Root cause: payment-service v2.3.1 introduced an unclosed gRPC channel in its pa
 
           const alert = makeAlert('sev1', 'order-service', 'order-service: 60% error rate. payment-service unavailable — all orders requiring payment failing at checkout step. Estimated revenue impact accumulating.', s.sim_time)
           s.services['order-service'].current_alerts.push(alert)
+          const alertCheckout = makeAlert('sev1', 'checkout-service', 'checkout-service: 55% error rate. Payment processing unavailable — checkout flow broken for majority of users.', s.sim_time)
+          s.services['checkout-service'].current_alerts.push(alertCheckout)
+          const alertGw = makeAlert('sev2', 'api-gateway', 'api-gateway: 30% error rate. Payment and checkout endpoints returning 503 — payment-service OOMKill loop propagating upstream.', s.sim_time)
+          s.services['api-gateway'].current_alerts.push(alertGw)
           s.active_incidents[0].visible_symptoms.push(
             'order-service: 60% error rate — payment step unavailable',
             'checkout-service: 55% error rate — checkout flow broken',

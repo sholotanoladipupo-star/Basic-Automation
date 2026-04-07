@@ -116,11 +116,14 @@ Root cause: payment_methods table missing from payments database. Every INSERT, 
           s.services['order-service'].status = 'degraded'
           s.services['order-service'].error_rate = 0.70
           s.services['order-service'].p99_latency_ms = 4500
+          s.services['api-gateway'].status = 'degraded'
           s.services['api-gateway'].error_rate = 0.28
           s.services['api-gateway'].p99_latency_ms = 1500
 
           const alert = makeAlert('sev1', 'order-service', 'order-service: 70% error rate. Payment step in checkout flow failing — all orders requiring payment cannot complete.', s.sim_time)
           s.services['order-service'].current_alerts.push(alert)
+          const alertGw = makeAlert('sev2', 'api-gateway', 'api-gateway: 28% error rate. Checkout and order endpoints returning 500 — payment-service unavailable.', s.sim_time)
+          s.services['api-gateway'].current_alerts.push(alertGw)
           s.active_incidents[0].visible_symptoms.push(
             'order-service: 70% error rate — payment step failing for all new orders',
             'api-gateway: 28% error rate — checkout and order endpoints returning 500',
@@ -141,6 +144,9 @@ Root cause: payment_methods table missing from payments database. Every INSERT, 
           s.services['checkout-service'].p99_latency_ms = 3000
 
           const alert = makeAlert('sev1', 'postgres-primary', 'postgres-primary: query_latency_ms at maximum — all queries targeting payment_methods table failing with immediate error. Schema integrity compromised.', s.sim_time)
+          s.services['checkout-service'].current_alerts.push(alert)
+          const alertCheckout = makeAlert('sev1', 'checkout-service', 'checkout-service: 65% error rate. Payment processing unavailable — checkout flow broken for majority of users.', s.sim_time)
+          s.services['checkout-service'].current_alerts.push(alertCheckout)
           s.infrastructure.databases[0].connection_count = 8
           s.active_incidents[0].visible_symptoms.push(
             'postgres-primary: effective query latency infinite — payment_methods queries return immediate error',

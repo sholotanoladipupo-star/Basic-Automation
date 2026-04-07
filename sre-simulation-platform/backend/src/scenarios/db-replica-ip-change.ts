@@ -142,12 +142,15 @@ Root cause: DATABASE_READ_REPLICA_URL env var in order-service, analytics-servic
           s.services['order-service'].status = 'down'
           s.services['order-service'].error_rate = 1.0
           s.services['order-service'].p99_latency_ms = 0
+          s.services['api-gateway'].status = 'degraded'
           s.services['api-gateway'].error_rate = 0.35
           s.services['api-gateway'].p99_latency_ms = 2000
           s.infrastructure.databases[0].connection_count = 2
 
           const alert = makeAlert('sev1', 'order-service', 'order-service: DOWN. All read queries failing. Connection pool exhausted retrying old replica IP. DB connection_count dropped to 2.', s.sim_time)
           s.services['order-service'].current_alerts.push(alert)
+          const alertGw = makeAlert('sev2', 'api-gateway', 'api-gateway: 35% error rate. Order upstream unavailable — order status and checkout endpoints returning 503.', s.sim_time)
+          s.services['api-gateway'].current_alerts.push(alertGw)
           s.active_incidents[0].visible_symptoms.push(
             'order-service: DOWN — connection pool exhausted',
             'postgres-primary: connection_count collapsed to 2 (services backing off)',

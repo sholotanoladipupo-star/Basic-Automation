@@ -117,6 +117,7 @@ Root cause: checkout-service v1.9.0 was deployed with a new ConfigMap that omitt
           s.infrastructure.caches[0].status = 'degraded'
 
           const alert = makeAlert('sev2', 'redis-primary', 'redis-primary: Cache hit_rate collapsed to 0.02. checkout-service unable to authenticate — all cache reads and writes failing. Other services beginning to experience cache miss pressure.', s.sim_time)
+          s.services['checkout-service'].current_alerts.push(alert)
           s.active_incidents[0].visible_symptoms.push(
             'redis-primary: cache hit_rate dropped from 0.92 to 0.02 — checkout-service cache ops all failing',
             'Cache miss pressure beginning to affect DB read load',
@@ -136,6 +137,7 @@ Root cause: checkout-service v1.9.0 was deployed with a new ConfigMap that omitt
           s.services['payment-service'].status = 'degraded'
           s.services['payment-service'].error_rate = 0.20
           s.services['payment-service'].p99_latency_ms = 2800
+          s.services['api-gateway'].status = 'degraded'
           s.services['api-gateway'].error_rate = 0.30
           s.services['api-gateway'].p99_latency_ms = 1800
           s.infrastructure.databases[0].connection_count = 95
@@ -143,6 +145,10 @@ Root cause: checkout-service v1.9.0 was deployed with a new ConfigMap that omitt
 
           const alert = makeAlert('sev1', 'order-service', 'order-service: 25% error rate. Cache unavailable — falling back to direct DB reads. DB connection count rising to 95. payment-service also degraded (20% error rate).', s.sim_time)
           s.services['order-service'].current_alerts.push(alert)
+          const alertPayment = makeAlert('sev2', 'payment-service', 'payment-service: 20% error rate. Session cache unavailable — auth token lookups hitting DB directly. Latency 2800ms.', s.sim_time)
+          s.services['payment-service'].current_alerts.push(alertPayment)
+          const alertGw = makeAlert('sev2', 'api-gateway', 'api-gateway: 30% error rate. Checkout and order flows failing — cache unavailability cascading across payment and order services.', s.sim_time)
+          s.services['api-gateway'].current_alerts.push(alertGw)
           s.active_incidents[0].visible_symptoms.push(
             'order-service: 25% error rate — cache miss fallback overloading DB',
             'payment-service: 20% error rate — session cache unavailable',

@@ -164,6 +164,8 @@ Root cause: A kubectl apply of an updated NetworkPolicy "allow-user-service-ingr
 
           const alert = makeAlert('sev1', 'order-service', 'order-service: DOWN. Session token validation against auth-service failing — all requests rejected as unauthenticated. payment-service also down for same reason. Platform effectively inaccessible to authenticated users.', s.sim_time)
           s.services['order-service'].current_alerts.push(alert)
+          const alertPayment = makeAlert('sev1', 'payment-service', 'payment-service: DOWN. Cannot verify session tokens — auth-service unreachable due to NetworkPolicy block. All payment requests rejected as unauthenticated.', s.sim_time)
+          s.services['payment-service'].current_alerts.push(alertPayment)
           s.active_incidents[0].visible_symptoms.push(
             'order-service: DOWN — cannot verify session tokens',
             'payment-service: DOWN — cannot verify session tokens',

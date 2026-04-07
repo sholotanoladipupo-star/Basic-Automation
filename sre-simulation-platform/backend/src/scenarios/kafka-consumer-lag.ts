@@ -139,8 +139,11 @@ Root cause: A code regression introduced an N+1 DB query in transaction-processo
           s.services['api-gateway'].error_rate = 0.15
           s.services['api-gateway'].p99_latency_ms = 800
 
+          s.services['api-gateway'].status = 'degraded'
           const alert = makeAlert('sev1', 'order-service', 'order-service: Order confirmation flow degraded. 35% of orders stuck in "processing" state waiting for transaction-processor Kafka consumer to catch up. Backlog now 2.5M messages.', s.sim_time)
           s.services['order-service'].current_alerts.push(alert)
+          const alertGw = makeAlert('sev2', 'api-gateway', 'api-gateway: 15% error rate on order status endpoints — order confirmation delays propagating to API layer.', s.sim_time)
+          s.services['api-gateway'].current_alerts.push(alertGw)
           s.active_incidents[0].visible_symptoms.push(
             'order-service: 35% of orders stuck in processing — waiting for transaction events',
             'Kafka transactions topic lag now 2,500,000 — still growing',
@@ -160,6 +163,7 @@ Root cause: A code regression introduced an N+1 DB query in transaction-processo
           s.infrastructure.databases[0].status = 'degraded'
 
           const alert = makeAlert('sev1', 'postgres-primary', 'postgres-primary: connection_count at 198/200 (max_connections - 2). N+1 queries from transaction-processor holding DB connections open. New connections being rejected. All services at risk.', s.sim_time)
+          s.services['analytics-service'].current_alerts.push(alert)
           s.active_incidents[0].visible_symptoms.push(
             'postgres-primary: 198/200 connections in use — connection pool near exhaustion',
             'New DB connections being queued/rejected — cascading risk to all services',
