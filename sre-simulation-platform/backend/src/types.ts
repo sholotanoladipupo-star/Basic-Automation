@@ -156,6 +156,7 @@ export type ClientMessage =
   | { type: 'declare_severity'; payload: { severity: 'sev1' | 'sev2' | 'sev3' } }
   | { type: 'escalate'; payload: { to: string; message: string } }
   | { type: 'resolve_incident'; payload: Record<string, never> }
+  | { type: 'scale_service'; payload: { service: string; replicas: number } }
 
 export type ServerMessage =
   | { type: 'session_started'; payload: { session_id: string; candidate_name: string; scenario_name: string; difficulty: string; time_limit_minutes: number; module_type: 'incident' | 'sql' | 'monitoring' | 'cognitive' | 'postmortem' | 'automation'; question_id: string | null; initial_alerts: Alert[]; available_runbooks: { id: string; title: string }[]; available_dashboards: { id: string; name: string }[] } }

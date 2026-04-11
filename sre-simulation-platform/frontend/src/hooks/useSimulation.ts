@@ -79,11 +79,13 @@ export interface SimulationActions {
   readLogs: (service: string, filter?: string) => void
   callRunbook: (id: string) => void
   sendSlack: (channel: string, message: string) => void
+  injectSlack: (channel: string, sender: string, message: string) => void
   declareSeverity: (severity: 'sev1' | 'sev2' | 'sev3') => void
   escalate: (to: string, message: string) => void
   resolveIncident: () => void
   setActivePanel: (panel: ActivePanel) => void
   acknowledgeAlert: (alertId: string) => void
+  scaleService: (service: string, replicas: number) => void
 }
 
 const INITIAL_STATE: SimulationState = {
@@ -278,5 +280,14 @@ export function useSimulation(): [SimulationState, SimulationActions] {
     setState(s => ({ ...s, alerts: s.alerts.map(a => a.id === alertId ? { ...a, acknowledged: true } : a) }))
   }, [])
 
-  return [state, { connect, sendCommand, cancelCommand, queryDashboard, readLogs, callRunbook, sendSlack, declareSeverity, escalate, resolveIncident, setActivePanel, acknowledgeAlert }]
+  const injectSlack = useCallback((channel: string, sender: string, message: string) => {
+    const msg: SlackMessage = { id: uuidv4(), channel, message, sender, ts: new Date().toISOString(), isSystem: true }
+    setState(s => ({ ...s, slackMessages: [...s.slackMessages, msg] }))
+  }, [])
+
+  const scaleService = useCallback((service: string, replicas: number) => {
+    send({ type: 'scale_service', payload: { service, replicas } })
+  }, [])
+
+  return [state, { connect, sendCommand, cancelCommand, queryDashboard, readLogs, callRunbook, sendSlack, injectSlack, declareSeverity, escalate, resolveIncident, setActivePanel, acknowledgeAlert, scaleService }]
 }

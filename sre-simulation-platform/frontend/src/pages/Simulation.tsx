@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { SimulationState, SimulationActions } from '../hooks/useSimulation'
 import AlertPanel from '../components/AlertPanel'
 import Terminal from '../components/Terminal'
@@ -73,6 +73,30 @@ export default function Simulation({ state, actions }: SimulationProps) {
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
     }
   }, [])
+
+  // Stakeholder messages — auto-injected after incident drags on
+  const injectedStakeholderMins = useRef<Set<number>>(new Set())
+  useEffect(() => {
+    if (!sessionInfo || showOnboarding || !elapsedAtDismissal || state.sessionEnded) return
+    const activeSecs = elapsedSeconds - elapsedAtDismissal
+    const activeMins = Math.floor(activeSecs / 60)
+
+    const STAKEHOLDER_MSGS: Array<{ atMin: number; channel: string; sender: string; message: string }> = [
+      { atMin: 5, channel: '#incidents', sender: 'CS-Bot 🤖', message: '🚨 Customer support is receiving reports of failures. Ticket volume up 340% in the last 5 minutes. Can the SRE team provide an ETA?' },
+      { atMin: 6, channel: '#incidents', sender: 'Taiwo Adebayo (PM)', message: 'Hey team — our payment success rate just dropped to 12% on the dashboard. We have ~2,000 affected users. What is our ETA to resolution?' },
+      { atMin: 8, channel: '#incidents', sender: 'Chidi Okonkwo (CTO)', message: 'What is the root cause? Do we need to roll back the last deployment? I need an update in the next 2 minutes for the exec call.' },
+      { atMin: 10, channel: '#incidents', sender: 'Amaka Eze (CEO)', message: 'I am on the phone with our banking partners. They are asking about the outage. What is the status? When will this be resolved?' },
+      { atMin: 12, channel: '#incidents', sender: 'Uche Nwosu (SRE Lead)', message: 'MTTR is now at 12 minutes. If this extends beyond 15 min we trigger the external status page update. Do you need another engineer on the call?' },
+      { atMin: 14, channel: '#incidents', sender: 'Taiwo Adebayo (PM)', message: 'We have now exceeded our SLA for P1 incidents (15 min). Regulators may need to be notified. Please post an update to #status-page ASAP.' },
+    ]
+
+    for (const msg of STAKEHOLDER_MSGS) {
+      if (activeMins >= msg.atMin && !injectedStakeholderMins.current.has(msg.atMin)) {
+        injectedStakeholderMins.current.add(msg.atMin)
+        actions.injectSlack(msg.channel, msg.sender, msg.message)
+      }
+    }
+  }, [elapsedSeconds, elapsedAtDismissal, sessionInfo, showOnboarding, state.sessionEnded, actions])
 
   function toggleFullscreen() {
     if (document.fullscreenElement) {
@@ -256,7 +280,7 @@ export default function Simulation({ state, actions }: SimulationProps) {
               <RunbookViewer runbook={state.openRunbook} onClose={() => actions.setActivePanel('terminal')} />
             )}
             {activePanel === 'gcp-console' && (
-              <GCPConsole systemState={systemState} />
+              <GCPConsole systemState={systemState} onScaleService={actions.scaleService} />
             )}
             {activePanel === 'new-relic' && (
               <NewRelicPanel systemState={systemState} />

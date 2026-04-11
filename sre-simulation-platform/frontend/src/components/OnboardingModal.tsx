@@ -6,9 +6,9 @@ interface OnboardingModalProps {
 
 const glossary = [
   { term: 'ACK', full: 'Acknowledge', desc: 'Confirm you have seen an alert. Does NOT mean it is resolved — just that someone is on it.' },
-  { term: 'SEV1', full: 'Severity 1', desc: 'Critical — revenue loss, full outage, immediate all-hands response required.' },
-  { term: 'SEV2', full: 'Severity 2', desc: 'Major degradation — significant customer impact, response within minutes.' },
-  { term: 'SEV3', full: 'Severity 3', desc: 'Minor issue — limited impact, response within the hour.' },
+  { term: 'P1', full: 'Priority 1', desc: 'Critical — revenue loss, full outage, immediate all-hands response required.' },
+  { term: 'P2', full: 'Priority 2', desc: 'Major degradation — significant customer impact, response within minutes.' },
+  { term: 'P3', full: 'Priority 3', desc: 'Minor issue — limited impact, response within the hour.' },
   { term: 'Escalate', full: 'Escalation', desc: 'Bring in more people (senior SRE, manager). Use when you\'re stuck or impact is growing.' },
   { term: 'Runbook', full: 'Runbook', desc: 'Step-by-step recovery procedure for known failure modes. Always check before guessing.' },
   { term: 'Postmortem', full: 'Post-Incident Review', desc: 'Written analysis of what happened, why, and how to prevent it. Filed after resolution.' },

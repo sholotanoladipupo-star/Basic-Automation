@@ -98,6 +98,9 @@ async function routeMessage(ws: SREWebSocket, msg: ClientMessage): Promise<void>
     case 'resolve_incident':
       await handleResolveIncident(ws)
       break
+    case 'scale_service':
+      await handleScaleService(ws, msg.payload)
+      break
     default:
       sendMessage(ws, { type: 'error', payload: { message: `Unknown message type` } })
   }
@@ -563,6 +566,78 @@ async function handleResolveIncident(ws: SREWebSocket): Promise<void> {
   }).catch(err => {
     console.error('Evaluator failed:', err)
     sendMessage(ws, { type: 'error', payload: { message: 'Evaluation failed — please review manually.' } })
+  })
+}
+
+async function handleScaleService(ws: SREWebSocket, payload: { service: string; replicas: number }): Promise<void> {
+  const session = getSession(ws)
+  if (!session || session.resolved) return
+
+  const { service, replicas } = payload
+  const state = session.system_state
+  const svc = state.services[service]
+
+  if (!svc) {
+    // Could be a cache/database — handle redis/postgres scale
+    const cache = state.infrastructure.caches.find(c => c.name === service || service.startsWith(c.name))
+    const db = state.infrastructure.databases.find(d => d.name === service || service.startsWith(d.name))
+    if (cache) {
+      cache.status = replicas === 0 ? 'down' : cache.status === 'down' ? 'healthy' : cache.status
+      cache.hit_rate = replicas === 0 ? 0 : cache.status === 'healthy' ? 0.96 : cache.hit_rate
+    }
+    if (db) {
+      db.status = replicas === 0 ? 'down' : db.status === 'down' ? 'healthy' : db.status
+      db.query_latency_ms = replicas === 0 ? 999999 : db.status === 'healthy' ? 45 : db.query_latency_ms
+    }
+    await saveSnapshot(session.session_id, state)
+    sendMessage(ws, { type: 'state_update', payload: state })
+    await logEvent(session, 'command_run', { cmd: `kubectl scale --replicas=${replicas} ${service}`, stdout: replicas === 0 ? `${service} scaled to 0 — stopping` : `${service} scaled to ${replicas}` })
+    return
+  }
+
+  const wasDown = svc.status === 'down'
+
+  if (replicas === 0) {
+    // Scale to zero — bring service down
+    svc.status = 'down'
+    svc.error_rate = 1.0
+    svc.p99_latency_ms = 999999
+
+    // Fire a P1 alert if none exists
+    const existingAlert = svc.current_alerts.find(a => a.severity === 'sev1')
+    if (!existingAlert) {
+      const alert = {
+        id: `scale-down-${service}-${Date.now()}`,
+        severity: 'sev1' as const,
+        service,
+        message: `${service} scaled to 0 replicas — service is DOWN`,
+        fired_at: new Date().toISOString(),
+        acknowledged: false,
+      }
+      svc.current_alerts.push(alert)
+      sendMessage(ws, { type: 'new_alert', payload: alert })
+    }
+  } else if (replicas >= 1 && wasDown) {
+    // Scale back up from zero — service recovers
+    svc.status = 'healthy'
+    svc.error_rate = 0.01
+    svc.p99_latency_ms = 120
+    // Clear scale-down alerts
+    svc.current_alerts = svc.current_alerts.filter(a => !a.id.startsWith('scale-down-'))
+    // Trigger recovery progression
+    if (session.recovery_ticks === 0) session.recovery_ticks = 1
+  } else if (replicas >= 1 && svc.status === 'degraded') {
+    // Restart a degraded service — may begin recovering
+    if (session.recovery_ticks === 0) session.recovery_ticks = 1
+  }
+
+  await saveSnapshot(session.session_id, state)
+  sendMessage(ws, { type: 'state_update', payload: state })
+  await logEvent(session, 'command_run', {
+    cmd: `kubectl scale --replicas=${replicas} deployment/${service}`,
+    stdout: replicas === 0
+      ? `deployment.apps/${service} scaled to 0 — service entering DOWN state`
+      : `deployment.apps/${service} scaled to ${replicas} — pods starting`
   })
 }
 

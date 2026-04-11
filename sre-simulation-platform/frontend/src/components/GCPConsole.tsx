@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { SystemState } from '../types'
 
-interface GCPConsoleProps { systemState: SystemState | null }
+interface GCPConsoleProps { systemState: SystemState | null; onScaleService?: (service: string, replicas: number) => void }
 
 const GCP_NAV = [
   { id: 'gke',      icon: '☸',  label: 'Kubernetes Engine' },
@@ -810,7 +810,7 @@ function CloudSQLPanel({ databases }: { databases: { name: string; status: strin
 }
 
 // --- Main GCPConsole ---
-export default function GCPConsole({ systemState }: GCPConsoleProps) {
+export default function GCPConsole({ systemState, onScaleService }: GCPConsoleProps) {
   const [activeSection, setActiveSection] = useState('gke')
   const [selectedDeploy, setSelectedDeploy] = useState<{ name: string; status: string; kind: 'service' | 'cache' | 'database'; extra?: Record<string, unknown> } | null>(null)
   const [scaleMap, setScaleMap] = useState<Record<string, ScaleEntry>>({})
@@ -832,6 +832,9 @@ export default function GCPConsole({ systemState }: GCPConsoleProps) {
   }
 
   const handleScale = useCallback((name: string, targetReplicas: number) => {
+    // Immediately notify backend — system state updates in real time
+    onScaleService?.(name, targetReplicas)
+
     setScaleMap(prev => {
       const cur = prev[name] ?? { desired: 3, current: 3, isScaling: false }
       if (cur.desired === targetReplicas) return prev
@@ -864,7 +867,7 @@ export default function GCPConsole({ systemState }: GCPConsoleProps) {
       if (diff > 0) setTimeout(() => stepFn(diff, dir), 0)
       return prev
     })
-  }, [])
+  }, [onScaleService])
 
   // Stable pod suffixes per service name
   const podSuffixes = useCallback((name: string) => (
