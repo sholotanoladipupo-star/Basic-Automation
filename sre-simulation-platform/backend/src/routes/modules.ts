@@ -263,13 +263,13 @@ ${qaSummary}
 
 Write 2-3 concise sentences of specific, actionable feedback covering their observability knowledge strengths and areas to improve. Be direct and constructive.`
 
-    const fallbackPostmortem = overallScore >= 80 ? 'Strong observability skills.' : overallScore >= 50 ? 'Good fundamentals. Practice PromQL syntax and alert design patterns.' : 'Review PromQL basics, SLOs, and alerting principles.'
+    const fallbackPostmortem = overallScore >= 80 ? 'Strong observability and alerting design skills.' : overallScore >= 50 ? 'Good fundamentals. Focus on alert hierarchy, inhibition rules, and SLO error budget policies.' : 'Review SLO design principles, alert fatigue patterns, and observability layering (metrics → logs → traces).'
     const postmortem = (await aiPostmortem(aiPrompt)) || fallbackPostmortem
 
     const scorecard = {
       session_id, overall_score: overallScore, module_type: 'monitoring', rating,
       dimensions: Object.fromEntries(scored.map((s, i) => [`question_${i + 1}`, { score: s.score, max: 100 }])),
-      timeline_highlights: overallScore >= 80 ? ['Correct PromQL expressions', 'Proper alerting strategy used'] : overallScore >= 50 ? ['Partial answers provided', 'Core concepts present'] : ['Needs more work'],
+      timeline_highlights: overallScore >= 80 ? ['Strong alerting strategy', 'Good SLO/error budget understanding'] : overallScore >= 50 ? ['Core concepts present', 'Some gaps in alerting design'] : ['Needs more work on observability fundamentals'],
       postmortem_summary: postmortem,
       sub_scores: scored
     }
@@ -315,39 +315,123 @@ monitoringRouter.post('/admin/seed', requireAdmin, async (_req, res) => {
   const seeds = [
     {
       title: 'Design Monitoring for a Payment Service Outage',
-      scenario: `Your payment-service has just experienced a 45-minute P1 outage. Error rates hit 85%, p99 latency exceeded 8s, and 1,200 transactions failed. Post-incident, engineering leadership has asked you to design a comprehensive monitoring and alerting strategy to detect and respond to similar issues in under 5 minutes next time.\n\nSystem context:\n- payment-service (Node.js, 6 pods)\n- PostgreSQL primary + 1 read replica\n- Redis cache (session/rate-limit data)\n- Kafka topic: payment-events\n- Upstream: Stripe API, bank gateway\n- Metrics available: Prometheus + Grafana, logs in Cloud Logging`,
+      scenario: `Your payment-service has just experienced a 45-minute P1 outage. Error rates hit 85%, p99 latency exceeded 8s, and 1,200 transactions failed. Post-incident, engineering leadership has asked you to design a comprehensive monitoring and alerting strategy to detect and respond to similar issues in under 5 minutes next time.\n\nSystem context:\n- payment-service (Node.js, 6 pods)\n- PostgreSQL primary + 1 read replica\n- Redis cache (session/rate-limit data)\n- Kafka topic: payment-events\n- Upstream: Stripe API, bank gateway\n- Stack: Prometheus + Grafana, logs in Cloud Logging`,
       difficulty: 'hard',
       sub_questions: [
-        { id: 'datasource', prompt: 'Design your Grafana data source and dashboard panels. Which metrics would you track on the payment-service dashboard? List at least 5 panels with the PromQL query or metric name, and the alert threshold for each.', type: 'datasource', placeholder: 'e.g.\nPanel: Payment Error Rate\nQuery: rate(http_requests_total{service="payment-service",status=~"5.."}[5m]) / rate(http_requests_total{service="payment-service"}[5m])\nThreshold: > 5% → WARNING, > 15% → CRITICAL\n\nPanel: DB Connection Pool...' },
-        { id: 'alert_rule', prompt: 'Write 3 alert rules using Grafana Alerting or Prometheus AlertManager. For each rule specify: metric/expression, evaluation interval, for-duration (how long before it fires), severity, and the message template.', type: 'alert_rule', placeholder: 'Alert 1: PaymentServiceHighErrorRate\nExpression: ...\nFor: 2m\nSeverity: critical\nMessage: ...\n\nAlert 2: ...' },
-        { id: 'contact_point', prompt: 'Define your contact points and notification routing. Where should P1 alerts go (PagerDuty? Slack? OpsGenie?)? How do you avoid alert fatigue? Describe your escalation chain if the primary on-call does not acknowledge within 5 minutes.', type: 'contact_point', placeholder: 'Contact points:\n- P1 (critical): PagerDuty → on-call engineer → 5min escalation to EM\n- P2 (warning): #payments-alerts Slack channel\n\nEscalation policy: ...' },
-        { id: 'notification_policy', prompt: 'Design the notification policy including grouping, repeat interval, and inhibition rules. How would you suppress downstream alert noise when the upstream cause (e.g., DB down) is already alerting?', type: 'notification_policy', placeholder: 'Group by: [service, severity]\nGroup wait: 30s\nRepeat interval: 4h\n\nInhibition rule: suppress payment-service alerts when postgres-primary is already DOWN\n...' },
+        {
+          id: 'metrics', type: 'metrics',
+          prompt: 'List the 5 most critical metrics you would monitor for the payment service. For each metric describe: (1) what it measures, (2) the alert threshold that would trigger a warning and a critical alert, and (3) why this metric matters for payment reliability. Do not write code — answer conceptually.',
+          placeholder: 'Metric 1: HTTP error rate\nWhat it measures: percentage of requests returning 5xx status codes\nWarning threshold: > 5% for 2 minutes\nCritical threshold: > 15% for 1 minute\nWhy it matters: directly indicates failed payment attempts affecting customers\n\nMetric 2: ...',
+          required_keywords: ['error rate', 'latency', 'threshold', 'warning', 'critical'],
+          bonus_keywords: ['p99', 'connection', 'pool', 'db', 'stripe', 'kafka'],
+          reference_answer: 'Key metrics: HTTP 5xx error rate (alert >5% warn, >15% critical), p99 latency (alert >2s warn, >5s critical), DB connection pool utilisation (alert >75% warn, >90% critical), Kafka consumer lag (alert >10k messages), Stripe API error rate (alert >2%). Each metric provides an early signal at a different layer of the payment stack.',
+        },
+        {
+          id: 'alerting', type: 'alerting',
+          prompt: 'Design 3 alerts for the payment service. For each alert specify: (1) the condition that triggers it, (2) how long the condition must persist before the alert fires (for-duration), (3) severity level (P1/P2/P3), and (4) who gets notified and how. Focus on the design — no code required.',
+          placeholder: 'Alert 1: PaymentHighErrorRate\nCondition: error rate exceeds 15% on payment-service\nFor duration: 1 minute (fast — revenue impact)\nSeverity: P1\nNotify: On-call engineer via PagerDuty immediately; #payments-incidents Slack\n\nAlert 2: ...',
+          required_keywords: ['p1', 'severity', 'pagerduty', 'escalat', 'duration'],
+          bonus_keywords: ['p2', 'slack', 'for duration', 'acknowledge', 'on-call'],
+          reference_answer: 'Three well-designed alerts: (1) High error rate >15% for 1m → P1 → PagerDuty + Slack. (2) DB connection pool >85% for 3m → P2 → Slack + ticket. (3) p99 latency >3s for 5m → P2 → Slack. For-duration prevents flapping. P1 pages on-call immediately; P2 creates a ticket/Slack notification to avoid 3AM wakeups for non-critical issues.',
+        },
+        {
+          id: 'alert_fatigue', type: 'alert_fatigue',
+          prompt: 'When the PostgreSQL primary went down, 5 services all fired "DB connection refused" alerts simultaneously — creating 23 pages in 60 seconds. How would you redesign the alerting to produce 1 page instead of 23? Explain: (1) what an inhibition rule is and how you would use it here, (2) how you would group alerts, and (3) your repeat-interval strategy.',
+          placeholder: 'Inhibition rule: when postgres-primary fires a "connections exhausted" or "down" alert, suppress all downstream "DB connection refused" alerts from other services\nThis means only 1 alert pages on-call instead of 5+\n\nGrouping: group all payment-service alerts into a single notification per evaluation cycle...\n\nRepeat interval: re-notify every 4h if the incident is unresolved, not every 15 minutes...',
+          required_keywords: ['inhibit', 'suppress', 'group', 'root cause', 'downstream'],
+          bonus_keywords: ['repeat interval', 'silence', 'noise', 'matchers', 'label'],
+          reference_answer: 'Inhibition rule: when postgres-primary alert is firing, inhibit all "DBConnectionRefused" alerts from other services (match on cluster/environment labels). Grouping: group by [service, severity] with group_wait=30s to batch simultaneous alerts. Repeat interval: 4h so resolved issues stop paging. Result: 1 alert for the root cause instead of 23 symptom alerts.',
+        },
+        {
+          id: 'investigation', type: 'investigation',
+          prompt: 'Walk through your first 5 minutes of incident response. Which alert do you open first and why? How do you determine the blast radius? What is the first action you take to start mitigating? Describe your decision-making process step by step.',
+          placeholder: 'Minute 0: PagerDuty fires — I open the Grafana alerting dashboard\nFirst alert I look at: postgres-primary connection pool — because 5 services showing "DB connection refused" all share the same DB, so the common cause is almost certainly there\n\nMinute 1: Check DB connection pool panel — confirm it is at 198/200 connections\nBlast radius: payment, user, order, checkout, analytics services all affected...\n\nMinute 2: Declare P1, notify EM in Slack, start incident channel...',
+          required_keywords: ['blast radius', 'root cause', 'first', 'triage', 'escalat'],
+          bonus_keywords: ['dependency', 'correlation', 'timeline', 'postmortem', 'slack'],
+          reference_answer: 'Triage order: check the alert that best explains the others — postgres-primary connection pool. Confirm with a DB metrics panel. Blast radius = all services with DB dependency. Immediately declare P1, open incident Slack channel, notify EM. First mitigation: identify runaway queries consuming connections (kill long-running queries, or restart the pod that holds connections). Do not restart the DB — that risks data loss.',
+        },
+      ],
+      time_limit_seconds: 900,
+    },
+    {
+      title: 'SLO Design — Checkout Service Reliability',
+      scenario: `You are the SRE responsible for the checkout-service, which handles the final step of the purchase funnel. The business requires 99.9% monthly availability. Currently you have no SLOs defined and no error budget policy.\n\nSystem context:\n- checkout-service processes ~2,000 requests/minute at peak\n- 3 pods in production, 1 in staging\n- Dependencies: payment-service, order-service, inventory-service\n- Current measured uptime: ~99.6% (manual checks)\n- No synthetic monitoring in place`,
+      difficulty: 'medium',
+      sub_questions: [
+        {
+          id: 'sli_slo', type: 'sli_slo',
+          prompt: 'Define an SLI and SLO for the checkout service. (1) What exactly will you measure as your SLI? (2) What is your SLO target? (3) Why did you choose this metric over alternatives — latency vs. availability vs. error rate? (4) What does 99.9% availability mean in minutes of allowed downtime per month?',
+          placeholder: 'SLI: Availability — proportion of checkout requests that complete successfully (HTTP 2xx) within an acceptable time window\n\nSLO target: 99.9% of requests succeed over a rolling 30-day window\n\nWhy availability over latency: for a checkout flow, a slow response is frustrating but a failed transaction loses a sale. Availability is the primary user-facing reliability signal.\n\n99.9% = 43.8 minutes of downtime allowed per month',
+          required_keywords: ['sli', 'slo', 'availability', '99.9', 'measure'],
+          bonus_keywords: ['error rate', 'latency', 'rolling', '43 minutes', 'window'],
+          reference_answer: 'SLI: proportion of checkout requests returning 2xx within 3 seconds. SLO: 99.9% over 30-day rolling window = 43.8 min downtime/month. Availability chosen over latency because a failed checkout loses a transaction (direct revenue impact); a slow checkout is bad UX but recoverable. Latency SLO can be added as a secondary SLO.',
+        },
+        {
+          id: 'error_budget', type: 'error_budget',
+          prompt: 'Your checkout service has a 99.9% monthly SLO. Explain your error budget policy — what changes in team behaviour at 25%, 50%, 75%, and 100% error budget consumption? Who owns the decision to freeze deployments? What happens after 100% is consumed?',
+          placeholder: 'Error budget = 0.1% of monthly requests allowed to fail = ~43.8 minutes of downtime equivalent\n\n0–25% consumed: normal operations, deploy freely\n25–50% consumed: EM gets a weekly report; start reviewing release risk\n50–75% consumed: increased PR scrutiny, staging validation required for all releases\n75–100% consumed: deployment freeze — only reliability fixes allowed; EM + CTO notified\n>100% consumed: mandatory P1 post-incident review, external audit of reliability backlog\n\nDecision to freeze: Engineering Manager in agreement with SRE lead',
+          required_keywords: ['error budget', 'freeze', 'deploy', 'consumed', 'policy'],
+          bonus_keywords: ['em', 'reliability', 'postmortem', 'review', 'stakeholder'],
+          reference_answer: 'Error budget = 43.8 min/month. Policy: <50% consumed = normal; 50–75% = heightened release scrutiny; 75–100% = deployment freeze, reliability work only; >100% = mandatory post-incident review, executive escalation. Decision owner: EM + SRE lead jointly. The policy must be written down and agreed before an incident, not negotiated during one.',
+        },
+        {
+          id: 'alerting', type: 'alerting',
+          prompt: 'What is a burn-rate alert? Design a fast-burn and a slow-burn alert for your checkout SLO. Explain: (1) what each one detects, (2) when each one fires, and (3) why you need both. You do not need to write code.',
+          placeholder: 'Burn rate = how fast you are consuming your error budget relative to normal\nA 1x burn rate uses exactly 100% of budget over the SLO window.\nA 14.4x burn rate consumes 1 hour of budget in 5 minutes — critically bad.\n\nFast-burn alert: detects rapid budget consumption\nCondition: burn rate > 14.4x over the last 1 hour\nSeverity: P1, page on-call immediately\nDetects: major outages where you will burn through all budget in < 2 hours\n\nSlow-burn alert: detects gradual leaks\nCondition: burn rate > 3x over the last 6 hours\nSeverity: P2, Slack notification\nDetects: subtle degradation that would exhaust budget over 5 days\n\nWhy both: fast-burn misses slow leaks; slow-burn is too late to catch sudden outages.',
+          required_keywords: ['burn rate', 'fast', 'slow', 'budget', 'detect'],
+          bonus_keywords: ['14.4', 'p1', 'p2', 'window', '6 hour', '1 hour'],
+          reference_answer: 'Fast-burn: >14.4x burn rate over 1h → P1 page (detects outages that consume all budget in <2h). Slow-burn: >3x burn rate over 6h → P2 Slack (detects gradual degradation). Both needed because fast-burn has a short window (misses slow drift) and slow-burn reacts too slowly for sudden outages. Together they cover the full severity spectrum.',
+        },
+        {
+          id: 'dashboard', type: 'dashboard',
+          prompt: 'Design your SLO dashboard for the checkout service. List the 4 most important panels, what each one shows, and why each panel is important. Also describe how you communicate remaining error budget to non-technical stakeholders (e.g. product managers, executives).',
+          placeholder: 'Panel 1: SLO Compliance (30-day rolling)\nShows: current SLO % vs 99.9% target line\nWhy: immediate "are we meeting our SLO?" answer\n\nPanel 2: Error Budget Remaining (%)\nShows: % of monthly error budget left, with colour bands (green/amber/red)\nWhy: at-a-glance health for release decisions\n\nPanel 3: Burn Rate (1h and 6h)\nShows: current burn rate on two windows\nWhy: early warning before budget is consumed\n\nPanel 4: SLI Trend (7-day)\nShows: daily error rate vs SLO target\nWhy: see patterns (weekends better? release days worse?)\n\nStakeholder communication: automated weekly Slack message with plain-English summary ("We used 12% of our monthly reliability budget this week")',
+          required_keywords: ['slo', 'error budget', 'panel', 'stakeholder', 'communicate'],
+          bonus_keywords: ['burn rate', 'trend', 'weekly', 'slack', 'executive'],
+          reference_answer: '4 key panels: (1) 30-day SLO compliance gauge vs target, (2) error budget remaining % with red/amber/green bands, (3) dual burn-rate chart (1h + 6h windows), (4) SLI trend (7d) showing pattern over releases. Stakeholder comms: weekly automated Slack report in plain English — percentage budget used, what caused consumption, current health status. Executives do not read dashboards; they read summaries.',
+        },
       ],
       time_limit_seconds: 720,
     },
     {
-      title: 'SLO Design — Checkout Service Reliability',
-      scenario: `You are the SRE responsible for the checkout-service, which handles the final step of the purchase funnel. The business requires 99.9% monthly availability. Currently you have no SLOs defined and no error budget policy.\n\nSystem context:\n- checkout-service processes ~2,000 requests/minute at peak\n- 3 pods in prod, 1 in staging\n- Dependencies: payment-service, order-service, inventory-service\n- Current uptime: ~99.6% (measured by ops team doing manual checks)\n- No synthetic monitoring exists`,
-      difficulty: 'medium',
-      sub_questions: [
-        { id: 'datasource', prompt: 'Define the SLI (Service Level Indicator) for checkout-service. What exactly will you measure? Write the PromQL or metric expression. Explain why you chose this SLI over alternatives (latency vs. availability vs. error rate).', type: 'datasource', placeholder: 'SLI: Availability\nDefinition: proportion of checkout requests that return HTTP 2xx within 2s\nPromQL: sum(rate(checkout_requests_total{status=~"2.."}[5m])) / sum(rate(checkout_requests_total[5m]))\n\nWhy: ...' },
-        { id: 'alert_rule', prompt: 'Design two burn-rate alerts for your SLO: a fast-burn alert (detects rapid error budget consumption) and a slow-burn alert (detects gradual leaks). Include the burn rate multiplier, look-back window, and alert threshold for each.', type: 'alert_rule', placeholder: 'Fast burn: 14.4x burn rate over 1h → pages immediately\nExpression: ...\n\nSlow burn: 3x burn rate over 6h → creates ticket\nExpression: ...' },
-        { id: 'contact_point', prompt: 'What is your error budget policy? If 100% of the monthly error budget is consumed in week 1, what happens? Define freeze conditions, freeze duration, and which team/role makes the call to freeze deployments.', type: 'contact_point', placeholder: 'Error budget policy:\n- 0–50% consumed: normal operations\n- 50–75% consumed: increased release scrutiny, EM notified\n- 75–100% consumed: freeze new deployments, focus on reliability\n- >100% consumed: incident declared, post-incident review mandatory\n\nDecision maker: ...' },
-        { id: 'notification_policy', prompt: 'Design your SLO dashboard in Grafana. List the 4 panels you would include with their queries. How do you communicate remaining error budget to stakeholders (weekly report? Slack bot?).', type: 'notification_policy', placeholder: 'Dashboard panels:\n1. Current SLO compliance (30-day rolling): ...\n2. Error budget remaining (%): ...\n3. Burn rate (1h / 6h): ...\n4. SLI trend (7d): ...\n\nStakeholder communication: ...' },
-      ],
-      time_limit_seconds: 600,
-    },
-    {
-      title: 'Alert Triage — Noisy Alert Investigation',
-      scenario: `You are the on-call SRE. At 2:17 AM you receive 23 simultaneous PagerDuty alerts across 8 services. Your Grafana is flooded with red panels. You need to triage and determine the blast radius, find the root cause, and silence noise while working the incident.\n\nAlerts fired (all within 60 seconds):\n- api-gateway: HTTP 5xx rate 42%\n- payment-service: DB connection refused\n- user-service: DB connection refused\n- order-service: DB connection refused\n- checkout-service: DB connection refused\n- analytics-service: DB connection refused\n- postgres-primary: connection_count 198/200\n- redis-primary: HEALTH_OK (Redis is fine)\n\nYour monitoring stack: Prometheus, Grafana Alerting, PagerDuty`,
+      title: 'Alert Triage — 23 Alerts at 2 AM',
+      scenario: `You are the on-call SRE. At 2:17 AM you receive 23 simultaneous PagerDuty alerts across 8 services. Your Grafana is flooded with red panels. You need to triage and determine the blast radius, find the root cause, and silence noise while working the incident.\n\nAlerts fired (all within 60 seconds):\n- api-gateway: HTTP 5xx rate 42%\n- payment-service: DB connection refused\n- user-service: DB connection refused\n- order-service: DB connection refused\n- checkout-service: DB connection refused\n- analytics-service: DB connection refused\n- postgres-primary: connection_count 198/200\n- redis-primary: HEALTH_OK (Redis is fine)\n\nMonitoring stack: Prometheus, Grafana Alerting, PagerDuty`,
       difficulty: 'hard',
       sub_questions: [
-        { id: 'datasource', prompt: 'Within the first 2 minutes, which alert do you investigate first and why? What PromQL query would you run immediately to confirm your hypothesis? What does the dependency graph tell you about the blast radius?', type: 'datasource', placeholder: 'First alert I investigate: postgres-primary connection_count\nWhy: all DB connection refused alerts from 5 different services point to a common cause...\n\nImmediate PromQL: pg_stat_database_numbackends / pg_settings_max_connections * 100\n\nBlast radius: ...' },
-        { id: 'alert_rule', prompt: 'This alert storm was caused by a single root cause (DB connection pool exhausted). How would you redesign your alerting rules to prevent alert storms? Write an inhibition rule that would have suppressed the 5 downstream "DB connection refused" alerts when postgres-primary is the root cause.', type: 'alert_rule', placeholder: 'Inhibition rule:\n- Source alert: PostgresPrimaryDown or PostgresConnectionsExhausted\n- Target alerts: *ServiceDBConnectionRefused for all services\n- Match labels: cluster, environment\n\nResult: only 1 alert fires instead of 6...' },
-        { id: 'contact_point', prompt: 'While working the incident, you need to silence the 5 downstream service alerts so they stop paging the on-call team while you work on the root cause. How do you create a targeted silence in Grafana Alerting without silencing future legitimate alerts? Write the silence matchers.', type: 'contact_point', placeholder: 'Silence matchers:\n- alertname =~ ".*DBConnectionRefused"\n- service =~ "payment-service|user-service|order-service|checkout-service|analytics-service"\n- NOT matcher: alertname = "PostgresPrimaryConnectionsExhausted"\n\nDuration: 90 minutes\nComment: Working root cause — DB pool exhaustion' },
-        { id: 'notification_policy', prompt: 'Post-incident: what monitoring improvements would prevent this from happening again? Propose 2 new alert rules and 1 Grafana dashboard change that give you earlier warning before the connection pool reaches 100%.', type: 'notification_policy', placeholder: 'New alerts:\n1. PostgresConnectionPoolWarning: connections > 70% → warning (gives 15-30min buffer)\n2. PostgresConnectionPoolCritical: connections > 90% + rate increasing → critical\n\nDashboard change: Add connection pool gauge with warning/critical bands...' },
+        {
+          id: 'investigation', type: 'investigation',
+          prompt: 'You wake up to 23 PagerDuty alerts. Describe your triage methodology. Which alert do you look at first and why? How do you determine the root cause and blast radius within 2 minutes? What do you communicate and to whom?',
+          placeholder: 'I open the alerts and look for the alert that best explains the others.\npostgres-primary: connection_count 198/200 is the root cause — 5 services all showing "DB connection refused" means they cannot connect to the same database.\n\nBlast radius: all services with a DB dependency are affected. Redis is healthy so cache-only paths are fine.\n\nWithin 1 minute: declare P1, open #incident channel, message EM that I am investigating a DB connection pool exhaustion.\n\nWithin 2 minutes: check which queries or connections are consuming the pool (look at DB slow query log, active connections)...',
+          required_keywords: ['root cause', 'postgres', 'connection', 'blast radius', 'triage'],
+          bonus_keywords: ['redis', 'dependency', 'explain', 'declare', 'p1'],
+          reference_answer: 'Look at postgres-primary first — it is the only alert that explains all 5 downstream "DB connection refused" alerts. Blast radius = all services with DB dependency (payment, user, order, checkout, analytics). Redis healthy so any cache-only reads still work. Communicate: declare P1, open incident channel, notify EM, start timeline. Do not acknowledge and ignore downstream alerts — they are noise from one root cause.',
+        },
+        {
+          id: 'alert_fatigue', type: 'alert_fatigue',
+          prompt: '5 services are all showing "DB connection refused" because of one root cause. While you work the incident, how do you silence the downstream service alerts without accidentally silencing future legitimate alerts? What matchers would you use and what precautions do you take?',
+          placeholder: 'I create a targeted Grafana silence:\n\nMatchers:\n- alertname matches ".*DBConnectionRefused" (regex)\n- service matches "payment-service|user-service|order-service|checkout-service|analytics-service"\n- environment = "production"\n\nExclusion: I do NOT silence "postgres-primary" alerts — that is the root cause I am actively working.\n\nDuration: 2 hours (enough to resolve, not so long it silences real future alerts)\nComment: "Working DB pool exhaustion — root cause is postgres-primary. Silence downstream noise."\n\nPrecaution: set an expiry time and add a comment so any SRE who picks this up understands why the silence exists.',
+          required_keywords: ['silence', 'matchers', 'downstream', 'duration', 'root cause'],
+          bonus_keywords: ['regex', 'label', 'comment', 'expiry', 'postgres'],
+          reference_answer: 'Create a Grafana silence with matchers: alertname=~".*DBConnectionRefused" AND service=~"payment-service|user-service|..." for 90-120 minutes with a descriptive comment. Crucially: do NOT silence postgres-primary alerts. Precautions: (1) set expiry time, never indefinite; (2) always add a comment explaining why; (3) do not use broad matchers like service=~".*" which would silence future real alerts.',
+        },
+        {
+          id: 'alerting', type: 'alerting',
+          prompt: 'Post-incident: redesign the alerting so this scenario produces 1 alert instead of 23. Describe the alert hierarchy you would create using inhibition rules. What does the alerting flow look like after your redesign?',
+          placeholder: 'Redesigned alert hierarchy:\n\n1. postgres-primary connection pool alert (root cause detector)\n   - Fires when: pool > 90% for 2 minutes\n   - Severity: P1\n   - This is the ONLY alert that pages on-call for DB issues\n\n2. Inhibition rule:\n   - When: "postgres-primary" alert is firing\n   - Suppress: any alert with label db_dependent = true across all services\n   - Result: downstream "DB connection refused" alerts are silenced automatically while the root cause is firing\n\n3. Service-level DB alerts remain configured but are INHIBITED by the root cause alert\n   They still appear in Grafana (so you can see them) but do not page\n\nResult: 1 PagerDuty notification instead of 23',
+          required_keywords: ['inhibit', 'hierarchy', 'root cause', 'suppress', 'label'],
+          bonus_keywords: ['label', 'match', 'source', 'target', '1 alert'],
+          reference_answer: 'Inhibition rule: source=postgres-primary-alert firing → inhibit all alerts with label db_dependent=true. Each service alert gets the label db_dependent=true. Result: only postgres-primary pages. Service-level alerts remain visible in Grafana for context but do not generate notifications. This is alerting by causality — only the root cause should page; symptoms are informational.',
+        },
+        {
+          id: 'metrics', type: 'metrics',
+          prompt: 'What leading-indicator metrics would have given you early warning before the DB connection pool hit 100%? Describe 2 metrics that would have given you 15–30 minutes of advance warning — without generating false positives during normal operations.',
+          placeholder: 'Leading indicator 1: DB connection pool utilisation at 70%\nWhy: at normal load we use ~40% of connections. Crossing 70% is unusual and gives ~15-30 min before hitting the limit during a traffic spike.\nThreshold: warn at 70%, critical at 85% (not 95% — that is too late).\nFalse positive risk: low if baseline is well understood; can refine with time-of-day awareness.\n\nLeading indicator 2: Rate of increase of active connections\nWhy: a sudden spike in connection acquisition rate (even if current pool % is OK) predicts exhaustion\nThis catches runaway connection leaks before they hit the ceiling.\nThreshold: warn if connections growing by >20 per minute consistently for 5 minutes',
+          required_keywords: ['leading', 'warn', 'threshold', 'early', 'connection'],
+          bonus_keywords: ['70%', 'rate', 'spike', 'baseline', 'false positive'],
+          reference_answer: 'Leading indicators: (1) Pool utilisation at 70% — normal is ~40%, so 70% is an early warning with 15-30min buffer before exhaustion. Set warning at 70%, critical at 85%. (2) Connection acquisition rate — alert if new connections/min increases sharply (runaway leak detector). Both avoid false positives by alerting on deviation from baseline, not absolute thresholds alone.',
+        },
       ],
-      time_limit_seconds: 600,
+      time_limit_seconds: 720,
     },
   ]
 

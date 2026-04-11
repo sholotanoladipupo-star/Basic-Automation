@@ -224,8 +224,8 @@ export function useSimulation(): [SimulationState, SimulationActions] {
           return { ...s, sessionEnded: msg.payload, terminalLines: addLine(s.terminalLines, 'system', `=== SESSION ENDED: ${msg.payload.reason.toUpperCase()} | Duration: ${msg.payload.duration_minutes} min ===`), terminalBusy: false }
         }
         case 'scorecard':
-          // scorecard is stored server-side; candidates see 'submitted' screen only
-          return { ...s, scorecard: null, screen: 'submitted' }
+          // Show full debrief overlay with the scorecard
+          return { ...s, scorecard: msg.payload, screen: 'simulation' }
         case 'error': {
           // If still on home screen (no session started yet), show as connection error
           if (s.screen === 'home') {
