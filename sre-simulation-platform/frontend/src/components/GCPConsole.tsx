@@ -634,7 +634,7 @@ function CloudSQLPanel({ databases }: { databases: { name: string; status: strin
             </div>
             {/* Instance info */}
             <div className="bg-[#292a2d] border border-[#3c4043] rounded p-3 text-[10px] space-y-1.5">
-              <div className="text-[#9aa0a6] text-[9px] uppercase tracking-widest mb-2">Instance Details</div>
+              <div className="text-[#9aa0a6] text-[9px] uppercase tracking-widest mb-2">Primary Instance</div>
               {[
                 ['Instance ID', db.name],
                 ['Database version', 'PostgreSQL 15.4'],
@@ -648,6 +648,32 @@ function CloudSQLPanel({ databases }: { databases: { name: string; status: strin
                 <div key={k} className="flex justify-between">
                   <span className="text-[#9aa0a6]">{k}</span>
                   <span className={`font-mono ${k === 'Status' ? (db.status === 'down' ? 'text-[#f85149]' : db.status === 'degraded' ? 'text-[#d29922]' : 'text-[#3fb950]') : 'text-[#e8eaed]'}`}>{v}</span>
+                </div>
+              ))}
+            </div>
+            {/* Read replica */}
+            <div className="bg-[#1e1f22] border border-[#3c4043] rounded p-3 text-[10px] space-y-1.5 relative">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[#9aa0a6] text-[9px] uppercase tracking-widest">Read Replica</div>
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${db.status === 'degraded' ? 'bg-[#d29922]/20 text-[#d29922]' : 'bg-[#3fb950]/10 text-[#3fb950]'}`}>
+                  {db.status === 'degraded' ? 'REPLICATION LAG' : 'IN SYNC'}
+                </span>
+              </div>
+              {[
+                ['Instance ID', `${db.name}-replica`],
+                ['Type', 'Read replica'],
+                ['Region', 'us-central1-f'],
+                ['Private IP', db.status === 'degraded' ? '10.128.0.43' : '10.128.0.22'],
+                ['Replication lag', db.status === 'degraded' ? '480 ms ⚠' : '12 ms'],
+                ['Status', db.status === 'down' ? 'STOPPED' : 'RUNNABLE'],
+              ].map(([k, v]) => (
+                <div key={k} className="flex justify-between">
+                  <span className="text-[#9aa0a6]">{k}</span>
+                  <span className={`font-mono ${
+                    k === 'Status' && db.status === 'down' ? 'text-[#f85149]' :
+                    k === 'Replication lag' && db.status === 'degraded' ? 'text-[#d29922]' :
+                    'text-[#e8eaed]'
+                  }`}>{v}</span>
                 </div>
               ))}
             </div>

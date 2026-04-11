@@ -12,6 +12,8 @@ import NewRelicPanel from '../components/NewRelicPanel'
 import TourGuide from '../components/TourGuide'
 import WarRoom from '../components/WarRoom'
 import DBConsole from '../components/DBConsole'
+import ConfluentPanel from '../components/ConfluentPanel'
+import RedisPanel from '../components/RedisPanel'
 
 interface SimulationProps {
   state: SimulationState
@@ -37,6 +39,8 @@ const TABS = [
   { id: 'gcp-console', label: '🌐 GCP Console' },
   { id: 'new-relic', label: '📈 New Relic' },
   { id: 'db-console', label: '🗄 DB Console' },
+  { id: 'confluent', label: '⚡ Confluent' },
+  { id: 'redis', label: '⬡ Redis' },
   { id: 'runbook', label: '📖 Runbook' },
 ] as const
 
@@ -243,7 +247,7 @@ export default function Simulation({ state, actions }: SimulationProps) {
           </div>
           <div className="flex-1 overflow-hidden">
             {activePanel === 'terminal' && (
-              <Terminal lines={state.terminalLines} onCommand={actions.sendCommand} busy={state.terminalBusy} />
+              <Terminal lines={state.terminalLines} onCommand={actions.sendCommand} onCancel={actions.cancelCommand} busy={state.terminalBusy} />
             )}
             {activePanel === 'dashboard' && (
               <GrafanaDashboard systemState={systemState} />
@@ -259,6 +263,12 @@ export default function Simulation({ state, actions }: SimulationProps) {
             )}
             {activePanel === 'db-console' && (
               <DBConsole systemState={systemState} />
+            )}
+            {activePanel === 'confluent' && (
+              <ConfluentPanel systemState={systemState} />
+            )}
+            {activePanel === 'redis' && (
+              <RedisPanel systemState={systemState} />
             )}
           </div>
         </div>
@@ -351,7 +361,12 @@ export default function Simulation({ state, actions }: SimulationProps) {
       </div>
 
       {/* War Room modal */}
-      <WarRoom isOpen={showWarRoom} onClose={() => setShowWarRoom(false)} />
+      <WarRoom
+        isOpen={showWarRoom}
+        onClose={() => setShowWarRoom(false)}
+        systemState={systemState ?? undefined}
+        scenarioName={sessionInfo?.scenario_name}
+      />
 
       {/* Session-ended overlay */}
       {state.sessionEnded && !state.scorecard && (

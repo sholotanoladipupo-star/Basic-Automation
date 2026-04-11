@@ -366,3 +366,97 @@ monitoringRouter.post('/admin/seed', requireAdmin, async (_req, res) => {
     res.json({ ok: true, inserted, skipped: seeds.length - inserted })
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
+
+// ---------------------------------------------------------------------------
+// POST /warroom/respond — Claude-powered NPC response for War Room calls
+// ---------------------------------------------------------------------------
+export const warroomRouter = Router()
+warroomRouter.post('/respond', async (req: Request, res: Response) => {
+  try {
+    const {
+      scenario_name,
+      services_down,
+      services_degraded,
+      conversation,
+      next_speaker,
+      exchange_index,
+    } = req.body as {
+      scenario_name: string
+      services_down: string[]
+      services_degraded: string[]
+      conversation: Array<{ speaker: string; text: string }>
+      next_speaker: 'alex' | 'sarah'
+      exchange_index: number
+    }
+
+    const conversationText = conversation
+      .map(e => {
+        const name =
+          e.speaker === 'alex' ? 'Alex Chen (EM)' :
+          e.speaker === 'sarah' ? 'Sarah O. (TL)' :
+          'SRE On-Call'
+        return `${name}: ${e.text}`
+      })
+      .join('\n')
+
+    const incidentContext = [
+      services_down.length > 0 ? `Services DOWN: ${services_down.join(', ')}` : '',
+      services_degraded.length > 0 ? `Services DEGRADED: ${services_degraded.join(', ')}` : '',
+    ].filter(Boolean).join('\n')
+
+    const isFirstExchange = exchange_index === 0
+
+    const alexPersona = isFirstExchange
+      ? `You are Alex Chen, Engineering Manager. This is your opening statement joining the war room. Ask for a quick status update — what's happening, what's the blast radius, and are customers affected? Be direct. 2 sentences max.`
+      : `You are Alex Chen, Engineering Manager. Based on what the SRE just said, ask focused executive-level follow-up questions: business impact, customer count affected, ETA to resolution, whether VP escalation is needed. Be empathetic but decisive. 2-3 sentences.`
+
+    const sarahPersona = isFirstExchange
+      ? `You are Sarah O., Team Lead. Based on the SRE's first status update, probe deeper on the technical investigation: what data have they looked at, what's their hypothesis, what have they already ruled out? Be collaborative and technical. 2-3 sentences.`
+      : `You are Sarah O., Team Lead. Based on the full conversation, give a closing statement: acknowledge the SRE's plan, confirm the team will stay on standby, set a next check-in expectation, and be encouraging. 2 sentences.`
+
+    const persona = next_speaker === 'alex' ? alexPersona : sarahPersona
+
+    const prompt = `You are in a live war room call during a production incident at a Nigerian fintech company.
+
+INCIDENT: ${scenario_name || 'Production Incident'}
+${incidentContext}
+
+CONVERSATION SO FAR:
+${conversationText || '(call just started)'}
+
+${persona}
+
+Rules:
+- Stay fully in character
+- Be realistic and professional, like an actual engineering leader
+- Do NOT start with "I understand" or "Thank you" or any filler acknowledgement
+- Do NOT repeat back what was said to you
+- Get straight to your question or statement
+- Keep it conversational, not scripted`
+
+    const msg = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 150,
+      messages: [{ role: 'user', content: prompt }],
+    })
+
+    const text =
+      msg.content[0].type === 'text'
+        ? msg.content[0].text.trim()
+        : next_speaker === 'alex'
+        ? "What's the current status and customer impact?"
+        : 'Walk me through what you\'ve investigated so far.'
+
+    res.json({ text })
+  } catch (err) {
+    console.error('warroom/respond error:', err)
+    // Graceful fallback so the call doesn't die on API error
+    const { next_speaker } = req.body as { next_speaker: string }
+    res.json({
+      text:
+        next_speaker === 'alex'
+          ? "Quick status — what's the blast radius and do we have customer impact?"
+          : "What does the data show so far? Walk me through your investigation.",
+    })
+  }
+})

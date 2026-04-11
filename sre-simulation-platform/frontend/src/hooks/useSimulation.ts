@@ -41,7 +41,7 @@ function playBeep() {
 }
 
 export type AppScreen = 'home' | 'simulation' | 'scorecard' | 'submitted'
-export type ActivePanel = 'terminal' | 'logs' | 'dashboard' | 'runbook' | 'incident' | 'comms' | 'gcp-console' | 'new-relic' | 'db-console'
+export type ActivePanel = 'terminal' | 'logs' | 'dashboard' | 'runbook' | 'incident' | 'comms' | 'gcp-console' | 'new-relic' | 'db-console' | 'confluent' | 'redis'
 
 export interface DashboardEntry {
   name: string
@@ -74,6 +74,7 @@ export interface SimulationState {
 export interface SimulationActions {
   connect: (candidateName: string) => void
   sendCommand: (cmd: string) => void
+  cancelCommand: () => void
   queryDashboard: (dashboardId: string) => void
   readLogs: (service: string, filter?: string) => void
   callRunbook: (id: string) => void
@@ -241,6 +242,13 @@ export function useSimulation(): [SimulationState, SimulationActions] {
     send({ type: 'run_command', payload: { cmd } })
   }, [])
 
+  const cancelCommand = useCallback(() => {
+    setState(s => {
+      const lines = s.terminalLines.filter(l => l.type !== 'thinking')
+      return { ...s, terminalBusy: false, terminalLines: addLine(lines, 'system', '^C') }
+    })
+  }, [])
+
   const queryDashboard = useCallback((id: string) => { send({ type: 'query_dashboard', payload: { dashboard_id: id } }) }, [])
   const readLogs = useCallback((service: string, filter?: string) => {
     setState(s => ({ ...s, logLines: [], terminalBusy: true }))
@@ -270,5 +278,5 @@ export function useSimulation(): [SimulationState, SimulationActions] {
     setState(s => ({ ...s, alerts: s.alerts.map(a => a.id === alertId ? { ...a, acknowledged: true } : a) }))
   }, [])
 
-  return [state, { connect, sendCommand, queryDashboard, readLogs, callRunbook, sendSlack, declareSeverity, escalate, resolveIncident, setActivePanel, acknowledgeAlert }]
+  return [state, { connect, sendCommand, cancelCommand, queryDashboard, readLogs, callRunbook, sendSlack, declareSeverity, escalate, resolveIncident, setActivePanel, acknowledgeAlert }]
 }

@@ -32,6 +32,7 @@ export default function WarRoom({ isOpen, onClose }) {
     const [textFallback, setTextFallback] = useState('');
     const [hasSpeechRecognition, setHasSpeechRecognition] = useState(false);
     const [voicesLoaded, setVoicesLoaded] = useState(false);
+    const [liveTranscript, setLiveTranscript] = useState('');
     const transcriptEndRef = useRef(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const recognitionRef = useRef(null);
@@ -49,17 +50,23 @@ export default function WarRoom({ isOpen, onClose }) {
     useEffect(() => {
         if (!isOpen)
             return;
-        const load = () => setVoicesLoaded(true);
-        if (window.speechSynthesis) {
-            if (window.speechSynthesis.getVoices().length > 0) {
+        function tryLoadVoices() {
+            if (window.speechSynthesis?.getVoices().length > 0) {
                 setVoicesLoaded(true);
+                return true;
             }
-            else {
-                window.speechSynthesis.addEventListener('voiceschanged', load, { once: true });
-            }
+            return false;
         }
+        if (tryLoadVoices())
+            return;
+        // Listen for voiceschanged
+        const onVoicesChanged = () => { tryLoadVoices(); setVoicesLoaded(true); };
+        window.speechSynthesis?.addEventListener('voiceschanged', onVoicesChanged);
+        // Fallback: after 3s, start anyway even if no custom voices
+        const fallbackTimer = setTimeout(() => setVoicesLoaded(true), 3000);
         return () => {
-            window.speechSynthesis?.removeEventListener('voiceschanged', load);
+            window.speechSynthesis?.removeEventListener('voiceschanged', onVoicesChanged);
+            clearTimeout(fallbackTimer);
         };
     }, [isOpen]);
     // Scroll transcript to bottom
@@ -112,32 +119,37 @@ export default function WarRoom({ isOpen, onClose }) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const recognition = new SR();
         recognition.lang = 'en-US';
-        recognition.interimResults = false;
+        recognition.continuous = true;
+        recognition.interimResults = true;
         recognition.maxAlternatives = 1;
         recognitionRef.current = recognition;
         let finalText = '';
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         recognition.onresult = (event) => {
-            finalText = event.results[0]?.[0]?.transcript ?? '';
+            let interim = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const result = event.results[i];
+                if (result.isFinal) {
+                    finalText += result[0].transcript;
+                }
+                else {
+                    interim += result[0].transcript;
+                }
+            }
+            setLiveTranscript(finalText + interim);
         };
         recognition.onend = () => {
             setIsRecording(false);
-            if (timeoutRef.current)
-                clearTimeout(timeoutRef.current);
+            setLiveTranscript('');
             onResult(finalText || '[no response recorded]');
         };
         recognition.onerror = () => {
             setIsRecording(false);
-            if (timeoutRef.current)
-                clearTimeout(timeoutRef.current);
-            onResult('[no response recorded]');
+            setLiveTranscript('');
+            onResult(finalText || '[no response recorded]');
         };
         setIsRecording(true);
         recognition.start();
-        // 8-second timeout
-        timeoutRef.current = setTimeout(() => {
-            recognition.stop();
-        }, 8000);
     }, []);
     // Run joining sequence
     useEffect(() => {
@@ -227,15 +239,15 @@ export default function WarRoom({ isOpen, onClose }) {
         return null;
     const isSREturn = stage === 'sre_speaks_1' || stage === 'sre_speaks_2' || stage === 'sre_speaks_3';
     const speakDisabled = isSpeaking || isRecording || !isSREturn;
-    return (_jsxs("div", { className: "fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm", children: [_jsxs("div", { className: "relative flex flex-col w-full max-w-3xl h-[560px] bg-[#0d1117] border border-[#30363d] rounded-xl shadow-2xl overflow-hidden", style: { fontFamily: 'ui-monospace, monospace' }, children: [_jsxs("div", { className: "flex items-center justify-between px-5 py-3 bg-[#161b22] border-b border-[#30363d]", children: [_jsxs("div", { className: "flex items-center gap-3", children: [_jsx("span", { className: "inline-block w-2.5 h-2.5 rounded-full bg-[#f85149]", style: { animation: 'pulse 1.2s ease-in-out infinite' } }), _jsx("span", { className: "text-sm font-semibold text-white tracking-wide", children: "War Room \u2014 Active Incident" })] }), _jsxs("div", { className: "flex items-center gap-3", children: [_jsx("span", { className: "text-xs text-[#8b949e]", children: getNow() }), _jsx("button", { onClick: handleClose, className: "text-[#8b949e] hover:text-white transition-colors text-lg leading-none", "aria-label": "Close war room", children: "\u2715" })] })] }), _jsxs("div", { className: "flex flex-1 min-h-0", children: [_jsxs("div", { className: "flex flex-col w-64 shrink-0 border-r border-[#30363d] bg-[#0d1117] p-3 gap-3", children: [_jsx(ParticipantTile, { initials: "AC", name: "Alex Chen", role: "Engineering Manager", avatarBg: "#0d4a6e", avatarColor: "#58a6ff", joined: alexJoined, isSpeaking: isSpeaking && (stage === 'alex_speaks_1' || stage === 'alex_speaks_2') }), _jsx(ParticipantTile, { initials: "SO", name: "Sarah O.", role: "Team Lead", avatarBg: "#2d1d4a", avatarColor: "#d2a8ff", joined: sarahJoined, isSpeaking: isSpeaking && (stage === 'sarah_speaks_1' || stage === 'sarah_speaks_2') }), _jsxs("div", { className: "flex flex-col items-center justify-center bg-[#161b22] border border-[#30363d] rounded-lg p-3 gap-2 mt-auto", style: { minHeight: 100 }, children: [_jsx("div", { className: "w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold border-2", style: { background: '#1a2d1a', borderColor: '#3fb950', color: '#3fb950' }, children: "\uD83C\uDF99" }), _jsxs("div", { className: "text-center", children: [_jsx("div", { className: "text-xs font-semibold text-white", children: "You (SRE)" }), isRecording && (_jsxs("div", { className: "flex items-center justify-center gap-1 mt-1", children: [_jsx("span", { className: "inline-block w-2 h-2 rounded-full bg-[#f85149]", style: { animation: 'pulse 0.7s ease-in-out infinite' } }), _jsx("span", { className: "text-[10px] text-[#f85149]", children: "Recording\u2026" })] })), !isRecording && isSREturn && (_jsx("div", { className: "text-[10px] text-[#3fb950] mt-1", children: "Your turn" }))] })] })] }), _jsxs("div", { className: "flex flex-col flex-1 min-h-0", children: [_jsx("div", { className: "px-4 py-2 bg-[#161b22] border-b border-[#30363d]", children: _jsx("span", { className: "text-[11px] text-[#8b949e] uppercase tracking-widest", children: "Transcript" }) }), _jsxs("div", { className: "flex-1 overflow-y-auto px-4 py-3 space-y-3 text-xs font-mono", children: [stage === 'joining' && transcript.length === 0 && (_jsx("div", { className: "text-[#8b949e] text-center mt-10 text-xs", children: "Connecting participants\u2026" })), transcript.map((entry, i) => (_jsx(TranscriptMessage, { entry: entry }, i))), _jsx("div", { ref: transcriptEndRef })] }), _jsx("div", { className: "border-t border-[#30363d] px-4 py-3 bg-[#161b22]", children: stage === 'ended' ? (_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("span", { className: "text-xs text-[#8b949e]", children: "War room closed" }), _jsx("button", { onClick: handleClose, className: "px-4 py-1.5 rounded text-xs font-semibold bg-[#f85149]/20 text-[#f85149] border border-[#f85149]/40 hover:bg-[#f85149]/30 transition-colors", children: "Leave Call" })] })) : hasSpeechRecognition ? (_jsxs("div", { className: "flex items-center gap-3", children: [_jsx("button", { onClick: handleSpeak, disabled: speakDisabled, className: `flex items-center gap-2 px-4 py-1.5 rounded text-xs font-semibold border transition-all ${isRecording
-                                                        ? 'bg-[#f85149]/20 text-[#f85149] border-[#f85149]/60 cursor-not-allowed'
-                                                        : speakDisabled
-                                                            ? 'bg-[#161b22] text-[#484f58] border-[#30363d] cursor-not-allowed'
-                                                            : 'bg-[#3fb950]/10 text-[#3fb950] border-[#3fb950]/40 hover:bg-[#3fb950]/20 cursor-pointer'}`, children: isRecording ? (_jsxs(_Fragment, { children: [_jsx("span", { className: "inline-block w-2 h-2 rounded-full bg-[#f85149]", style: { animation: 'pulse 0.7s ease-in-out infinite' } }), "Listening\u2026"] })) : ('🎙 Speak') }), _jsx("span", { className: "text-[10px] text-[#484f58]", children: isSREturn
-                                                        ? 'Click to record your response (8s limit)'
-                                                        : isSpeaking
-                                                            ? 'Wait — participant is speaking…'
-                                                            : '' })] })) : (
+    return (_jsxs("div", { className: "fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm", children: [_jsxs("div", { className: "relative flex flex-col w-full max-w-3xl h-[560px] bg-[#0d1117] border border-[#30363d] rounded-xl shadow-2xl overflow-hidden", style: { fontFamily: 'ui-monospace, monospace' }, children: [_jsxs("div", { className: "flex items-center justify-between px-5 py-3 bg-[#161b22] border-b border-[#30363d]", children: [_jsxs("div", { className: "flex items-center gap-3", children: [_jsx("span", { className: "inline-block w-2.5 h-2.5 rounded-full bg-[#f85149]", style: { animation: 'pulse 1.2s ease-in-out infinite' } }), _jsx("span", { className: "text-sm font-semibold text-white tracking-wide", children: "War Room \u2014 Active Incident" })] }), _jsxs("div", { className: "flex items-center gap-3", children: [_jsx("span", { className: "text-xs text-[#8b949e]", children: getNow() }), _jsx("button", { onClick: handleClose, className: "text-[#8b949e] hover:text-white transition-colors text-lg leading-none", "aria-label": "Close war room", children: "\u2715" })] })] }), _jsxs("div", { className: "flex flex-1 min-h-0", children: [_jsxs("div", { className: "flex flex-col w-64 shrink-0 border-r border-[#30363d] bg-[#0d1117] p-3 gap-3", children: [_jsx(ParticipantTile, { initials: "AC", name: "Alex Chen", role: "Engineering Manager", avatarBg: "#0d4a6e", avatarColor: "#58a6ff", joined: alexJoined, isSpeaking: isSpeaking && (stage === 'alex_speaks_1' || stage === 'alex_speaks_2') }), _jsx(ParticipantTile, { initials: "SO", name: "Sarah O.", role: "Team Lead", avatarBg: "#2d1d4a", avatarColor: "#d2a8ff", joined: sarahJoined, isSpeaking: isSpeaking && (stage === 'sarah_speaks_1' || stage === 'sarah_speaks_2') }), _jsxs("div", { className: "flex flex-col items-center justify-center bg-[#161b22] border border-[#30363d] rounded-lg p-3 gap-2 mt-auto", style: { minHeight: 100 }, children: [_jsx("div", { className: "w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold border-2", style: { background: '#1a2d1a', borderColor: '#3fb950', color: '#3fb950' }, children: "\uD83C\uDF99" }), _jsxs("div", { className: "text-center", children: [_jsx("div", { className: "text-xs font-semibold text-white", children: "You (SRE)" }), isRecording && (_jsxs("div", { className: "flex items-center justify-center gap-1 mt-1", children: [_jsx("span", { className: "inline-block w-2 h-2 rounded-full bg-[#f85149]", style: { animation: 'pulse 0.7s ease-in-out infinite' } }), _jsx("span", { className: "text-[10px] text-[#f85149]", children: "Recording\u2026" })] })), !isRecording && isSREturn && (_jsx("div", { className: "text-[10px] text-[#3fb950] mt-1", children: "Your turn" }))] })] })] }), _jsxs("div", { className: "flex flex-col flex-1 min-h-0", children: [_jsx("div", { className: "px-4 py-2 bg-[#161b22] border-b border-[#30363d]", children: _jsx("span", { className: "text-[11px] text-[#8b949e] uppercase tracking-widest", children: "Transcript" }) }), _jsxs("div", { className: "flex-1 overflow-y-auto px-4 py-3 space-y-3 text-xs font-mono", children: [stage === 'joining' && transcript.length === 0 && (_jsx("div", { className: "text-[#8b949e] text-center mt-10 text-xs", children: "Connecting participants\u2026" })), transcript.map((entry, i) => (_jsx(TranscriptMessage, { entry: entry }, i))), _jsx("div", { ref: transcriptEndRef })] }), _jsx("div", { className: "border-t border-[#30363d] px-4 py-3 bg-[#161b22]", children: stage === 'ended' ? (_jsxs("div", { className: "flex items-center justify-between", children: [_jsx("span", { className: "text-xs text-[#8b949e]", children: "War room closed" }), _jsx("button", { onClick: handleClose, className: "px-4 py-1.5 rounded text-xs font-semibold bg-[#f85149]/20 text-[#f85149] border border-[#f85149]/40 hover:bg-[#f85149]/30 transition-colors", children: "Leave Call" })] })) : hasSpeechRecognition ? (_jsxs("div", { className: "flex flex-col gap-1", children: [_jsxs("div", { className: "flex items-center gap-3", children: [_jsx("button", { onClick: handleSpeak, disabled: speakDisabled, className: `flex items-center gap-2 px-4 py-1.5 rounded text-xs font-semibold border transition-all ${isRecording
+                                                                ? 'bg-[#f85149]/20 text-[#f85149] border-[#f85149]/60 cursor-not-allowed'
+                                                                : speakDisabled
+                                                                    ? 'bg-[#161b22] text-[#484f58] border-[#30363d] cursor-not-allowed'
+                                                                    : 'bg-[#3fb950]/10 text-[#3fb950] border-[#3fb950]/40 hover:bg-[#3fb950]/20 cursor-pointer'}`, children: isRecording ? (_jsxs(_Fragment, { children: [_jsx("span", { className: "inline-block w-2 h-2 rounded-full bg-[#f85149]", style: { animation: 'pulse 0.7s ease-in-out infinite' } }), "Listening\u2026"] })) : ('🎙 Speak') }), isRecording && (_jsx("button", { onClick: () => recognitionRef.current?.stop(), className: "px-3 py-1 rounded text-xs bg-[#f85149]/20 text-[#f85149] border border-[#f85149]/40", children: "\u25A0 Done Speaking" })), _jsx("span", { className: "text-[10px] text-[#484f58]", children: isSREturn
+                                                                ? 'Click to record — speak freely, press Done when finished'
+                                                                : isSpeaking
+                                                                    ? 'Wait — participant is speaking…'
+                                                                    : '' })] }), isRecording && liveTranscript && (_jsxs("div", { className: "text-[#8b949e] text-[10px] italic mt-1 max-w-xs truncate", children: ["\"", liveTranscript, "\""] }))] })) : (
                                         // Text fallback
                                         _jsxs("form", { onSubmit: handleTextSubmit, className: "flex gap-2", children: [_jsx("input", { type: "text", value: textFallback, onChange: e => setTextFallback(e.target.value), disabled: !isSREturn || isSpeaking, placeholder: isSREturn && !isSpeaking
                                                         ? 'Type your response…'

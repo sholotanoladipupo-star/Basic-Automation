@@ -8,7 +8,7 @@ dotenv.config()
 import { handleConnection } from './orchestrator'
 import { initDb } from './db/init'
 import { pool } from './db/client'
-import { sqlRouter, monitoringRouter } from './routes/modules'
+import { sqlRouter, monitoringRouter, warroomRouter } from './routes/modules'
 import { cognitiveRouter } from './routes/cognitive'
 import { postmortemRouter } from './routes/postmortem'
 import { automationRouter } from './routes/automation'
@@ -46,6 +46,7 @@ app.use('/monitoring', monitoringRouter)
 app.use('/cognitive', cognitiveRouter)
 app.use('/postmortem', postmortemRouter)
 app.use('/automation', automationRouter)
+app.use('/warroom', warroomRouter)
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })

@@ -61,6 +61,7 @@ function shortHash(seed: string, len = 5): string {
 const SERVICE_LIST = [
   'api-gateway', 'auth-service', 'user-service', 'payment-service',
   'order-service', 'analytics-service', 'notification-service', 'checkout-service',
+  'config-service', 'inventory-service', 'recommendation-service', 'search-service',
 ]
 
 function allServices(state: SystemState): string[] {

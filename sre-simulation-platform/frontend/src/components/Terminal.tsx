@@ -4,10 +4,11 @@ import { TerminalLine } from '../types'
 interface TerminalProps {
   lines: TerminalLine[]
   onCommand: (cmd: string) => void
+  onCancel?: () => void
   busy: boolean
 }
 
-export default function Terminal({ lines, onCommand, busy }: TerminalProps) {
+export default function Terminal({ lines, onCommand, onCancel, busy }: TerminalProps) {
   const [input, setInput] = useState('')
   const [history, setHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
@@ -23,9 +24,7 @@ export default function Terminal({ lines, onCommand, busy }: TerminalProps) {
 
   // Focus input when not busy
   useEffect(() => {
-    if (!busy && inputRef.current) {
-      inputRef.current.focus()
-    }
+    if (!busy && inputRef.current) inputRef.current.focus()
   }, [busy])
 
   function handleSubmit(e: React.FormEvent) {
@@ -39,6 +38,16 @@ export default function Terminal({ lines, onCommand, busy }: TerminalProps) {
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    // Ctrl+C cancels a running command
+    if (e.key === 'c' && e.ctrlKey) {
+      e.preventDefault()
+      if (busy && onCancel) {
+        onCancel()
+      } else {
+        setInput('')
+      }
+      return
+    }
     if (e.key === 'ArrowUp') {
       e.preventDefault()
       const newIndex = Math.min(historyIndex + 1, history.length - 1)
@@ -49,6 +58,14 @@ export default function Terminal({ lines, onCommand, busy }: TerminalProps) {
       const newIndex = Math.max(historyIndex - 1, -1)
       setHistoryIndex(newIndex)
       setInput(newIndex === -1 ? '' : (history[newIndex] ?? ''))
+    }
+  }
+
+  // Also handle Ctrl+C on the busy indicator div
+  function handleBusyKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'c' && e.ctrlKey) {
+      e.preventDefault()
+      onCancel?.()
     }
   }
 
@@ -78,7 +95,7 @@ export default function Terminal({ lines, onCommand, busy }: TerminalProps) {
         )
       case 'system':
         return (
-          <div key={line.id} className={`font-mono ${line.content === '' ? 'h-2' : 'text-[#39d353] italic'}`}>
+          <div key={line.id} className={`font-mono ${line.content === '' ? 'h-2' : line.content === '^C' ? 'text-[#f85149]' : 'text-[#39d353] italic'}`}>
             {line.content}
           </div>
         )
@@ -96,29 +113,39 @@ export default function Terminal({ lines, onCommand, busy }: TerminalProps) {
 
   return (
     <div className="flex flex-col h-full bg-[#0d1117] font-mono text-sm">
-      {/* Terminal title bar */}
+      {/* Title bar */}
       <div className="flex items-center gap-2 px-3 py-2 bg-[#161b22] border-b border-[#30363d] flex-shrink-0">
         <span className="w-3 h-3 rounded-full bg-[#f85149]" />
         <span className="w-3 h-3 rounded-full bg-[#d29922]" />
         <span className="w-3 h-3 rounded-full bg-[#3fb950]" />
-        <span className="ml-2 text-xs text-[#8b949e]">engineer@sre-sim:~$</span>
+        <span className="ml-2 text-xs text-[#8b949e] flex-1">engineer@sre-sim:~$</span>
+        {busy && (
+          <span className="text-[10px] text-[#484f58]">Ctrl+C to cancel</span>
+        )}
       </div>
 
       {/* Output area */}
       <div
         ref={outputRef}
         className="flex-1 overflow-y-auto p-3 space-y-0.5 leading-5"
-        onClick={() => inputRef.current?.focus()}
+        onClick={() => busy ? null : inputRef.current?.focus()}
       >
         {lines.map(line => renderLine(line))}
       </div>
 
       {/* Input area */}
-      <div className="flex-shrink-0 border-t border-[#30363d] px-3 py-2">
+      <div
+        className="flex-shrink-0 border-t border-[#30363d] px-3 py-2"
+        tabIndex={busy ? 0 : -1}
+        onKeyDown={busy ? handleBusyKeyDown : undefined}
+      >
         {busy ? (
-          <div className="text-[#484f58] italic flex items-center gap-2">
+          <div className="text-[#484f58] italic flex items-center gap-2 select-none">
             <span className="blink">◉</span>
-            <span>Processing...</span>
+            <span>Processing…</span>
+            <span className="ml-auto text-[#484f58] text-[10px] cursor-pointer hover:text-[#f85149] transition-colors" onClick={() => onCancel?.()}>
+              [Ctrl+C] cancel
+            </span>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="flex items-center gap-2">
