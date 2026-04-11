@@ -77,25 +77,19 @@ app.get('/admin/assignments', requireAdmin, async (_req, res) => {
 
 // Admin: create assignment
 app.post('/admin/assignments', requireAdmin, async (req, res) => {
-  const { candidate_name, scenario_id, module_type, question_id } = req.body as Record<string, string | undefined>
-  if (!candidate_name) {
-    res.status(400).json({ error: 'candidate_name required' })
-    return
-  }
+  const { candidate_name, scenario_id, module_type, question_id, is_practice, time_limit_minutes } = req.body as Record<string, string | undefined>
+  if (!candidate_name) { res.status(400).json({ error: 'candidate_name required' }); return }
   const mt = module_type ?? 'incident'
   if (mt !== 'incident' && mt !== 'cognitive' && !question_id) {
-    res.status(400).json({ error: 'question_id required for sql/monitoring/postmortem/automation modules' })
-    return
+    res.status(400).json({ error: 'question_id required for sql/monitoring/postmortem/automation modules' }); return
   }
   try {
     const result = await pool.query(
-      'INSERT INTO session_assignments (candidate_name, scenario_id, module_type, question_id) VALUES ($1, $2, $3, $4) RETURNING *',
-      [candidate_name.trim(), scenario_id ?? 'cache-db-cascade', mt, question_id ?? null]
+      'INSERT INTO session_assignments (candidate_name, scenario_id, module_type, question_id, is_practice, time_limit_minutes) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [candidate_name.trim(), scenario_id ?? 'cache-db-cascade', mt, question_id ?? null, is_practice === 'true', time_limit_minutes ? Number(time_limit_minutes) : null]
     )
     res.json(result.rows[0])
-  } catch (err) {
-    res.status(500).json({ error: String(err) })
-  }
+  } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
 // Admin: delete assignment
@@ -106,6 +100,73 @@ app.delete('/admin/assignments/:id', requireAdmin, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: String(err) })
   }
+})
+
+// Admin: full results dashboard — sessions + scores
+app.get('/admin/results', requireAdmin, async (_req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        s.id, s.candidate_name, s.scenario_id, s.scenario_name,
+        s.started_at, s.ended_at, s.overall_score, s.status,
+        s.module_type,
+        sc.postmortem,
+        ROUND(EXTRACT(EPOCH FROM (s.ended_at - s.started_at)) / 60)::int AS duration_minutes
+      FROM sessions s
+      LEFT JOIN scorecards sc ON sc.session_id = s.id
+      WHERE s.status = 'completed' OR s.ended_at IS NOT NULL
+      ORDER BY s.started_at DESC
+      LIMIT 200
+    `)
+    // Aggregate stats
+    const rows = result.rows
+    const scores = rows.filter(r => r.overall_score != null).map(r => Number(r.overall_score))
+    const avg  = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null
+    const p50  = scores.length ? scores.sort((a, b) => a - b)[Math.floor(scores.length * 0.5)] : null
+    const pass = scores.filter(s => s >= 70).length
+    res.json({ sessions: rows, stats: { total: rows.length, avg_score: avg, p50_score: p50, pass_count: pass, fail_count: scores.length - pass } })
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+// Public percentile rank (candidate debrief — no sensitive data exposed)
+app.get('/percentile/:score', async (req, res) => {
+  try {
+    const score = Number(req.params.score)
+    const result = await pool.query(`
+      SELECT COUNT(*) as total,
+             COUNT(CASE WHEN overall_score < $1 THEN 1 END) as below
+      FROM sessions WHERE status = 'completed' AND overall_score IS NOT NULL
+    `, [score])
+    const { total, below } = result.rows[0]
+    const pct = Number(total) > 1 ? Math.round((Number(below) / Number(total)) * 100) : null
+    res.json({ percentile: pct, total: Number(total) })
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+// Admin: percentile rank for a given score
+app.get('/admin/percentile/:score', requireAdmin, async (req, res) => {
+  try {
+    const score = Number(req.params.score)
+    const result = await pool.query(`
+      SELECT COUNT(*) as total,
+             COUNT(CASE WHEN overall_score < $1 THEN 1 END) as below
+      FROM sessions WHERE status = 'completed' AND overall_score IS NOT NULL
+    `, [score])
+    const { total, below } = result.rows[0]
+    const pct = total > 1 ? Math.round((Number(below) / Number(total)) * 100) : null
+    res.json({ percentile: pct, total: Number(total) })
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+// Admin: session event log (command replay)
+app.get('/admin/sessions/:id/events', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT event_type, payload, created_at FROM event_logs WHERE session_id = $1 ORDER BY created_at ASC`,
+      [req.params.id]
+    )
+    res.json(result.rows)
+  } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
 // Admin: seed questions (one-time setup)

@@ -102,7 +102,7 @@ export type ClientMessage =
   | { type: 'scale_service'; payload: { service: string; replicas: number } }
 
 export type ServerMessage =
-  | { type: 'session_started'; payload: { session_id: string; candidate_name: string; scenario_name: string; difficulty: string; time_limit_minutes: number; module_type: 'incident' | 'sql' | 'monitoring' | 'cognitive'; question_id: string | null; initial_alerts: Alert[]; available_runbooks: { id: string; title: string }[]; available_dashboards: { id: string; name: string }[] } }
+  | { type: 'session_started'; payload: { session_id: string; candidate_name: string; scenario_name: string; difficulty: string; time_limit_minutes: number; module_type: 'incident' | 'sql' | 'monitoring' | 'cognitive'; question_id: string | null; is_practice: boolean; initial_alerts: Alert[]; available_runbooks: { id: string; title: string }[]; available_dashboards: { id: string; name: string }[] } }
   | { type: 'command_response'; payload: { stdout: string; exit_code: number; latency_ms: number } }
   | { type: 'log_response'; payload: { lines: string[] } }
   | { type: 'dashboard_response'; payload: { dashboard_id: string; name: string; metrics: MetricPoint[] } }
@@ -123,6 +123,7 @@ export interface SessionInfo {
   time_limit_minutes: number
   module_type: 'incident' | 'sql' | 'monitoring' | 'cognitive' | 'postmortem' | 'automation'
   question_id: string | null
+  is_practice: boolean
   available_runbooks: { id: string; title: string }[]
   available_dashboards: { id: string; name: string }[]
 }

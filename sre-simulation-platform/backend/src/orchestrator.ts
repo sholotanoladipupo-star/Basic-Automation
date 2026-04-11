@@ -112,7 +112,7 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
 
   // Look up admin-assigned scenario for this candidate
   const assignmentResult = await pool.query(
-    `SELECT id, scenario_id, module_type, question_id FROM session_assignments
+    `SELECT id, scenario_id, module_type, question_id, is_practice, time_limit_minutes FROM session_assignments
      WHERE LOWER(candidate_name) = LOWER($1) AND status = 'pending'
      ORDER BY created_at DESC LIMIT 1`,
     [payload.candidate_name]
@@ -127,7 +127,7 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
     return
   }
 
-  const assignment = assignmentResult.rows[0] as { id: string; scenario_id: string; module_type: string; question_id: string | null }
+  const assignment = assignmentResult.rows[0] as { id: string; scenario_id: string; module_type: string; question_id: string | null; is_practice: boolean; time_limit_minutes: number | null }
   const moduleType = (assignment.module_type ?? 'incident') as 'incident' | 'sql' | 'monitoring' | 'cognitive' | 'postmortem' | 'automation'
   const questionId = assignment.question_id ?? null
 
@@ -157,9 +157,10 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
         candidate_name: payload.candidate_name,
         scenario_name: moduleName,
         difficulty: 'senior',
-        time_limit_minutes: moduleType === 'postmortem' ? 30 : moduleType === 'automation' ? 25 : 15,
+        time_limit_minutes: assignment.time_limit_minutes ?? (moduleType === 'postmortem' ? 30 : moduleType === 'automation' ? 25 : 15),
         module_type: moduleType,
         question_id: questionId,
+        is_practice: assignment.is_practice ?? false,
         initial_alerts: [],
         available_runbooks: [],
         available_dashboards: []
@@ -224,6 +225,7 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
       time_limit_minutes: scenario.time_limit_minutes,
       module_type: 'incident',
       question_id: null,
+      is_practice: assignment.is_practice ?? false,
       initial_alerts: initialAlerts,
       available_runbooks: scenario.available_runbooks.map(r => ({ id: r.id, title: r.title })),
       available_dashboards: scenario.available_dashboards.map(d => ({ id: d.id, name: d.name }))

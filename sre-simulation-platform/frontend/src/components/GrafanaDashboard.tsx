@@ -45,19 +45,44 @@ function sampleHistory(base: number, count = 12) {
   )
 }
 
-function CollapsibleRow({ title, children, defaultOpen = true }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+function CollapsibleRow({ title, children, defaultOpen = true, onExpand }: { title: string; children: React.ReactNode; defaultOpen?: boolean; onExpand?: () => void }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
     <div className="mb-1">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 bg-[#1e2030] hover:bg-[#252838] border border-[#2c3235] text-[11px] text-[#9fa8be] font-medium transition-colors"
-      >
-        <span className="text-[#ff7c21]">{open ? '▼' : '▶'}</span>
-        <span className="uppercase tracking-widest text-[10px]">{title}</span>
-        <div className="flex-1 h-px bg-[#2c3235] ml-2" />
-      </button>
+      <div className="flex items-center">
+        <button
+          onClick={() => setOpen(o => !o)}
+          className="flex-1 flex items-center gap-2 px-3 py-1.5 bg-[#1e2030] hover:bg-[#252838] border border-[#2c3235] text-[11px] text-[#9fa8be] font-medium transition-colors"
+        >
+          <span className="text-[#ff7c21]">{open ? '▼' : '▶'}</span>
+          <span className="uppercase tracking-widest text-[10px]">{title}</span>
+          <div className="flex-1 h-px bg-[#2c3235] ml-2" />
+        </button>
+        {onExpand && (
+          <button
+            onClick={onExpand}
+            title="Expand panel"
+            className="px-2 py-1.5 bg-[#1e2030] border border-l-0 border-[#2c3235] text-[#484f58] hover:text-[#58a6ff] hover:bg-[#252838] transition-colors text-[11px]"
+          >
+            ⤢
+          </button>
+        )}
+      </div>
       {open && <div className="border-x border-b border-[#2c3235]">{children}</div>}
+    </div>
+  )
+}
+
+function PanelModal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black/80 z-50 flex flex-col" onClick={onClose}>
+      <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 bg-[#161b22] border-b border-[#2c3235]" onClick={e => e.stopPropagation()}>
+        <span className="text-[#e6edf3] font-bold text-xs font-mono uppercase tracking-widest">{title}</span>
+        <button onClick={onClose} className="text-[#484f58] hover:text-[#e6edf3] text-lg leading-none px-1">✕</button>
+      </div>
+      <div className="flex-1 overflow-y-auto bg-[#111217]" onClick={e => e.stopPropagation()}>
+        {children}
+      </div>
     </div>
   )
 }
@@ -73,6 +98,7 @@ function StatCard({ label, value, sub, color = '#e6edf3', bg }: { label: string;
 }
 
 export default function GrafanaDashboard({ systemState }: Props) {
+  const [expandedPanel, setExpandedPanel] = useState<string | null>(null)
   const services = systemState ? Object.values(systemState.services) : []
   const caches = systemState?.infrastructure.caches ?? []
   const databases = systemState?.infrastructure.databases ?? []
@@ -130,7 +156,7 @@ export default function GrafanaDashboard({ systemState }: Props) {
         })()}
 
         {/* Row 1: Kubernetes Pod Health */}
-        <CollapsibleRow title="Kubernetes Pod Health" defaultOpen={true}>
+        <CollapsibleRow title="Kubernetes Pod Health" defaultOpen={true} onExpand={() => setExpandedPanel('Kubernetes Pod Health')}>
           <div className="p-3 space-y-2">
             {/* Cluster summary */}
             {clusters.map(c => (
@@ -197,7 +223,7 @@ export default function GrafanaDashboard({ systemState }: Props) {
         </CollapsibleRow>
 
         {/* Row 2: Redis Metrics */}
-        <CollapsibleRow title="Redis Metrics" defaultOpen={true}>
+        <CollapsibleRow title="Redis Metrics" defaultOpen={true} onExpand={() => setExpandedPanel('Redis Metrics')}>
           <div className="p-3 space-y-3">
             {caches.length === 0 ? (
               <div className="text-[#6b7280] text-[11px] py-4 text-center">No cache instances in system state</div>
@@ -289,7 +315,7 @@ export default function GrafanaDashboard({ systemState }: Props) {
         </CollapsibleRow>
 
         {/* Row 3: Business Performance */}
-        <CollapsibleRow title="Business Performance" defaultOpen={true}>
+        <CollapsibleRow title="Business Performance" defaultOpen={true} onExpand={() => setExpandedPanel('Business Performance')}>
           <div className="p-3 space-y-3">
             {(() => {
               const isDown = systemState ? Object.values(systemState.services).some(s => s.status === 'down') : false
@@ -375,6 +401,147 @@ export default function GrafanaDashboard({ systemState }: Props) {
         {/* Row 5: MySQL Database row */}
         <MySQLRow systemState={systemState} />
       </div>
+
+      {/* Expanded panel modal */}
+      {expandedPanel && (
+        <PanelModal title={expandedPanel} onClose={() => setExpandedPanel(null)}>
+          <div className="p-4">
+            {expandedPanel === 'Kubernetes Pod Health' && (
+              <div className="space-y-2">
+                {clusters.map(c => (
+                  <div key={c.name} className="flex items-center justify-between bg-[#1a1d2b] border border-[#2c3235] rounded px-3 py-2 text-[12px] font-mono">
+                    <span className="text-[#8ab4f8]">☸ {c.name}</span>
+                    <span className={`font-bold ${c.healthy_nodes === c.nodes ? 'text-[#3fb950]' : 'text-[#f85149]'}`}>{c.healthy_nodes}/{c.nodes} nodes ready</span>
+                  </div>
+                ))}
+                <div className="bg-[#1a1d2b] border border-[#2c3235] rounded overflow-hidden mt-3">
+                  <table className="w-full text-[12px] font-mono">
+                    <thead className="bg-[#111217] border-b border-[#2c3235]">
+                      <tr>
+                        {['Deployment','Pods','Status','Restarts','CPU','Memory'].map(h => (
+                          <th key={h} className="text-left px-4 py-2 text-[#6b7280] font-normal">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {services.map(svc => {
+                        const pods = svc.status === 'down' ? '0/3' : svc.status === 'degraded' ? '1/3' : '3/3'
+                        const restarts = svc.status === 'down' ? 12 : svc.status === 'degraded' ? 3 : 0
+                        const cpu = cpuPct(svc.status)
+                        const mem = memPct(svc.status)
+                        const statusColor = svc.status === 'down' ? '#f85149' : svc.status === 'degraded' ? '#ff7c21' : '#3fb950'
+                        const statusLabel = svc.status === 'down' ? 'CrashLoopBackOff' : svc.status === 'degraded' ? 'Running (degraded)' : 'Running'
+                        return (
+                          <tr key={svc.name} className="border-b border-[#2c3235] last:border-0 hover:bg-[#1e2030]">
+                            <td className="px-4 py-2.5 text-[#8ab4f8]">{svc.name}</td>
+                            <td className="px-4 py-2.5">{pods}</td>
+                            <td className="px-4 py-2.5 font-bold" style={{ color: statusColor }}>{statusLabel}</td>
+                            <td className="px-4 py-2.5" style={{ color: restarts > 5 ? '#f85149' : restarts > 0 ? '#ff7c21' : '#9fa8be' }}>{restarts}</td>
+                            <td className="px-4 py-2.5 w-36"><Bar pct={cpu} /></td>
+                            <td className="px-4 py-2.5 w-36"><Bar pct={mem} /></td>
+                          </tr>
+                        )
+                      })}
+                      {caches.map(c => {
+                        const cpu = cpuPct(c.status)
+                        const mem = Math.round((c.memory_used_mb / c.memory_total_mb) * 100)
+                        return (
+                          <tr key={c.name} className="border-b border-[#2c3235] last:border-0 hover:bg-[#1e2030]">
+                            <td className="px-4 py-2.5 text-[#8ab4f8]">{c.name}</td>
+                            <td className="px-4 py-2.5">1/1</td>
+                            <td className="px-4 py-2.5 font-bold" style={{ color: c.status === 'healthy' ? '#3fb950' : c.status === 'degraded' ? '#ff7c21' : '#f85149' }}>
+                              {c.status === 'healthy' ? 'Running' : c.status === 'degraded' ? 'Running (degraded)' : 'CrashLoopBackOff'}
+                            </td>
+                            <td className="px-4 py-2.5 text-[#9fa8be]">0</td>
+                            <td className="px-4 py-2.5 w-36"><Bar pct={cpu} /></td>
+                            <td className="px-4 py-2.5 w-36"><Bar pct={mem} warn={75} crit={90} /></td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            {expandedPanel === 'Redis Metrics' && (
+              <div className="space-y-4">
+                {caches.map(cache => {
+                  const hitRate = Math.round(cache.hit_rate * 100)
+                  const memUsedPct = Math.round((cache.memory_used_mb / cache.memory_total_mb) * 100)
+                  const isDown = cache.status === 'down'
+                  const isDeg = cache.status === 'degraded'
+                  const readLatency = isDown ? 0 : isDeg ? 45 : 1
+                  const opsPerSec = isDown ? 0 : isDeg ? 2800 : 18400
+                  const evictionRate = isDown ? 0 : isDeg ? 12.4 : 0.2
+                  const hitColor = hitRate < 30 ? '#f85149' : hitRate < 70 ? '#ff7c21' : '#3fb950'
+                  return (
+                    <div key={cache.name} className="bg-[#1a1d2b] border border-[#2c3235] rounded p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[#e6edf3] font-bold text-sm font-mono">● {cache.name}</span>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded ${isDown ? 'bg-[#2a0a0a] text-[#f85149]' : isDeg ? 'bg-[#2a1800] text-[#ff7c21]' : 'bg-[#0f2a1a] text-[#3fb950]'}`}>
+                          {cache.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-3 text-xs font-mono">
+                        {[
+                          { label: 'Hit Rate', value: `${hitRate}%`, color: hitColor },
+                          { label: 'Read Latency', value: isDown ? '—' : `${readLatency}ms`, color: readLatency > 20 ? '#f85149' : '#3fb950' },
+                          { label: 'Ops / sec', value: isDown ? '0' : opsPerSec.toLocaleString(), color: '#8ab4f8' },
+                          { label: 'Eviction Rate', value: `${evictionRate}/s`, color: evictionRate > 5 ? '#f85149' : '#3fb950' },
+                        ].map(t => (
+                          <div key={t.label} className="bg-[#111217] border border-[#2c3235] rounded p-3">
+                            <div className="text-[#6b7280] text-[10px] uppercase tracking-widest mb-1">{t.label}</div>
+                            <div className="text-xl font-bold tabular-nums" style={{ color: t.color }}>{t.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-[#6b7280] mb-1.5">Memory Used — {cache.memory_used_mb}/{cache.memory_total_mb} MB</div>
+                        <Bar pct={memUsedPct} warn={75} crit={90} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            {expandedPanel === 'Business Performance' && (
+              <div className="space-y-4 font-mono text-xs">
+                {(() => {
+                  const isDown = Object.values(systemState.services).some(s => s.status === 'down')
+                  const isDegraded = Object.values(systemState.services).some(s => s.status === 'degraded')
+                  const successRate = isDown ? 61.2 : isDegraded ? 84.7 : 99.4
+                  const rpm = isDown ? 183 : isDegraded ? 412 : 1247
+                  const pendingTx = isDown ? 3842 : isDegraded ? 1203 : 47
+                  const avgRespMs = isDown ? 4821 : isDegraded ? 1834 : 142
+                  const ordersToday = isDown ? 2341 : isDegraded ? 5102 : 12847
+                  const productsPurchased = isDown ? 3109 : isDegraded ? 6843 : 18293
+                  const successColor = successRate > 95 ? '#3fb950' : successRate > 80 ? '#ff7c21' : '#f85149'
+                  const pendingColor = pendingTx > 1000 ? '#f85149' : pendingTx > 200 ? '#ff7c21' : '#3fb950'
+                  const respColor = avgRespMs > 2000 ? '#f85149' : avgRespMs > 500 ? '#ff7c21' : '#3fb950'
+                  return (
+                    <div className="grid grid-cols-3 gap-4">
+                      {[
+                        { label: 'Transaction Success Rate', value: `${successRate.toFixed(1)}%`, color: successColor, note: isDown ? 'CRITICAL — SLO BREACH' : isDegraded ? 'DEGRADED' : 'HEALTHY' },
+                        { label: 'Requests / min', value: rpm.toLocaleString(), color: '#8ab4f8', note: isDown ? '−85% vs avg' : isDegraded ? '−67% vs avg' : '+3% vs avg' },
+                        { label: 'Pending Transactions', value: pendingTx.toLocaleString(), color: pendingColor, note: pendingTx > 1000 ? 'QUEUE BACKUP' : 'NOMINAL' },
+                        { label: 'Avg Response Time', value: `${avgRespMs}ms`, color: respColor, note: avgRespMs > 2000 ? 'SLO BREACH' : avgRespMs > 500 ? 'WARNING' : 'GOOD' },
+                        { label: 'Orders Today', value: ordersToday.toLocaleString(), color: '#e6edf3', note: 'since midnight' },
+                        { label: 'Products Sold', value: productsPurchased.toLocaleString(), color: '#e6edf3', note: 'since midnight' },
+                      ].map(t => (
+                        <div key={t.label} className="bg-[#111217] border border-[#2c3235] rounded p-4">
+                          <div className="text-[#6b7280] text-[10px] uppercase tracking-widest mb-2">{t.label}</div>
+                          <div className="text-3xl font-bold tabular-nums mb-1" style={{ color: t.color }}>{t.value}</div>
+                          <div className="text-[11px]" style={{ color: t.color }}>{t.note}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
+          </div>
+        </PanelModal>
+      )}
     </div>
   )
 }

@@ -60,6 +60,23 @@ export default function Simulation({ state, actions }: SimulationProps) {
   const [showWarRoom, setShowWarRoom] = useState(false)
   const [escalateTo, setEscalateTo] = useState('')
   const [escalateMsg, setEscalateMsg] = useState('')
+  const warRoomInjectedIdx = useRef(0)
+  const [showNotesDrawer, setShowNotesDrawer] = useState(false)
+  const [notes, setNotes] = useState('')
+  const notesKey = sessionInfo ? `sre-notes-${sessionInfo.session_id}` : null
+
+  // Load notes from localStorage when session is known
+  useEffect(() => {
+    if (!notesKey) return
+    const saved = localStorage.getItem(notesKey)
+    if (saved) setNotes(saved)
+  }, [notesKey])
+
+  // Persist notes to localStorage on change
+  useEffect(() => {
+    if (!notesKey) return
+    localStorage.setItem(notesKey, notes)
+  }, [notes, notesKey])
 
   // Auto-request fullscreen when simulation loads
   useEffect(() => {
@@ -155,6 +172,11 @@ export default function Simulation({ state, actions }: SimulationProps) {
 
         {sessionInfo && (
           <span className="text-[#8b949e] truncate hidden sm:block">{sessionInfo.scenario_name}</span>
+        )}
+        {sessionInfo?.is_practice && (
+          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#d29922]/20 text-[#d29922] border border-[#d29922]/40 flex-shrink-0">
+            PRACTICE
+          </span>
         )}
 
         <div className="ml-auto flex items-center gap-2">
@@ -300,6 +322,41 @@ export default function Simulation({ state, actions }: SimulationProps) {
 
         {/* Floating action buttons — bottom-right */}
         <div className="absolute bottom-5 right-4 flex flex-col items-end gap-3 z-30">
+          {/* Notes float button */}
+          <div className="relative">
+            {showNotesDrawer && (
+              <div className="absolute bottom-14 right-0 w-80 bg-[#161b22] border border-[#d18616]/60 rounded-lg shadow-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 border-b border-[#30363d]">
+                  <span className="text-[#d18616] font-bold text-[10px] uppercase tracking-widest">📝 Notes</span>
+                  <span className="text-[#484f58] text-[10px]">auto-saved</span>
+                </div>
+                <textarea
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  placeholder={"Jot down observations, hypotheses, commands to try…\n\nE.g.:\n• Redis OOM at 14:03\n• DB conn pool maxed — scale up?\n• Check redis-cli info memory"}
+                  className="w-full h-52 bg-[#0d1117] text-[#e6edf3] text-[11px] font-mono px-3 py-2 resize-none focus:outline-none placeholder-[#484f58] leading-relaxed"
+                  autoFocus
+                />
+                <div className="flex items-center justify-between px-3 py-1.5 bg-[#0d1117] border-t border-[#30363d]">
+                  <span className="text-[#484f58] text-[10px]">{notes.length} chars</span>
+                  <button
+                    onClick={() => { setNotes(''); localStorage.removeItem(notesKey ?? '') }}
+                    className="text-[#484f58] hover:text-[#f85149] text-[10px] transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            )}
+            <button
+              onClick={() => { setShowNotesDrawer(d => !d); setShowCommsDrawer(false); setShowEscalateModal(false) }}
+              className={`w-12 h-12 rounded-full shadow-lg border-2 flex items-center justify-center text-xl transition-all ${showNotesDrawer ? 'bg-[#d18616] border-[#d18616] text-white' : 'bg-[#161b22] border-[#d18616]/60 text-[#d18616] hover:bg-[#2a1e00]'}`}
+              title="Notes"
+            >
+              📝
+            </button>
+          </div>
+
           {/* War Room float button */}
           <button
             onClick={() => { setShowWarRoom(true); setShowEscalateModal(false); setShowCommsDrawer(false) }}
@@ -391,6 +448,15 @@ export default function Simulation({ state, actions }: SimulationProps) {
         onClose={() => setShowWarRoom(false)}
         systemState={systemState ?? undefined}
         scenarioName={sessionInfo?.scenario_name}
+        onTranscriptUpdate={entries => {
+          // Only inject new entries not yet pushed to Comms
+          const newEntries = entries.slice(warRoomInjectedIdx.current)
+          newEntries.forEach(e => {
+            const sender = e.speaker === 'you' ? (sessionInfo?.candidate_name ?? 'You') : e.speaker === 'alex' ? 'Alex (SRE Lead) 📞' : 'Sarah (EM) 📞'
+            actions.injectSlack('#war-room', sender, e.text)
+          })
+          warRoomInjectedIdx.current = entries.length
+        }}
       />
 
       {/* Session-ended: waiting for scorecard */}

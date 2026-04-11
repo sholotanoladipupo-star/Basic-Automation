@@ -171,6 +171,28 @@ sqlRouter.post('/admin/questions', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
+sqlRouter.put('/admin/questions/:id', requireAdmin, async (req, res) => {
+  const { title, description, difficulty, question_type, starter_query, expected_output, solution_query, schema_hint, hint, time_limit_seconds } = req.body as Record<string, unknown>
+  try {
+    let expectedOutput: unknown = expected_output
+    if (typeof expected_output === 'string') {
+      try { expectedOutput = JSON.parse(expected_output) } catch { expectedOutput = {} }
+    }
+    const r = await pool.query(
+      `UPDATE sql_questions SET
+        title = COALESCE($1, title), description = COALESCE($2, description),
+        difficulty = COALESCE($3, difficulty), question_type = COALESCE($4, question_type),
+        starter_query = COALESCE($5, starter_query), expected_output = COALESCE($6::jsonb, expected_output),
+        solution_query = COALESCE($7, solution_query), schema_hint = COALESCE($8, schema_hint),
+        hint = COALESCE($9, hint), time_limit_seconds = COALESCE($10, time_limit_seconds)
+       WHERE id = $11 RETURNING *`,
+      [title, description, difficulty, question_type, starter_query, expectedOutput ? JSON.stringify(expectedOutput) : null, solution_query, schema_hint, hint, time_limit_seconds, req.params.id]
+    )
+    if (!r.rows[0]) { res.status(404).json({ error: 'Question not found' }); return }
+    res.json(r.rows[0])
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
 sqlRouter.delete('/admin/questions/:id', requireAdmin, async (req, res) => {
   try {
     await pool.query(`DELETE FROM sql_questions WHERE id = $1`, [req.params.id])

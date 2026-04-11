@@ -8,12 +8,51 @@ interface TerminalProps {
   busy: boolean
 }
 
+const TAB_COMPLETIONS = [
+  // kubectl — pods
+  'kubectl get pods', 'kubectl get pods -A', 'kubectl get pods -n cache', 'kubectl get pods -n payments',
+  'kubectl get pods -n monitoring', 'kubectl get pods -n default', 'kubectl get pods -n kube-system',
+  'kubectl describe pod ', 'kubectl logs ', 'kubectl logs -f ', 'kubectl logs --previous ',
+  'kubectl exec -it ', 'kubectl delete pod ',
+  // kubectl — workloads
+  'kubectl get deployments', 'kubectl get deployments -A',
+  'kubectl describe deployment ', 'kubectl rollout restart deployment/',
+  'kubectl rollout status deployment/', 'kubectl scale deployment/ --replicas=',
+  'kubectl get replicasets', 'kubectl get daemonsets',
+  // kubectl — cluster
+  'kubectl get nodes', 'kubectl get services', 'kubectl get services -A',
+  'kubectl get events --sort-by=.metadata.creationTimestamp',
+  'kubectl get configmap', 'kubectl get secret', 'kubectl top pods', 'kubectl top nodes',
+  'kubectl get namespaces', 'kubectl get ingress', 'kubectl get hpa',
+  // gcloud
+  'gcloud sql instances list', 'gcloud sql instances describe ',
+  'gcloud compute instances list', 'gcloud logging read ',
+  'gcloud pubsub topics list', 'gcloud pubsub subscriptions list',
+  'gcloud container clusters list', 'gcloud redis instances list',
+  // DB / cache
+  'psql -U postgres', 'psql -h localhost -U postgres ',
+  'redis-cli ping', 'redis-cli info', 'redis-cli info memory',
+  'redis-cli info replication', 'redis-cli info keyspace',
+  'redis-cli monitor', 'redis-cli dbsize', 'redis-cli keys "*"',
+  // network
+  'curl -s http://localhost:8080/health', 'curl -s http://localhost:8080/metrics',
+  'netstat -tlnp', 'ss -tlnp', 'ping ', 'nslookup ', 'dig ',
+  // system
+  'ps aux | grep ', 'df -h', 'free -m', 'top', 'uptime',
+  'tail -f /var/log/', 'journalctl -u ', 'systemctl status ',
+  // misc
+  'grep -r ', 'cat /etc/hosts', 'env | grep ', 'which ',
+]
+
 export default function Terminal({ lines, onCommand, onCancel, busy }: TerminalProps) {
   const [input, setInput] = useState('')
   const [history, setHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
+  const [tabSuggestions, setTabSuggestions] = useState<string[]>([])
   const outputRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const tabIdxRef = useRef(-1)
+  const lastTabInputRef = useRef('')
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -41,13 +80,44 @@ export default function Terminal({ lines, onCommand, onCancel, busy }: TerminalP
     // Ctrl+C cancels a running command
     if (e.key === 'c' && e.ctrlKey) {
       e.preventDefault()
-      if (busy && onCancel) {
-        onCancel()
+      if (busy && onCancel) { onCancel() } else { setInput('') }
+      setTabSuggestions([])
+      return
+    }
+
+    // Tab completion
+    if (e.key === 'Tab') {
+      e.preventDefault()
+      const cur = input
+      // If input changed since last Tab press, rebuild matches
+      if (cur !== lastTabInputRef.current || tabIdxRef.current === -1) {
+        const matches = cur.trim() === ''
+          ? TAB_COMPLETIONS.slice(0, 8)
+          : TAB_COMPLETIONS.filter(c => c.toLowerCase().startsWith(cur.toLowerCase()))
+        lastTabInputRef.current = cur
+        tabIdxRef.current = -1
+        setTabSuggestions(matches)
+        if (matches.length === 1) {
+          setInput(matches[0])
+          setTabSuggestions([])
+          tabIdxRef.current = -1
+        } else if (matches.length > 1) {
+          tabIdxRef.current = 0
+          setInput(matches[0])
+        }
       } else {
-        setInput('')
+        // Cycle through existing matches
+        const matches = tabSuggestions
+        if (matches.length === 0) return
+        tabIdxRef.current = (tabIdxRef.current + 1) % matches.length
+        setInput(matches[tabIdxRef.current])
       }
       return
     }
+
+    // Any other key clears tab suggestions
+    if (e.key !== 'Shift') setTabSuggestions([])
+
     if (e.key === 'ArrowUp') {
       e.preventDefault()
       const newIndex = Math.min(historyIndex + 1, history.length - 1)
@@ -132,6 +202,20 @@ export default function Terminal({ lines, onCommand, onCancel, busy }: TerminalP
       >
         {lines.map(line => renderLine(line))}
       </div>
+
+      {/* Tab suggestions */}
+      {tabSuggestions.length > 1 && (
+        <div className="flex-shrink-0 bg-[#161b22] border-t border-[#30363d] px-3 py-1.5 flex flex-wrap gap-1.5">
+          {tabSuggestions.slice(0, 12).map((s, i) => (
+            <button
+              key={s}
+              onMouseDown={e => { e.preventDefault(); setInput(s); setTabSuggestions([]); inputRef.current?.focus() }}
+              className={`px-2 py-0.5 rounded text-[10px] font-mono border transition-colors ${i === tabIdxRef.current ? 'border-[#3fb950] text-[#3fb950] bg-[#3fb950]/10' : 'border-[#30363d] text-[#8b949e] hover:border-[#484f58]'}`}
+            >{s}</button>
+          ))}
+          {tabSuggestions.length > 12 && <span className="text-[#484f58] text-[10px] self-center">+{tabSuggestions.length - 12} more</span>}
+        </div>
+      )}
 
       {/* Input area */}
       <div

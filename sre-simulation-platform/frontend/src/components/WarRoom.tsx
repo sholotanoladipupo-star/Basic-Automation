@@ -6,6 +6,7 @@ interface WarRoomProps {
   onClose: () => void
   systemState?: SystemState
   scenarioName?: string
+  onTranscriptUpdate?: (entries: { speaker: string; text: string; timestamp: string }[]) => void
 }
 
 interface TranscriptEntry {
@@ -54,7 +55,7 @@ const API_BASE = (import.meta.env.VITE_WS_URL ?? 'ws://localhost:3001')
   .replace('wss://', 'https://')
   .replace('ws://', 'http://')
 
-export default function WarRoom({ isOpen, onClose, systemState, scenarioName }: WarRoomProps) {
+export default function WarRoom({ isOpen, onClose, systemState, scenarioName, onTranscriptUpdate }: WarRoomProps) {
   const [stage, setStage] = useState<CallStage>('joining')
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
   const [isRecording, setIsRecording] = useState(false)
@@ -110,8 +111,12 @@ export default function WarRoom({ isOpen, onClose, systemState, scenarioName }: 
   }, [])
 
   const addEntry = useCallback((speaker: TranscriptEntry['speaker'], text: string) => {
-    setTranscript(prev => [...prev, { speaker, text, timestamp: getNow() }])
-  }, [])
+    setTranscript(prev => {
+      const next = [...prev, { speaker, text, timestamp: getNow() }]
+      onTranscriptUpdate?.(next)
+      return next
+    })
+  }, [onTranscriptUpdate])
 
   const speak = useCallback((text: string, speaker: 'alex' | 'sarah', onDone: () => void) => {
     if (!window.speechSynthesis) { onDone(); return }

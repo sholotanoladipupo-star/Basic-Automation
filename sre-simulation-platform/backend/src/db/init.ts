@@ -78,6 +78,9 @@ export async function initDb(): Promise<void> {
     await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS module_type TEXT NOT NULL DEFAULT 'incident'`)
     await client.query(`ALTER TABLE session_assignments ADD COLUMN IF NOT EXISTS module_type TEXT NOT NULL DEFAULT 'incident'`)
     await client.query(`ALTER TABLE session_assignments ADD COLUMN IF NOT EXISTS question_id UUID`)
+    await client.query(`ALTER TABLE session_assignments ADD COLUMN IF NOT EXISTS is_practice BOOLEAN NOT NULL DEFAULT false`)
+    await client.query(`ALTER TABLE session_assignments ADD COLUMN IF NOT EXISTS time_limit_minutes INTEGER`)
+    await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS is_practice BOOLEAN NOT NULL DEFAULT false`)
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS sql_questions (

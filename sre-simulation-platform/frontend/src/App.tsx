@@ -4,13 +4,14 @@ import Home from './pages/Home'
 import Simulation from './pages/Simulation'
 import SessionHistory from './pages/SessionHistory'
 import Admin from './pages/Admin'
+import CandidatePortal from './pages/CandidatePortal'
 import SQLSimulation from './pages/SQLSimulation'
 import MonitoringSimulation from './pages/MonitoringSimulation'
 import CognitiveSimulation from './pages/CognitiveSimulation'
 import PostmortemSimulation from './pages/PostmortemSimulation'
 import AutomationSimulation from './pages/AutomationSimulation'
 
-type AppScreen = 'home' | 'history' | 'admin'
+type AppScreen = 'home' | 'history' | 'admin' | 'portal'
 
 export default function App() {
   const [state, actions] = useSimulation()
@@ -58,6 +59,7 @@ export default function App() {
 
   if (appScreen === 'history') return <SessionHistory onBack={() => setAppScreen('home')} />
   if (appScreen === 'admin') return <Admin onBack={() => setAppScreen('home')} />
+  if (appScreen === 'portal') return <CandidatePortal onBack={() => setAppScreen('home')} />
 
   return (
     <Home
@@ -66,6 +68,7 @@ export default function App() {
       connectionError={state.connectionError}
       onViewHistory={() => setAppScreen('history')}
       onAdmin={() => setAppScreen('admin')}
+      onPortal={() => setAppScreen('portal')}
       theme={theme}
       onToggleTheme={toggleTheme}
     />

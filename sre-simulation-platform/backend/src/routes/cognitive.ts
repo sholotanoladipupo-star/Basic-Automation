@@ -121,3 +121,39 @@ cognitiveRouter.get('/admin/attempts', requireAdmin, async (_req, res) => {
     res.json(r.rows)
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
+
+cognitiveRouter.post('/admin/questions', requireAdmin, async (req, res) => {
+  const { question, type, options, correct_answer, explanation, difficulty, points } = req.body as Record<string, unknown>
+  try {
+    const r = await pool.query(
+      `INSERT INTO cognitive_questions (question, type, options, correct_answer, explanation, difficulty, points)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [question, type ?? 'mcq', JSON.stringify(options ?? []), correct_answer, explanation ?? '', difficulty ?? 'medium', points ?? 10]
+    )
+    res.json(r.rows[0])
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+cognitiveRouter.put('/admin/questions/:id', requireAdmin, async (req, res) => {
+  const { question, type, options, correct_answer, explanation, difficulty, points } = req.body as Record<string, unknown>
+  try {
+    const r = await pool.query(
+      `UPDATE cognitive_questions SET
+        question = COALESCE($1, question), type = COALESCE($2, type),
+        options = COALESCE($3::jsonb, options), correct_answer = COALESCE($4, correct_answer),
+        explanation = COALESCE($5, explanation), difficulty = COALESCE($6, difficulty),
+        points = COALESCE($7, points)
+       WHERE id = $8 RETURNING *`,
+      [question, type, options ? JSON.stringify(options) : null, correct_answer, explanation, difficulty, points, req.params.id]
+    )
+    if (!r.rows[0]) { res.status(404).json({ error: 'Not found' }); return }
+    res.json(r.rows[0])
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+cognitiveRouter.delete('/admin/questions/:id', requireAdmin, async (req, res) => {
+  try {
+    await pool.query(`DELETE FROM cognitive_questions WHERE id = $1`, [req.params.id])
+    res.json({ ok: true })
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})

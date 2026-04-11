@@ -122,12 +122,16 @@ export function useSimulation(): [SimulationState, SimulationActions] {
   const [state, setState] = useState<SimulationState>(INITIAL_STATE)
   const wsRef = useRef<WebSocket | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectAttemptsRef = useRef(0)
+  const sessionIdRef = useRef<string | null>(null)
   const candidateNameRef = useRef<string>('')
 
   useEffect(() => {
     return () => {
       if (wsRef.current) wsRef.current.close()
       if (timerRef.current) clearInterval(timerRef.current)
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
     }
   }, [])
 
@@ -156,9 +160,19 @@ export function useSimulation(): [SimulationState, SimulationActions] {
     ws.onerror = () => {
       setState(s => ({ ...s, connected: false, connecting: false, connectionError: 'Could not connect to backend. Check that the server is running.' }))
     }
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       setState(s => ({ ...s, connected: false }))
       if (timerRef.current) clearInterval(timerRef.current)
+      // Auto-reconnect (up to 5 attempts, exponential backoff) — only if session was active
+      if (ev.code !== 1000 && reconnectAttemptsRef.current < 5 && sessionIdRef.current) {
+        const delay = Math.min(1000 * 2 ** reconnectAttemptsRef.current, 16000)
+        reconnectAttemptsRef.current += 1
+        setState(s => ({ ...s, terminalLines: addLine(s.terminalLines, 'system', `⚠ Connection lost. Reconnecting in ${Math.round(delay / 1000)}s… (attempt ${reconnectAttemptsRef.current}/5)`) }))
+        reconnectTimerRef.current = setTimeout(() => {
+          setState(s => ({ ...s, terminalLines: addLine(s.terminalLines, 'system', '⟳ Reconnecting…') }))
+          connect(candidateNameRef.current)
+        }, delay)
+      }
     }
   }, [])
 
@@ -173,6 +187,8 @@ export function useSimulation(): [SimulationState, SimulationActions] {
     setState(s => {
       switch (msg.type) {
         case 'session_started': {
+          sessionIdRef.current = msg.payload.session_id
+          reconnectAttemptsRef.current = 0
           if (timerRef.current) clearInterval(timerRef.current)
           timerRef.current = setInterval(() => setState(prev => ({ ...prev, elapsedSeconds: prev.elapsedSeconds + 1 })), 1000)
           const moduleType = msg.payload.module_type ?? 'incident'
@@ -182,6 +198,7 @@ export function useSimulation(): [SimulationState, SimulationActions] {
             scenario_name: msg.payload.scenario_name,
             difficulty: msg.payload.difficulty, time_limit_minutes: msg.payload.time_limit_minutes,
             module_type: moduleType, question_id: msg.payload.question_id ?? null,
+            is_practice: msg.payload.is_practice ?? false,
             available_runbooks: msg.payload.available_runbooks, available_dashboards: msg.payload.available_dashboards
           }
           const welcomeLines: TerminalLine[] = [

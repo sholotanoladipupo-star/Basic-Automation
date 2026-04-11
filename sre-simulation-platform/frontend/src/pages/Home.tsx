@@ -6,11 +6,12 @@ interface HomeProps {
   connectionError: string | null
   onViewHistory: () => void
   onAdmin: () => void
+  onPortal?: () => void
   theme?: 'dark' | 'light'
   onToggleTheme?: () => void
 }
 
-export default function Home({ onStart, connecting, connectionError, onViewHistory, onAdmin, theme = 'dark', onToggleTheme }: HomeProps) {
+export default function Home({ onStart, connecting, connectionError, onViewHistory, onAdmin, onPortal, theme = 'dark', onToggleTheme }: HomeProps) {
   const [name, setName] = useState('')
 
   function handleSubmit(e: React.FormEvent) {
@@ -95,6 +96,14 @@ export default function Home({ onStart, connecting, connectionError, onViewHisto
             📋 Session History
           </button>
           <span>·</span>
+          {onPortal && (
+            <>
+              <button onClick={onPortal} className="hover:text-[#58a6ff] transition-colors">
+                My Results
+              </button>
+              <span>·</span>
+            </>
+          )}
           <button onClick={onAdmin} className="hover:text-[#8b949e] transition-colors">
             Admin
           </button>
