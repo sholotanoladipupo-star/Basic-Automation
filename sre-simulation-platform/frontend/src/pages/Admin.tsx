@@ -1,20 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 const API_BASE = (import.meta.env.VITE_WS_URL ?? 'ws://localhost:3001')
   .replace('ws://', 'http://')
   .replace('wss://', 'https://')
 
 const SCENARIOS = [
-  { id: 'cache-db-cascade',       name: 'Redis Cache → DB Cascade',                         difficulty: 'SENIOR', timeLimit: 10 },
-  { id: 'db-slow-queries',        name: 'Database Slow Queries — Connection Pool Exhaustion', difficulty: 'SENIOR', timeLimit: 10 },
-  { id: 'spanner-high-utilization', name: 'Cloud Spanner Node CPU Spike — Hot Key Hotspot', difficulty: 'SENIOR', timeLimit: 10 },
-  { id: 'pod-crashloop',          name: 'checkout-service Pods in CrashLoopBackOff',          difficulty: 'SENIOR', timeLimit: 10 },
-  { id: 'db-replica-ip-change',   name: 'Database Connectivity Issues',        difficulty: 'MID',    timeLimit: 10 },
-  { id: 'missing-table',          name: 'Payment Processing Errors',           difficulty: 'MID',    timeLimit: 10 },
-  { id: 'kafka-consumer-lag',     name: 'Event Processing Degradation',        difficulty: 'MID',    timeLimit: 10 },
-  { id: 'config-key-missing',     name: 'Service Deployment Anomaly',          difficulty: 'MID',    timeLimit: 10 },
-  { id: 'pod-oom-killed',         name: 'Container Resource Pressure',         difficulty: 'MID',    timeLimit: 10 },
-  { id: 'network-policy-block',   name: 'Network Connectivity Anomaly',        difficulty: 'MID',    timeLimit: 10 },
+  { id: 'cache-db-cascade',         name: 'Redis Cache → DB Cascade',                          difficulty: 'SENIOR', timeLimit: 10 },
+  { id: 'db-slow-queries',          name: 'Database Slow Queries — Connection Pool Exhaustion', difficulty: 'SENIOR', timeLimit: 10 },
+  { id: 'spanner-high-utilization', name: 'Cloud Spanner Node CPU Spike — Hot Key Hotspot',    difficulty: 'SENIOR', timeLimit: 10 },
+  { id: 'pod-crashloop',            name: 'checkout-service Pods in CrashLoopBackOff',          difficulty: 'SENIOR', timeLimit: 10 },
+  { id: 'db-replica-ip-change',     name: 'Database Connectivity Issues',                       difficulty: 'MID',    timeLimit: 10 },
+  { id: 'missing-table',            name: 'Payment Processing Errors',                          difficulty: 'MID',    timeLimit: 10 },
+  { id: 'kafka-consumer-lag',       name: 'Event Processing Degradation',                       difficulty: 'MID',    timeLimit: 10 },
+  { id: 'config-key-missing',       name: 'Service Deployment Anomaly',                         difficulty: 'MID',    timeLimit: 10 },
+  { id: 'pod-oom-killed',           name: 'Container Resource Pressure',                        difficulty: 'MID',    timeLimit: 10 },
+  { id: 'network-policy-block',     name: 'Network Connectivity Anomaly',                       difficulty: 'MID',    timeLimit: 10 },
 ]
 
 interface Assignment {
@@ -45,40 +45,65 @@ interface MonitoringQuestion {
   created_at: string
 }
 
-interface AdminProps {
-  onBack: () => void
-}
+interface SchemaColumn { name: string; type: string }
+interface SchemaTable  { columns: SchemaColumn[]; sample_rows: Record<string, unknown>[] }
+type SqlSchema = Record<string, SchemaTable>
 
+interface QueryResult { columns: string[]; rows: Record<string, unknown>[]; error?: string; row_count?: number }
+
+interface AdminProps { onBack: () => void }
 type Tab = 'assign' | 'sql' | 'monitoring'
+type FocusedField = 'starter_query' | 'solution_query' | 'schema_hint'
 
 export default function Admin({ onBack }: AdminProps) {
   const [adminKey, setAdminKey] = useState('')
-  const [authed, setAuthed] = useState(false)
+  const [authed, setAuthed]     = useState(false)
   const [authError, setAuthError] = useState('')
-  const [tab, setTab] = useState<Tab>('assign')
+  const [tab, setTab]           = useState<Tab>('assign')
 
   // Assign tab
-  const [assignments, setAssignments] = useState<Assignment[]>([])
-  const [candidateName, setCandidateName] = useState('')
-  const [moduleType, setModuleType] = useState<'incident' | 'sql' | 'monitoring' | 'cognitive'>('incident')
-  const [scenarioId, setScenarioId] = useState('cache-db-cascade')
+  const [assignments, setAssignments]           = useState<Assignment[]>([])
+  const [candidateName, setCandidateName]       = useState('')
+  const [moduleType, setModuleType]             = useState<'incident' | 'sql' | 'monitoring' | 'cognitive'>('incident')
+  const [scenarioId, setScenarioId]             = useState('cache-db-cascade')
   const [selectedQuestionId, setSelectedQuestionId] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [createError, setCreateError] = useState('')
-  const [createSuccess, setCreateSuccess] = useState('')
+  const [creating, setCreating]                 = useState(false)
+  const [createError, setCreateError]           = useState('')
+  const [createSuccess, setCreateSuccess]       = useState('')
 
-  // SQL tab
+  // SQL tab — form
   const [sqlQuestions, setSqlQuestions] = useState<SQLQuestion[]>([])
-  const [sqlForm, setSqlForm] = useState({ title: '', description: '', difficulty: 'medium', question_type: 'write', starter_query: '', expected_output: '{}', schema_hint: '', hint: '', time_limit_seconds: '300' })
-  const [sqlFormError, setSqlFormError] = useState('')
+  const [sqlForm, setSqlForm] = useState({
+    title: '', description: '', difficulty: 'medium', question_type: 'write',
+    starter_query: '', solution_query: '', expected_output: '{}',
+    schema_hint: '', hint: '', time_limit_seconds: '300',
+  })
+  const [sqlFormError, setSqlFormError]   = useState('')
   const [sqlFormSuccess, setSqlFormSuccess] = useState('')
+
+  // SQL tab — schema browser
+  const [sqlSchema, setSqlSchema]       = useState<SqlSchema>({})
+  const [schemaLoading, setSchemaLoading] = useState(false)
+  const [expandedTable, setExpandedTable] = useState<string | null>('employees')
+  const [previewTable, setPreviewTable]   = useState<string | null>(null)
+  const [lastFocused, setLastFocused]     = useState<FocusedField>('solution_query')
+
+  // SQL tab — live tester
+  const [testResult, setTestResult] = useState<QueryResult | null>(null)
+  const [testing, setTesting]       = useState(false)
+
+  // textarea refs for click-to-insert
+  const starterQueryRef  = useRef<HTMLTextAreaElement>(null)
+  const solutionQueryRef = useRef<HTMLTextAreaElement>(null)
+  const schemaHintRef    = useRef<HTMLTextAreaElement>(null)
 
   // Monitoring tab
   const [monitoringQuestions, setMonitoringQuestions] = useState<MonitoringQuestion[]>([])
   const [monForm, setMonForm] = useState({ title: '', scenario: '', difficulty: 'medium', sub_questions: '', time_limit_seconds: '600' })
-  const [monFormError, setMonFormError] = useState('')
+  const [monFormError, setMonFormError]     = useState('')
   const [monFormSuccess, setMonFormSuccess] = useState('')
 
+  // ── Loaders ──────────────────────────────────────────────────────────────
   async function handleAuth(e: React.FormEvent) {
     e.preventDefault()
     setAuthError('')
@@ -104,6 +129,16 @@ export default function Admin({ onBack }: AdminProps) {
     } catch { /* ignore */ }
   }
 
+  async function loadSqlSchema() {
+    if (Object.keys(sqlSchema).length > 0) return
+    setSchemaLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/sql/schema`)
+      if (res.ok) setSqlSchema(await res.json() as SqlSchema)
+    } catch { /* ignore */ }
+    finally { setSchemaLoading(false) }
+  }
+
   async function loadMonitoringQuestions() {
     try {
       const res = await fetch(`${API_BASE}/monitoring/admin/questions`, { headers: { 'x-admin-key': adminKey } })
@@ -118,6 +153,36 @@ export default function Admin({ onBack }: AdminProps) {
     return () => clearInterval(iv)
   }, [authed])
 
+  useEffect(() => {
+    if (authed && tab === 'sql') loadSqlSchema()
+  }, [authed, tab])
+
+  // ── Insert at cursor ──────────────────────────────────────────────────────
+  function insertAtFocused(text: string) {
+    const refMap: Record<FocusedField, React.RefObject<HTMLTextAreaElement | null>> = {
+      starter_query:  starterQueryRef,
+      solution_query: solutionQueryRef,
+      schema_hint:    schemaHintRef,
+    }
+    const ref = refMap[lastFocused]
+    const el  = ref?.current
+    if (!el) {
+      setSqlForm(f => ({ ...f, [lastFocused]: (f[lastFocused as keyof typeof f] as string) + ' ' + text }))
+      return
+    }
+    const start  = el.selectionStart ?? el.value.length
+    const end    = el.selectionEnd   ?? el.value.length
+    const newVal = el.value.slice(0, start) + text + el.value.slice(end)
+    setSqlForm(f => ({ ...f, [lastFocused]: newVal }))
+    setTimeout(() => {
+      if (ref.current) {
+        ref.current.selectionStart = ref.current.selectionEnd = start + text.length
+        ref.current.focus()
+      }
+    }, 0)
+  }
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     if (!candidateName.trim()) return
@@ -156,6 +221,27 @@ export default function Admin({ onBack }: AdminProps) {
     } catch { /* ignore */ }
   }
 
+  async function handleTestQuery() {
+    const q = sqlForm.solution_query.trim() || sqlForm.starter_query.trim()
+    if (!q) return
+    setTesting(true); setTestResult(null)
+    try {
+      const res = await fetch(`${API_BASE}/sql/query`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: q })
+      })
+      setTestResult(await res.json() as QueryResult)
+    } catch (err) { setTestResult({ columns: [], rows: [], error: String(err) }) }
+    finally { setTesting(false) }
+  }
+
+  function handleUseAsExpected() {
+    if (!testResult || testResult.error) return
+    const out = { columns: testResult.columns, rows: testResult.rows }
+    setSqlForm(f => ({ ...f, expected_output: JSON.stringify(out, null, 2) }))
+  }
+
   async function handleCreateSqlQuestion(e: React.FormEvent) {
     e.preventDefault()
     setSqlFormError(''); setSqlFormSuccess('')
@@ -169,7 +255,8 @@ export default function Admin({ onBack }: AdminProps) {
       })
       if (!res.ok) { setSqlFormError(((await res.json()) as { error: string }).error); return }
       setSqlFormSuccess('✓ SQL question created')
-      setSqlForm({ title: '', description: '', difficulty: 'medium', question_type: 'write', starter_query: '', expected_output: '{}', schema_hint: '', hint: '', time_limit_seconds: '300' })
+      setSqlForm({ title: '', description: '', difficulty: 'medium', question_type: 'write', starter_query: '', solution_query: '', expected_output: '{}', schema_hint: '', hint: '', time_limit_seconds: '300' })
+      setTestResult(null)
       await loadSqlQuestions()
     } catch (err) { setSqlFormError(String(err)) }
   }
@@ -202,6 +289,7 @@ export default function Admin({ onBack }: AdminProps) {
     await loadMonitoringQuestions()
   }
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
   function fmt(iso: string) {
     return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
   }
@@ -211,20 +299,148 @@ export default function Admin({ onBack }: AdminProps) {
     if (mt === 'cognitive') return 'COGNITIVE'
     return 'INCIDENT'
   }
-
   function moduleBadgeClass(mt: string) {
     if (mt === 'sql') return 'border-[#58a6ff] text-[#58a6ff]'
     if (mt === 'monitoring') return 'border-[#bc8cff] text-[#bc8cff]'
     if (mt === 'cognitive') return 'border-[#e3b341] text-[#e3b341]'
     return 'border-[#f85149] text-[#f85149]'
   }
+  function typeColor(t: string) {
+    if (t.includes('int') || t.includes('numeric') || t.includes('float')) return '#58a6ff'
+    if (t.includes('text') || t.includes('varchar') || t.includes('char')) return '#3fb950'
+    if (t.includes('timestamp') || t.includes('date')) return '#d29922'
+    if (t.includes('bool')) return '#f2cc60'
+    return '#8b949e'
+  }
 
   const inputCls = "w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-2 text-sm text-[#e6edf3] placeholder-[#484f58] focus:outline-none focus:border-[#58a6ff] transition-colors"
-  const labelCls = "block text-[#8b949e] mb-1.5"
+  const labelCls = "block text-[#8b949e] mb-1.5 text-xs"
+  const focusProps = (field: FocusedField) => ({ onFocus: () => setLastFocused(field) })
+
+  // ── Schema browser sidebar ─────────────────────────────────────────────────
+  const TABLE_ORDER = ['departments', 'employees', 'projects', 'project_assignments', 'incidents']
+
+  function SchemaBrowser() {
+    return (
+      <div className="w-56 flex-shrink-0 bg-[#0d1117] border border-[#30363d] rounded-lg overflow-hidden flex flex-col self-start sticky top-0">
+        <div className="px-3 py-2 border-b border-[#30363d] flex items-center justify-between">
+          <div className="text-[#8b949e] uppercase tracking-widest text-[10px]">sql_sandbox schema</div>
+          {schemaLoading && <div className="text-[#484f58] text-[10px] animate-pulse">loading…</div>}
+        </div>
+
+        <div className="text-[#484f58] text-[10px] px-3 py-1.5 border-b border-[#21262d]">
+          Click a table or column to insert at cursor
+        </div>
+
+        <div className="overflow-y-auto flex-1">
+          {TABLE_ORDER.map(tableName => {
+            const tbl = sqlSchema[tableName]
+            if (!tbl) return null
+            const isExpanded = expandedTable === tableName
+            const isPreview  = previewTable === tableName
+            return (
+              <div key={tableName} className="border-b border-[#21262d] last:border-0">
+                {/* Table header */}
+                <div className="flex items-center">
+                  <button
+                    onClick={() => setExpandedTable(isExpanded ? null : tableName)}
+                    className="flex-1 flex items-center gap-2 px-3 py-2 hover:bg-[#161b22] transition-colors text-left"
+                  >
+                    <span className="text-[#484f58] text-[10px]">{isExpanded ? '▾' : '▸'}</span>
+                    <span className="text-[#58a6ff] text-[11px] font-bold font-mono">{tableName}</span>
+                    <span className="text-[#484f58] text-[9px] ml-auto">{tbl.columns.length} cols</span>
+                  </button>
+                  <button
+                    onClick={() => insertAtFocused(tableName)}
+                    title="Insert table name"
+                    className="px-2 py-2 text-[#484f58] hover:text-[#3fb950] transition-colors text-[11px]"
+                  >+</button>
+                </div>
+
+                {/* Columns */}
+                {isExpanded && (
+                  <div className="pb-1">
+                    {tbl.columns.map(col => (
+                      <button
+                        key={col.name}
+                        onClick={() => insertAtFocused(col.name)}
+                        className="w-full flex items-center gap-2 px-5 py-1 hover:bg-[#161b22] transition-colors text-left group"
+                        title={`Insert "${col.name}"`}
+                      >
+                        <span className="text-[#484f58] text-[9px] w-3">⬡</span>
+                        <span className="text-[#e6edf3] text-[11px] font-mono flex-1">{col.name}</span>
+                        <span className="text-[9px] font-mono" style={{ color: typeColor(col.type) }}>{col.type.replace('character varying', 'varchar').replace('timestamp with time zone', 'timestamptz')}</span>
+                      </button>
+                    ))}
+
+                    {/* Sample data toggle */}
+                    <button
+                      onClick={() => setPreviewTable(isPreview ? null : tableName)}
+                      className="w-full text-left px-5 py-1 text-[#484f58] hover:text-[#8b949e] text-[10px] transition-colors"
+                    >
+                      {isPreview ? '▾ Hide preview' : '▸ Preview data'}
+                    </button>
+
+                    {isPreview && tbl.sample_rows.length > 0 && (
+                      <div className="mx-3 mb-2 overflow-x-auto rounded border border-[#21262d]">
+                        <table className="text-[9px] font-mono w-full">
+                          <thead>
+                            <tr className="border-b border-[#21262d]">
+                              {tbl.columns.map(c => (
+                                <th key={c.name} className="px-2 py-1 text-[#484f58] text-left whitespace-nowrap">{c.name}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {tbl.sample_rows.slice(0, 3).map((row, ri) => (
+                              <tr key={ri} className="border-b border-[#21262d] last:border-0">
+                                {tbl.columns.map(c => (
+                                  <td key={c.name} className="px-2 py-1 text-[#8b949e] whitespace-nowrap max-w-[80px] truncate">
+                                    {row[c.name] === null ? <span className="text-[#484f58]">NULL</span> : String(row[c.name])}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {Object.keys(sqlSchema).length === 0 && !schemaLoading && (
+            <div className="px-3 py-4 text-[#484f58] text-[11px]">
+              Schema not available — seed the DB first via<br />
+              <code className="text-[#8b949e]">npm run db:seed-questions</code>
+            </div>
+          )}
+        </div>
+
+        {/* Active field indicator */}
+        <div className="px-3 py-2 border-t border-[#21262d] bg-[#161b22]">
+          <div className="text-[#484f58] text-[9px] uppercase tracking-widest mb-0.5">Inserting into</div>
+          <div className="flex gap-1.5">
+            {(['starter_query', 'solution_query', 'schema_hint'] as FocusedField[]).map(f => (
+              <button
+                key={f}
+                onClick={() => setLastFocused(f)}
+                className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${lastFocused === f ? 'border-[#3fb950] text-[#3fb950]' : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e]'}`}
+              >
+                {f === 'starter_query' ? 'starter' : f === 'solution_query' ? 'solution' : 'hint'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-[#0d1117] font-mono text-xs px-4 py-8">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <div className="flex items-center gap-4 mb-8">
           <button onClick={onBack} className="text-[#58a6ff] hover:text-[#79c0ff] transition-colors">← Back</button>
           <div>
@@ -291,9 +507,7 @@ export default function Admin({ onBack }: AdminProps) {
                         <label className={labelCls}>Scenario</label>
                         <div className="space-y-2">
                           {SCENARIOS.map(s => (
-                            <label key={s.id} className={`flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors ${
-                              scenarioId === s.id ? 'border-[#3fb950] bg-[#0d1117]'
-                              : 'border-[#30363d] hover:border-[#484f58]'}`}>
+                            <label key={s.id} className={`flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors ${scenarioId === s.id ? 'border-[#3fb950] bg-[#0d1117]' : 'border-[#30363d] hover:border-[#484f58]'}`}>
                               <input type="radio" name="scenario" value={s.id} checked={scenarioId === s.id} onChange={() => setScenarioId(s.id)} className="accent-[#3fb950]" />
                               <span className="text-[#e6edf3] flex-1">{s.name}</span>
                               <span className="text-[#8b949e]">{s.timeLimit}min</span>
@@ -345,12 +559,12 @@ export default function Admin({ onBack }: AdminProps) {
                       <div className="bg-[#0d1117] border border-[#e3b341] rounded p-4">
                         <div className="text-[#e3b341] font-bold mb-1">Cognitive Assessment</div>
                         <div className="text-[#8b949e] leading-relaxed">
-                          The candidate will be shown all available cognitive questions (logical reasoning and numerical problems). No specific question selection is needed — the full question bank is used automatically.
+                          The candidate will be shown all available cognitive questions. No specific question selection needed — the full question bank is used automatically.
                         </div>
                       </div>
                     )}
 
-                    {createError && <div className="text-[#f85149]">✗ {createError}</div>}
+                    {createError   && <div className="text-[#f85149]">✗ {createError}</div>}
                     {createSuccess && <div className="text-[#3fb950]">{createSuccess}</div>}
                     <button type="submit" disabled={!candidateName.trim() || creating}
                       className="bg-[#238636] hover:bg-[#2ea043] disabled:bg-[#161b22] disabled:text-[#484f58] text-white font-bold py-2 px-6 rounded border border-[#2ea043] disabled:border-[#30363d] transition-all">
@@ -404,15 +618,23 @@ export default function Admin({ onBack }: AdminProps) {
             {/* ── SQL QUESTIONS TAB ── */}
             {tab === 'sql' && (
               <div className="space-y-5">
-                <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
-                  <div className="text-[#8b949e] uppercase tracking-widest mb-4">Create SQL Question</div>
-                  <form onSubmit={handleCreateSqlQuestion} className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className={labelCls}>Title</label>
-                        <input value={sqlForm.title} onChange={e => setSqlForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Find employees by dept" className={inputCls} />
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
+                {/* Create form + schema browser side-by-side */}
+                <div className="flex gap-4 items-start">
+
+                  {/* ── Schema Browser ── */}
+                  <SchemaBrowser />
+
+                  {/* ── Question Form ── */}
+                  <div className="flex-1 bg-[#161b22] border border-[#30363d] rounded-lg p-5">
+                    <div className="text-[#8b949e] uppercase tracking-widest mb-4">Create SQL Question</div>
+                    <form onSubmit={handleCreateSqlQuestion} className="space-y-3">
+
+                      {/* Title + meta */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="col-span-1">
+                          <label className={labelCls}>Title</label>
+                          <input value={sqlForm.title} onChange={e => setSqlForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Find top earners by dept" className={inputCls} />
+                        </div>
                         <div>
                           <label className={labelCls}>Difficulty</label>
                           <select value={sqlForm.difficulty} onChange={e => setSqlForm(f => ({ ...f, difficulty: e.target.value }))} className={inputCls}>
@@ -424,54 +646,178 @@ export default function Admin({ onBack }: AdminProps) {
                         <div>
                           <label className={labelCls}>Type</label>
                           <select value={sqlForm.question_type} onChange={e => setSqlForm(f => ({ ...f, question_type: e.target.value }))} className={inputCls}>
-                            <option value="write">Write</option>
-                            <option value="fix">Fix</option>
-                            <option value="identify">Identify</option>
+                            <option value="write">Write query</option>
+                            <option value="fix">Fix broken query</option>
+                            <option value="identify">Identify the issue</option>
                           </select>
                         </div>
                       </div>
-                    </div>
-                    <div>
-                      <label className={labelCls}>Description</label>
-                      <textarea value={sqlForm.description} onChange={e => setSqlForm(f => ({ ...f, description: e.target.value }))} rows={3} placeholder="What should the candidate do?" className={inputCls + ' resize-none'} />
-                    </div>
-                    <div>
-                      <label className={labelCls}>Starter Query (optional)</label>
-                      <textarea value={sqlForm.starter_query} onChange={e => setSqlForm(f => ({ ...f, starter_query: e.target.value }))} rows={3} placeholder="SELECT ..." className={inputCls + ' resize-none font-mono text-[11px]'} />
-                    </div>
-                    <div>
-                      <label className={labelCls}>Expected Output (JSON)</label>
-                      <div className="text-[#484f58] text-[10px] mb-1">Format: {'{ "columns": ["col1"], "rows": [{"col1": "val"}] }'}</div>
-                      <textarea value={sqlForm.expected_output} onChange={e => setSqlForm(f => ({ ...f, expected_output: e.target.value }))} rows={3} className={inputCls + ' resize-none font-mono text-[11px]'} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
+
+                      {/* Description */}
                       <div>
-                        <label className={labelCls}>Schema Hint</label>
-                        <textarea value={sqlForm.schema_hint} onChange={e => setSqlForm(f => ({ ...f, schema_hint: e.target.value }))} rows={3} placeholder="Table definitions..." className={inputCls + ' resize-none font-mono text-[11px]'} />
+                        <label className={labelCls}>Description — what the candidate sees</label>
+                        <textarea value={sqlForm.description} onChange={e => setSqlForm(f => ({ ...f, description: e.target.value }))} rows={2} placeholder="Write a query that returns employees earning above the company average, showing name, department, and salary." className={inputCls + ' resize-none'} />
                       </div>
+
+                      {/* Schema Hint */}
                       <div>
-                        <label className={labelCls}>Hint (shown on request)</label>
-                        <textarea value={sqlForm.hint} onChange={e => setSqlForm(f => ({ ...f, hint: e.target.value }))} rows={3} placeholder="Optional hint..." className={inputCls + ' resize-none'} />
+                        <label className={labelCls}>
+                          Schema Hint <span className="text-[#484f58] ml-1">(shown to candidate alongside the question — click tables/columns in the browser to insert)</span>
+                        </label>
+                        <textarea
+                          ref={schemaHintRef}
+                          value={sqlForm.schema_hint}
+                          onChange={e => setSqlForm(f => ({ ...f, schema_hint: e.target.value }))}
+                          {...focusProps('schema_hint')}
+                          rows={3}
+                          placeholder={`employees(id, name, department_id, role, salary, hire_date, manager_id)\ndepartments(id, name, budget, location)\n...`}
+                          className={inputCls + ' resize-none font-mono text-[11px]'}
+                        />
                       </div>
-                    </div>
-                    <div className="flex items-center gap-4">
+
+                      {/* Starter Query */}
                       <div>
-                        <label className={labelCls}>Time Limit (seconds)</label>
-                        <input type="number" value={sqlForm.time_limit_seconds} onChange={e => setSqlForm(f => ({ ...f, time_limit_seconds: e.target.value }))} className={inputCls + ' w-32'} />
+                        <label className={labelCls}>
+                          Starter Query <span className="text-[#484f58] ml-1">(pre-filled in candidate editor — leave blank for "write" questions)</span>
+                        </label>
+                        <textarea
+                          ref={starterQueryRef}
+                          value={sqlForm.starter_query}
+                          onChange={e => setSqlForm(f => ({ ...f, starter_query: e.target.value }))}
+                          {...focusProps('starter_query')}
+                          rows={3}
+                          placeholder="SELECT ... FROM employees WHERE ..."
+                          className={inputCls + ' resize-none font-mono text-[11px]'}
+                        />
                       </div>
-                    </div>
-                    {sqlFormError && <div className="text-[#f85149]">✗ {sqlFormError}</div>}
-                    {sqlFormSuccess && <div className="text-[#3fb950]">{sqlFormSuccess}</div>}
-                    <button type="submit" className="bg-[#238636] hover:bg-[#2ea043] text-white font-bold py-2 px-6 rounded border border-[#2ea043] transition-all">
-                      + Create SQL Question
-                    </button>
-                  </form>
+
+                      {/* Solution Query + Test */}
+                      <div>
+                        <label className={labelCls}>
+                          Solution Query <span className="text-[#484f58] ml-1">(used for live scoring — run it to auto-fill expected output)</span>
+                        </label>
+                        <textarea
+                          ref={solutionQueryRef}
+                          value={sqlForm.solution_query}
+                          onChange={e => setSqlForm(f => ({ ...f, solution_query: e.target.value }))}
+                          {...focusProps('solution_query')}
+                          rows={4}
+                          placeholder="SELECT e.name, d.name as department, e.salary&#10;FROM employees e&#10;JOIN departments d ON d.id = e.department_id&#10;WHERE e.salary > (SELECT AVG(salary) FROM employees)&#10;ORDER BY e.salary DESC"
+                          className={inputCls + ' resize-none font-mono text-[11px]'}
+                        />
+                        <div className="flex gap-2 mt-2">
+                          <button
+                            type="button"
+                            onClick={handleTestQuery}
+                            disabled={testing || (!sqlForm.solution_query.trim() && !sqlForm.starter_query.trim())}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#58a6ff]/10 hover:bg-[#58a6ff]/20 border border-[#58a6ff]/40 text-[#58a6ff] rounded text-[11px] font-bold disabled:opacity-40 transition-all"
+                          >
+                            {testing ? '⏳ Running…' : '▶ Run Query'}
+                          </button>
+                          {testResult && !testResult.error && (
+                            <button
+                              type="button"
+                              onClick={handleUseAsExpected}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#3fb950]/10 hover:bg-[#3fb950]/20 border border-[#3fb950]/40 text-[#3fb950] rounded text-[11px] font-bold transition-all"
+                            >
+                              ← Use as Expected Output
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Test result preview */}
+                        {testResult && (
+                          <div className="mt-2 rounded border border-[#30363d] overflow-hidden">
+                            {testResult.error ? (
+                              <div className="px-3 py-2 bg-[#2a0a0a] text-[#f85149] text-[11px]">
+                                ✗ {testResult.error}
+                              </div>
+                            ) : (
+                              <>
+                                <div className="px-3 py-1.5 bg-[#0f2a1a] border-b border-[#30363d] text-[#3fb950] text-[10px]">
+                                  ✓ {testResult.row_count ?? testResult.rows.length} row{(testResult.row_count ?? testResult.rows.length) !== 1 ? 's' : ''} returned
+                                </div>
+                                <div className="overflow-x-auto max-h-40">
+                                  <table className="w-full text-[10px] font-mono">
+                                    <thead>
+                                      <tr className="border-b border-[#30363d]">
+                                        {testResult.columns.map(c => (
+                                          <th key={c} className="px-3 py-1.5 text-left text-[#484f58] whitespace-nowrap">{c}</th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {testResult.rows.slice(0, 8).map((row, ri) => (
+                                        <tr key={ri} className="border-b border-[#21262d] last:border-0 hover:bg-[#1c2128]">
+                                          {testResult.columns.map(c => (
+                                            <td key={c} className="px-3 py-1 text-[#8b949e] whitespace-nowrap">
+                                              {row[c] === null ? <span className="text-[#484f58]">NULL</span> : String(row[c])}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                                {testResult.rows.length > 8 && (
+                                  <div className="px-3 py-1 text-[#484f58] text-[10px] border-t border-[#21262d]">…{testResult.rows.length - 8} more rows</div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Expected Output */}
+                      <div>
+                        <label className={labelCls}>
+                          Expected Output (JSON) <span className="text-[#484f58] ml-1">— auto-filled when you click "Use as Expected Output"</span>
+                        </label>
+                        <textarea
+                          value={sqlForm.expected_output}
+                          onChange={e => setSqlForm(f => ({ ...f, expected_output: e.target.value }))}
+                          rows={3}
+                          className={inputCls + ' resize-none font-mono text-[11px]'}
+                        />
+                      </div>
+
+                      {/* Hint + time */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className={labelCls}>Hint (shown on request)</label>
+                          <textarea value={sqlForm.hint} onChange={e => setSqlForm(f => ({ ...f, hint: e.target.value }))} rows={2} placeholder="Optional hint…" className={inputCls + ' resize-none'} />
+                        </div>
+                        <div>
+                          <label className={labelCls}>Time Limit (seconds)</label>
+                          <input type="number" value={sqlForm.time_limit_seconds} onChange={e => setSqlForm(f => ({ ...f, time_limit_seconds: e.target.value }))} className={inputCls} />
+                        </div>
+                      </div>
+
+                      {sqlFormError   && <div className="text-[#f85149]">✗ {sqlFormError}</div>}
+                      {sqlFormSuccess && <div className="text-[#3fb950]">{sqlFormSuccess}</div>}
+                      <button type="submit" className="bg-[#238636] hover:bg-[#2ea043] text-white font-bold py-2 px-6 rounded border border-[#2ea043] transition-all">
+                        + Create SQL Question
+                      </button>
+                    </form>
+                  </div>
                 </div>
 
+                {/* Questions list */}
                 <div className="bg-[#161b22] border border-[#30363d] rounded-lg overflow-hidden">
-                  <div className="px-5 py-3 border-b border-[#30363d] text-[#8b949e] uppercase tracking-widest">Questions ({sqlQuestions.length})</div>
+                  <div className="px-5 py-3 border-b border-[#30363d] flex items-center justify-between">
+                    <span className="text-[#8b949e] uppercase tracking-widest">Questions ({sqlQuestions.length})</span>
+                    <button
+                      onClick={async () => {
+                        const r = await fetch(`${API_BASE}/sql/admin/seed`, { method: 'POST', headers: { 'x-admin-key': adminKey } })
+                        const data = await r.json() as { inserted: number; skipped: number }
+                        await loadSqlQuestions()
+                        alert(`Seeded ${data.inserted} question(s). ${data.skipped} already existed.`)
+                      }}
+                      className="text-[10px] px-3 py-1 rounded border border-[#58a6ff]/40 text-[#58a6ff] hover:bg-[#58a6ff]/10 transition-colors"
+                    >⚡ Seed Default Questions</button>
+                  </div>
                   {sqlQuestions.length === 0 ? (
-                    <div className="px-5 py-8 text-center text-[#484f58]">No SQL questions yet. Run <code className="text-[#8b949e]">npm run db:seed-questions</code> on the backend to seed examples.</div>
+                    <div className="px-5 py-8 text-center text-[#484f58]">No SQL questions yet. Create one above or seed defaults.</div>
                   ) : (
                     <table className="w-full">
                       <thead><tr className="text-[#484f58] border-b border-[#30363d]">
@@ -528,18 +874,22 @@ export default function Admin({ onBack }: AdminProps) {
                     </div>
                     <div>
                       <label className={labelCls}>Scenario Description</label>
-                      <textarea value={monForm.scenario} onChange={e => setMonForm(f => ({ ...f, scenario: e.target.value }))} rows={4} placeholder="Describe the system context..." className={inputCls + ' resize-none'} />
+                      <textarea value={monForm.scenario} onChange={e => setMonForm(f => ({ ...f, scenario: e.target.value }))} rows={4} placeholder="Describe the system context and what happened…" className={inputCls + ' resize-none'} />
                     </div>
                     <div>
                       <label className={labelCls}>Sub-Questions (JSON array)</label>
                       <div className="text-[#484f58] text-[10px] mb-1.5">
-                        {'[{ "id": "q1", "prompt": "...", "type": "promql|nrql|text|yaml", "placeholder": "...", "required_keywords": [], "bonus_keywords": [], "reference_answer": "..." }]'}
+                        {'[{ "id": "q1", "prompt": "...", "type": "metrics|alerting|investigation|sli_slo|error_budget|alert_fatigue|dashboard", "placeholder": "...", "required_keywords": [], "bonus_keywords": [], "reference_answer": "..." }]'}
                       </div>
-                      <textarea value={monForm.sub_questions} onChange={e => setMonForm(f => ({ ...f, sub_questions: e.target.value }))} rows={8}
-                        placeholder={'[\n  {\n    "id": "q1",\n    "prompt": "Write a PromQL alert for high error rate",\n    "type": "promql",\n    "placeholder": "rate(http_errors_total[5m])",\n    "required_keywords": ["rate", "5m"],\n    "bonus_keywords": ["by (service)"],\n    "reference_answer": "rate(http_errors_total[5m]) > 0.05"\n  }\n]'}
-                        className={inputCls + ' resize-none font-mono text-[11px]'} />
+                      <textarea
+                        value={monForm.sub_questions}
+                        onChange={e => setMonForm(f => ({ ...f, sub_questions: e.target.value }))}
+                        rows={10}
+                        placeholder={'[\n  {\n    "id": "metrics",\n    "prompt": "List the 5 most critical metrics for this service…",\n    "type": "metrics",\n    "placeholder": "Metric 1: Error rate…",\n    "required_keywords": ["threshold", "error rate"],\n    "bonus_keywords": ["p99", "latency"],\n    "reference_answer": "Key metrics are…"\n  }\n]'}
+                        className={inputCls + ' resize-none font-mono text-[11px]'}
+                      />
                     </div>
-                    {monFormError && <div className="text-[#f85149]">✗ {monFormError}</div>}
+                    {monFormError   && <div className="text-[#f85149]">✗ {monFormError}</div>}
                     {monFormSuccess && <div className="text-[#3fb950]">{monFormSuccess}</div>}
                     <button type="submit" className="bg-[#238636] hover:bg-[#2ea043] text-white font-bold py-2 px-6 rounded border border-[#2ea043] transition-all">
                       + Create Monitoring Question
@@ -558,12 +908,10 @@ export default function Admin({ onBack }: AdminProps) {
                         alert(`Seeded ${data.inserted} question(s). ${data.skipped} already existed.`)
                       }}
                       className="text-[10px] px-3 py-1 rounded border border-[#bc8cff]/40 text-[#bc8cff] hover:bg-[#bc8cff]/10 transition-colors"
-                    >
-                      ⚡ Seed Default Questions
-                    </button>
+                    >⚡ Seed Default Questions</button>
                   </div>
                   {monitoringQuestions.length === 0 ? (
-                    <div className="px-5 py-8 text-center text-[#484f58]">No monitoring questions yet. Click "Seed Default Questions" above to add 3 pre-built questions.</div>
+                    <div className="px-5 py-8 text-center text-[#484f58]">No monitoring questions yet. Click "Seed Default Questions" to add 3 pre-built questions.</div>
                   ) : (
                     <table className="w-full">
                       <thead><tr className="text-[#484f58] border-b border-[#30363d]">
