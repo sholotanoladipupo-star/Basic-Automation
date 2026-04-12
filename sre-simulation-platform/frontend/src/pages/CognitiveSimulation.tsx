@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { SessionInfo } from '../types'
+import CountdownTimer from '../components/CountdownTimer'
+import FeedbackForm from '../components/FeedbackForm'
 
 const API_BASE = (import.meta.env.VITE_WS_URL ?? 'ws://localhost:3001')
   .replace('ws://', 'http://')
@@ -66,19 +68,16 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
   const [loadError, setLoadError] = useState('')
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [currentIdx, setCurrentIdx] = useState(0)
-  const [elapsed, setElapsed] = useState(0)
+  const [timedOut, setTimedOut] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [scoreResult, setScoreResult] = useState<ScoreResult | null>(null)
   const [reviewIdx, setReviewIdx] = useState<number | null>(null)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [showFeedback, setShowFeedback] = useState(false)
+  const autoSubmittedRef = useRef(false)
 
   const timeLimit = sessionInfo.time_limit_minutes * 60
-  const remaining = Math.max(0, timeLimit - elapsed)
-  const mins = Math.floor(remaining / 60)
-  const secs = remaining % 60
-  const timedOut = remaining === 0 && !submitted
 
   useEffect(() => {
     fetch(`${API_BASE}/cognitive/questions`)
@@ -93,18 +92,12 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
       .catch(() => setLoadError('Failed to load questions. Please refresh.'))
   }, [])
 
-  useEffect(() => {
-    if (!questions.length || submitted || timedOut) return
-    timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
-    return () => { if (timerRef.current) clearInterval(timerRef.current) }
-  }, [questions.length, submitted, timedOut])
-
-  // Auto-submit when time is up
-  useEffect(() => {
-    if (timedOut && questions.length > 0 && !submitted) {
-      handleSubmit()
-    }
-  }, [timedOut])
+  function handleTimerExpire() {
+    if (autoSubmittedRef.current || submitted) return
+    autoSubmittedRef.current = true
+    setTimedOut(true)
+    handleSubmit()
+  }
 
   const currentQ = questions[currentIdx] ?? null
 
@@ -114,7 +107,6 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
 
   async function handleSubmit() {
     if (submitted || submitting || questions.length === 0) return
-    if (timerRef.current) clearInterval(timerRef.current)
     setSubmitting(true)
     setSubmitError('')
     try {
@@ -134,6 +126,7 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
       }
       setScoreResult(data)
       setSubmitted(true)
+      setShowFeedback(true)
     } catch (err) {
       setSubmitError('Submit failed: ' + String(err))
     } finally {
@@ -164,6 +157,7 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
   if (submitted) {
     return (
       <div className="min-h-screen bg-[#0d1117] font-mono flex flex-col items-center justify-center px-4">
+        {showFeedback && <FeedbackForm sessionId={sessionInfo.session_id} onDone={() => setShowFeedback(false)} />}
         <div className="text-[#3fb950] text-5xl mb-5">✓</div>
         <h1 className="text-xl font-bold text-[#e6edf3] mb-2">Exercise Submitted</h1>
         <p className="text-[#8b949e] text-sm text-center max-w-sm">
@@ -188,9 +182,11 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
         </div>
         <div className="flex items-center gap-4">
           <span className="text-[#484f58]">{answered}/{questions.length} answered</span>
-          <span className={`text-sm font-bold tabular-nums ${remaining < 120 ? 'text-[#f85149] animate-pulse' : remaining < 300 ? 'text-[#d29922]' : 'text-[#3fb950]'}`}>
-            {timedOut ? 'TIME UP' : `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`}
-          </span>
+          {timedOut ? (
+            <span className="text-[#f85149] font-bold text-sm font-mono">TIME UP</span>
+          ) : (
+            <CountdownTimer totalSeconds={timeLimit} paused={submitted} onExpire={handleTimerExpire} />
+          )}
         </div>
       </div>
 

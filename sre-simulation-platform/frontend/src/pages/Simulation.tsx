@@ -64,6 +64,10 @@ export default function Simulation({ state, actions }: SimulationProps) {
   const [showNotesDrawer, setShowNotesDrawer] = useState(false)
   const [notes, setNotes] = useState('')
   const notesKey = sessionInfo ? `sre-notes-${sessionInfo.session_id}` : null
+  const [hintsUsed, setHintsUsed] = useState(0)
+  const [showHintModal, setShowHintModal] = useState(false)
+  const [hintLoading, setHintLoading] = useState(false)
+  const [hintText, setHintText] = useState('')
 
   // Load notes from localStorage when session is known
   useEffect(() => {
@@ -135,6 +139,40 @@ export default function Simulation({ state, actions }: SimulationProps) {
     setShowTour(false)
   }
 
+  function generateContextualHint(): string {
+    if (!systemState) return 'Check your dashboards and logs for anomalies. Look for services with elevated error rates.'
+    const degraded = Object.entries(systemState.services).filter(([, s]) => s.status === 'degraded').map(([n]) => n)
+    const down = Object.entries(systemState.services).filter(([, s]) => s.status === 'down').map(([n]) => n)
+    const parts: string[] = []
+    if (down.length > 0) parts.push(`⚠ Services DOWN: ${down.join(', ')} — these are completely unreachable.`)
+    if (degraded.length > 0) parts.push(`⚠ Services DEGRADED: ${degraded.join(', ')} — elevated error rates or latency.`)
+    const topLatency = Object.entries(systemState.services)
+      .filter(([, s]) => s.p99_latency_ms > 500)
+      .sort(([, a], [, b]) => b.p99_latency_ms - a.p99_latency_ms)
+      .slice(0, 2)
+    if (topLatency.length > 0) parts.push(`🐢 High latency: ${topLatency.map(([n, s]) => `${n} (${s.p99_latency_ms}ms)`).join(', ')}`)
+    if (systemState.active_incidents.length > 0) parts.push(`🔴 ${systemState.active_incidents.length} active incident(s). Look at the blast radius and visible symptoms.`)
+    if (parts.length === 0) return 'Services look stable. Check your GrafanaDashboard for metric anomalies and run log queries for recent errors.'
+    return parts.join('\n')
+  }
+
+  async function handleRequestHint() {
+    if (hintsUsed >= 3 || hintLoading || !sessionInfo) return
+    setHintLoading(true)
+    try {
+      const apiBase = (import.meta.env.VITE_WS_URL ?? 'ws://localhost:3001').replace('ws://', 'http://').replace('wss://', 'https://')
+      const res = await fetch(`${apiBase}/sessions/${sessionInfo.session_id}/hint`, { method: 'POST' })
+      const data = await res.json() as { hints_used: number; hints_remaining: number; error?: string }
+      if (data.error) { setHintText('Max hints reached.'); return }
+      setHintsUsed(data.hints_used)
+      setHintText(generateContextualHint())
+    } catch {
+      setHintText(generateContextualHint())
+    } finally {
+      setHintLoading(false)
+    }
+  }
+
   function handleEscalateSubmit() {
     if (!escalateTo.trim() || !escalateMsg.trim()) return
     actions.escalate(escalateTo.trim(), escalateMsg.trim())
@@ -166,6 +204,43 @@ export default function Simulation({ state, actions }: SimulationProps) {
       {/* Tour guide */}
       {showTour && <TourGuide onFinish={handleFinishTour} />}
 
+      {/* Hint modal */}
+      {showHintModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-[#161b22] border border-[#d29922] rounded-xl p-5 w-full max-w-sm font-mono text-xs shadow-2xl">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-lg">💡</span>
+              <div className="text-[#e6edf3] font-bold text-sm">Request a Hint</div>
+              <div className="ml-auto text-[#484f58]">{3 - hintsUsed} remaining</div>
+            </div>
+            {hintText ? (
+              <>
+                <div className="bg-[#1f1a0a] border border-[#d29922]/40 rounded-lg p-3 mb-4 text-[#d29922] leading-relaxed whitespace-pre-wrap">{hintText}</div>
+                <div className="text-[#484f58] text-[10px] mb-3">-5 points have been deducted from your score.</div>
+                <button onClick={() => { setShowHintModal(false); setHintText('') }}
+                  className="w-full py-2 rounded border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] transition-colors">
+                  Close
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="text-[#8b949e] mb-4 leading-relaxed">Each hint costs <span className="text-[#f85149] font-bold">-5 points</span> from your final score. You have used <span className="text-[#d29922] font-bold">{hintsUsed}/3</span> hints.</div>
+                <div className="flex gap-3">
+                  <button onClick={() => setShowHintModal(false)}
+                    className="flex-1 py-2 rounded border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] transition-colors">
+                    Cancel
+                  </button>
+                  <button onClick={handleRequestHint} disabled={hintLoading}
+                    className="flex-1 py-2 rounded bg-[#d29922] hover:bg-[#e3b341] disabled:opacity-60 text-[#0d1117] font-bold transition-colors">
+                    {hintLoading ? 'Loading…' : 'Get Hint (-5 pts)'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Top bar */}
       <div className="flex-shrink-0 h-11 bg-[#161b22] border-b border-[#30363d] flex items-center px-3 gap-3">
         <span className="text-[#3fb950] font-bold tracking-tight">SRE·SIM</span>
@@ -194,6 +269,16 @@ export default function Simulation({ state, actions }: SimulationProps) {
           <span className={`text-xs ${connected ? 'text-[#3fb950]' : 'text-[#f85149]'}`}>
             {connected ? '● LIVE' : '○ OFF'}
           </span>
+
+          {sessionInfo && hintsUsed < 3 && (
+            <button
+              onClick={() => setShowHintModal(true)}
+              className="text-[#d29922] hover:text-[#e3b341] px-1.5 transition-colors text-xs font-bold"
+              title="Request a hint (-5 pts)"
+            >
+              💡 {3 - hintsUsed}
+            </button>
+          )}
 
           <button
             onClick={() => { if (elapsedAtDismissal === null) handleFinishTour(); else setShowTour(true) }}

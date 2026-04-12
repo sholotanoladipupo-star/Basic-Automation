@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { SessionInfo } from '../types'
+import CountdownTimer from '../components/CountdownTimer'
+import FeedbackForm from '../components/FeedbackForm'
 
 const API_BASE = (import.meta.env.VITE_WS_URL ?? 'ws://localhost:3001')
   .replace('ws://', 'http://')
@@ -72,7 +74,8 @@ export default function SQLSimulation({ sessionInfo }: Props) {
   const [submitted, setSubmitted] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [scoreResult, setScoreResult] = useState<ScoreResult | null>(null)
-  const [elapsed, setElapsed] = useState(0)
+  const [timedOut, setTimedOut] = useState(false)
+  const [showFeedback, setShowFeedback] = useState(false)
   const [showHint, setShowHint] = useState(false)
   const [schema, setSchema] = useState<Record<string, SchemaTable> | null>(null)
   const [activeSchemaTable, setActiveSchemaTable] = useState<string | null>(null)
@@ -98,10 +101,12 @@ export default function SQLSimulation({ sessionInfo }: Props) {
 
   // Enforce minimum 8-minute time limit
   const timeLimit = Math.max(question?.time_limit_seconds ?? 480, 480)
-  const remaining = Math.max(0, timeLimit - elapsed)
-  const mins = Math.floor(remaining / 60)
-  const secs = remaining % 60
-  const timedOut = remaining === 0 && !submitted
+
+  function handleTimerExpire() {
+    setTimedOut(true)
+    if (timerRef.current) clearInterval(timerRef.current)
+    handleSubmit()
+  }
 
   useEffect(() => {
     if (!sessionInfo.question_id) { setLoadError('No question assigned. Contact your assessor.'); return }
@@ -123,20 +128,6 @@ export default function SQLSimulation({ sessionInfo }: Props) {
       .catch(() => { /* schema browser is optional */ })
   }, [sessionInfo.question_id])
 
-  useEffect(() => {
-    if (!question || submitted || timedOut) return
-    timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
-    return () => { if (timerRef.current) clearInterval(timerRef.current) }
-  }, [question, submitted, timedOut])
-
-  // Auto-submit on timeout
-  useEffect(() => {
-    if (timedOut && !submitted && question) {
-      if (timerRef.current) clearInterval(timerRef.current)
-      handleSubmit()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timedOut])
 
   async function handleRun() {
     if (!query.trim() || running) return
@@ -173,6 +164,7 @@ export default function SQLSimulation({ sessionInfo }: Props) {
       }
       setScoreResult(data)
       setSubmitted(true)
+      setShowFeedback(true)
     } catch (err) {
       setSubmitError('Submit failed: ' + String(err))
     } finally {
@@ -198,6 +190,7 @@ export default function SQLSimulation({ sessionInfo }: Props) {
 
   return (
     <div ref={containerRef} className="min-h-screen bg-[#0d1117] font-mono text-xs flex flex-col">
+      {showFeedback && <FeedbackForm sessionId={sessionInfo.session_id} onDone={() => setShowFeedback(false)} />}
       {/* Submission confirmation — candidates see only this, no scores */}
       {submitted && (
         <div className="bg-[#0f2a1a] border-b border-[#3fb950] px-4 py-3 text-center flex-shrink-0">
@@ -218,9 +211,11 @@ export default function SQLSimulation({ sessionInfo }: Props) {
           <span className="text-[#484f58] capitalize">{question.question_type === 'fix' ? 'Fix the Query' : question.question_type === 'identify' ? 'Identify the Issue' : 'Write a Query'}</span>
         </div>
         <div className="flex items-center gap-3">
-          <div className={`text-sm font-bold tabular-nums ${remaining < 120 ? 'text-[#f85149] animate-pulse' : remaining < 300 ? 'text-[#d29922]' : 'text-[#3fb950]'}`}>
-            {timedOut ? 'TIME UP' : `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`}
-          </div>
+          {timedOut ? (
+            <span className="text-[#f85149] font-bold text-sm font-mono">TIME UP</span>
+          ) : (
+            <CountdownTimer totalSeconds={timeLimit} paused={submitted} onExpire={handleTimerExpire} />
+          )}
           <button onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
             className="text-[#484f58] hover:text-[#8b949e] transition-colors text-sm px-1">
             {isFullscreen ? '✕FS' : '⛶'}

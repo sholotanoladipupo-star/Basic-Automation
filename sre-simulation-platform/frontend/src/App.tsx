@@ -10,12 +10,14 @@ import MonitoringSimulation from './pages/MonitoringSimulation'
 import CognitiveSimulation from './pages/CognitiveSimulation'
 import PostmortemSimulation from './pages/PostmortemSimulation'
 import AutomationSimulation from './pages/AutomationSimulation'
+import PreAssessmentBriefing from './components/PreAssessmentBriefing'
 
 type AppScreen = 'home' | 'history' | 'admin' | 'portal'
 
 export default function App() {
   const [state, actions] = useSimulation()
   const [appScreen, setAppScreen] = useState<AppScreen>('home')
+  const [briefingDone, setBriefingDone] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('sre-theme') as 'dark' | 'light') ?? 'dark'
   })
@@ -48,6 +50,9 @@ export default function App() {
     )
   }
   if (state.screen === 'simulation') {
+    if (!briefingDone) {
+      return <PreAssessmentBriefing sessionInfo={state.sessionInfo!} onReady={() => setBriefingDone(true)} />
+    }
     const moduleType = state.sessionInfo?.module_type ?? 'incident'
     if (moduleType === 'sql') return <SQLSimulation sessionInfo={state.sessionInfo!} />
     if (moduleType === 'monitoring') return <MonitoringSimulation sessionInfo={state.sessionInfo!} />

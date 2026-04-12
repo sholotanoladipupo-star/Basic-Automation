@@ -22,9 +22,10 @@ const SCENARIOS = [
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Assignment {
   id: string; candidate_name: string; scenario_id: string
-  module_type: 'incident' | 'sql' | 'monitoring' | 'cognitive'
+  module_type: 'incident' | 'sql' | 'monitoring' | 'cognitive' | 'postmortem' | 'automation'
   question_id: string | null; created_at: string; used_at: string | null
   status: 'pending' | 'used'; is_practice?: boolean; time_limit_minutes?: number | null
+  pass_threshold?: number
 }
 
 interface SQLQuestion {
@@ -35,6 +36,8 @@ interface SQLQuestion {
 }
 
 interface MonitoringQuestion { id: string; title: string; difficulty: string; time_limit_seconds: number; created_at: string }
+interface PostmortemQuestion { id: string; title: string; difficulty: string; time_limit_seconds: number; created_at: string }
+interface AutomationQuestion { id: string; title: string; difficulty: string; language: string; time_limit_seconds: number; created_at: string }
 
 interface CognitiveQuestion {
   id: string; question: string; type: 'mcq' | 'numerical' | 'logical'
@@ -56,12 +59,14 @@ type SqlSchema = Record<string, SchemaTable>
 interface QueryResult { columns: string[]; rows: Record<string, unknown>[]; error?: string; row_count?: number }
 
 interface AdminProps { onBack: () => void }
-type Tab = 'assign' | 'results' | 'sql' | 'cognitive' | 'monitoring'
+type Tab = 'assign' | 'results' | 'sql' | 'cognitive' | 'monitoring' | 'postmortem' | 'automation'
 type FocusedField = 'starter_query' | 'solution_query' | 'schema_hint'
 
 const BLANK_SQL_FORM = { title: '', description: '', difficulty: 'medium', question_type: 'write', starter_query: '', solution_query: '', expected_output: '{}', schema_hint: '', hint: '', time_limit_seconds: '300' }
 const BLANK_COG_FORM = { question: '', type: 'mcq', options: '["Option A","Option B","Option C","Option D"]', correct_answer: '', explanation: '', difficulty: 'medium', points: '10' }
 const BLANK_MON_FORM = { title: '', scenario: '', difficulty: 'medium', sub_questions: '', time_limit_seconds: '600' }
+const BLANK_PM_FORM  = { title: '', incident_summary: '', timeline: '[]', difficulty: 'medium', time_limit_seconds: '1800' }
+const BLANK_AUTO_FORM = { title: '', description: '', task: '', difficulty: 'medium', language: 'bash', starter_code: '', evaluation_criteria: '[]', time_limit_seconds: '900' }
 
 export default function Admin({ onBack }: AdminProps) {
   const [adminKey, setAdminKey]   = useState('')
@@ -77,6 +82,7 @@ export default function Admin({ onBack }: AdminProps) {
   const [selectedQuestionId, setSelectedQuestionId] = useState('')
   const [isPractice, setIsPractice]                 = useState(false)
   const [timeLimitMins, setTimeLimitMins]           = useState('')
+  const [passThreshold, setPassThreshold]           = useState('70')
   const [creating, setCreating]                     = useState(false)
   const [createError, setCreateError]               = useState('')
   const [createSuccess, setCreateSuccess]           = useState('')
@@ -89,6 +95,8 @@ export default function Admin({ onBack }: AdminProps) {
   const [resultsLoading, setResultsLoading] = useState(false)
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
   const [filterModule, setFilterModule] = useState<string>('all')
+  const [replayData, setReplayData]   = useState<Record<string, {created_at: string; event_type: string; payload: Record<string, unknown>}[]>>({})
+  const [replayLoading, setReplayLoading] = useState<string | null>(null)
 
   // ── SQL tab ──────────────────────────────────────────────────────────────
   const [sqlQuestions, setSqlQuestions] = useState<SQLQuestion[]>([])
@@ -119,6 +127,20 @@ export default function Admin({ onBack }: AdminProps) {
   const [monForm, setMonForm]           = useState(BLANK_MON_FORM)
   const [monFormError, setMonFormError] = useState('')
   const [monFormSuccess, setMonFormSuccess] = useState('')
+
+  // ── Postmortem tab ────────────────────────────────────────────────────────
+  const [pmQuestions, setPmQuestions]   = useState<PostmortemQuestion[]>([])
+  const [pmForm, setPmForm]             = useState(BLANK_PM_FORM)
+  const [pmFormError, setPmFormError]   = useState('')
+  const [pmFormSuccess, setPmFormSuccess] = useState('')
+  const [editingPm, setEditingPm]       = useState<PostmortemQuestion | null>(null)
+
+  // ── Automation tab ────────────────────────────────────────────────────────
+  const [autoQuestions, setAutoQuestions] = useState<AutomationQuestion[]>([])
+  const [autoForm, setAutoForm]           = useState(BLANK_AUTO_FORM)
+  const [autoFormError, setAutoFormError] = useState('')
+  const [autoFormSuccess, setAutoFormSuccess] = useState('')
+  const [editingAuto, setEditingAuto]     = useState<AutomationQuestion | null>(null)
 
   // ── Loaders ───────────────────────────────────────────────────────────────
   async function handleAuth(e: React.FormEvent) {
@@ -154,10 +176,16 @@ export default function Admin({ onBack }: AdminProps) {
   async function loadMonitoringQuestions() {
     try { const r = await fetch(`${API_BASE}/monitoring/admin/questions`, { headers: { 'x-admin-key': adminKey } }); if (r.ok) setMonitoringQuestions(await r.json() as MonitoringQuestion[]) } catch { /* */ }
   }
+  async function loadPmQuestions() {
+    try { const r = await fetch(`${API_BASE}/postmortem/admin/questions`, { headers: { 'x-admin-key': adminKey } }); if (r.ok) setPmQuestions(await r.json() as PostmortemQuestion[]) } catch { /* */ }
+  }
+  async function loadAutoQuestions() {
+    try { const r = await fetch(`${API_BASE}/automation/admin/questions`, { headers: { 'x-admin-key': adminKey } }); if (r.ok) setAutoQuestions(await r.json() as AutomationQuestion[]) } catch { /* */ }
+  }
 
   useEffect(() => {
     if (!authed) return
-    loadAssignments(); loadSqlQuestions(); loadMonitoringQuestions(); loadCogQuestions()
+    loadAssignments(); loadSqlQuestions(); loadMonitoringQuestions(); loadCogQuestions(); loadPmQuestions(); loadAutoQuestions()
     const iv = setInterval(loadAssignments, 15_000)
     return () => clearInterval(iv)
   }, [authed])
@@ -167,8 +195,8 @@ export default function Admin({ onBack }: AdminProps) {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function fmt(iso: string) { return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) }
-  function moduleLabel(mt: string) { return ({ sql: 'SQL', monitoring: 'MONITORING', cognitive: 'COGNITIVE', incident: 'INCIDENT' }[mt] ?? 'INCIDENT') }
-  function moduleBadgeClass(mt: string) { return ({ sql: 'border-[#58a6ff] text-[#58a6ff]', monitoring: 'border-[#bc8cff] text-[#bc8cff]', cognitive: 'border-[#e3b341] text-[#e3b341]', incident: 'border-[#f85149] text-[#f85149]' }[mt] ?? 'border-[#f85149] text-[#f85149]') }
+  function moduleLabel(mt: string) { return ({ sql: 'SQL', monitoring: 'MONITORING', cognitive: 'COGNITIVE', incident: 'INCIDENT', postmortem: 'POSTMORTEM', automation: 'AUTOMATION' }[mt] ?? 'INCIDENT') }
+  function moduleBadgeClass(mt: string) { return ({ sql: 'border-[#58a6ff] text-[#58a6ff]', monitoring: 'border-[#bc8cff] text-[#bc8cff]', cognitive: 'border-[#e3b341] text-[#e3b341]', incident: 'border-[#f85149] text-[#f85149]', postmortem: 'border-[#d29922] text-[#d29922]', automation: 'border-[#3fb950] text-[#3fb950]' }[mt] ?? 'border-[#f85149] text-[#f85149]') }
   function scoreColor(s: number) { return s >= 70 ? '#3fb950' : s >= 50 ? '#d29922' : '#f85149' }
   function typeColor(t: string) { return t.includes('int') || t.includes('numeric') ? '#58a6ff' : t.includes('text') || t.includes('char') ? '#3fb950' : t.includes('timestamp') || t.includes('date') ? '#d29922' : '#8b949e' }
 
@@ -199,19 +227,24 @@ export default function Admin({ onBack }: AdminProps) {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     if (!candidateName.trim()) return
-    if ((moduleType === 'sql' || moduleType === 'monitoring') && !selectedQuestionId) { setCreateError('Select a question for this module'); return }
+    if (['sql', 'monitoring', 'postmortem', 'automation'].includes(moduleType) && !selectedQuestionId) { setCreateError('Select a question for this module'); return }
     setCreating(true); setCreateError(''); setCreateSuccess('')
     try {
-      const body: Record<string, unknown> = { candidate_name: candidateName.trim(), module_type: moduleType, is_practice: isPractice }
+      const body: Record<string, unknown> = { candidate_name: candidateName.trim(), module_type: moduleType, is_practice: isPractice, pass_threshold: Number(passThreshold) || 70 }
       if (moduleType === 'incident') body.scenario_id = scenarioId
-      if (moduleType === 'sql' || moduleType === 'monitoring') body.question_id = selectedQuestionId
+      if (['sql', 'monitoring', 'postmortem', 'automation'].includes(moduleType)) body.question_id = selectedQuestionId
       if (timeLimitMins) body.time_limit_minutes = timeLimitMins
       const res = await fetch(`${API_BASE}/admin/assignments`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-key': adminKey }, body: JSON.stringify(body) })
       if (!res.ok) { setCreateError(((await res.json()) as { error: string }).error) }
       else {
         const name = candidateName.trim()
         setCandidateName(''); setSelectedQuestionId('')
-        const lbl = moduleType === 'incident' ? SCENARIOS.find(s => s.id === scenarioId)?.name : moduleType === 'sql' ? sqlQuestions.find(q => q.id === selectedQuestionId)?.title : moduleType === 'monitoring' ? monitoringQuestions.find(q => q.id === selectedQuestionId)?.title : 'Cognitive Test'
+        const lbl = moduleType === 'incident' ? SCENARIOS.find(s => s.id === scenarioId)?.name
+          : moduleType === 'sql' ? sqlQuestions.find(q => q.id === selectedQuestionId)?.title
+          : moduleType === 'monitoring' ? monitoringQuestions.find(q => q.id === selectedQuestionId)?.title
+          : moduleType === 'postmortem' ? pmQuestions.find(q => q.id === selectedQuestionId)?.title
+          : moduleType === 'automation' ? autoQuestions.find(q => q.id === selectedQuestionId)?.title
+          : 'Cognitive Test'
         setCreateSuccess(`✓ Assigned "${name}" → ${lbl ?? moduleType}${isPractice ? ' (Practice)' : ''}`)
         copyLink(name)
         await loadAssignments()
@@ -222,6 +255,20 @@ export default function Admin({ onBack }: AdminProps) {
 
   async function handleDeleteAssignment(id: string) {
     try { await fetch(`${API_BASE}/admin/assignments/${id}`, { method: 'DELETE', headers: { 'x-admin-key': adminKey } }); await loadAssignments() } catch { /* */ }
+  }
+
+  async function handleResetAssignment(id: string) {
+    try { await fetch(`${API_BASE}/admin/assignments/${id}/reset`, { method: 'PATCH', headers: { 'x-admin-key': adminKey } }); await loadAssignments() } catch { /* */ }
+  }
+
+  async function loadReplay(sessionId: string) {
+    if (replayData[sessionId]) return
+    setReplayLoading(sessionId)
+    try {
+      const r = await fetch(`${API_BASE}/admin/sessions/${sessionId}/events`, { headers: { 'x-admin-key': adminKey } })
+      if (r.ok) { const events = await r.json() as {created_at: string; event_type: string; payload: Record<string, unknown>}[]; setReplayData(d => ({ ...d, [sessionId]: events })) }
+    } catch { /* */ }
+    finally { setReplayLoading(null) }
   }
 
   // SQL handlers
@@ -295,6 +342,36 @@ export default function Admin({ onBack }: AdminProps) {
   }
 
   async function handleDeleteMonitoring(id: string) { await fetch(`${API_BASE}/monitoring/admin/questions/${id}`, { method: 'DELETE', headers: { 'x-admin-key': adminKey } }); await loadMonitoringQuestions() }
+
+  // Postmortem handlers
+  async function handleCreatePm(e: React.FormEvent) {
+    e.preventDefault(); setPmFormError(''); setPmFormSuccess('')
+    let tl: unknown = []; try { tl = JSON.parse(pmForm.timeline) } catch { setPmFormError('Timeline must be valid JSON array'); return }
+    try {
+      const url = editingPm ? `${API_BASE}/postmortem/admin/questions/${editingPm.id}` : `${API_BASE}/postmortem/admin/questions`
+      const method = editingPm ? 'PUT' : 'POST'
+      const res = await fetch(url, { method, headers: { 'content-type': 'application/json', 'x-admin-key': adminKey }, body: JSON.stringify({ ...pmForm, timeline: tl, time_limit_seconds: Number(pmForm.time_limit_seconds) }) })
+      if (!res.ok) { setPmFormError(((await res.json()) as { error: string }).error); return }
+      setPmFormSuccess(editingPm ? '✓ Updated' : '✓ Created'); setPmForm(BLANK_PM_FORM); setEditingPm(null); await loadPmQuestions()
+    } catch (err) { setPmFormError(String(err)) }
+  }
+  function startEditPm(q: PostmortemQuestion) { setEditingPm(q); setPmForm({ title: q.title, incident_summary: '', timeline: '[]', difficulty: q.difficulty, time_limit_seconds: String(q.time_limit_seconds) }); setPmFormError(''); setPmFormSuccess('') }
+  async function handleDeletePm(id: string) { await fetch(`${API_BASE}/postmortem/admin/questions/${id}`, { method: 'DELETE', headers: { 'x-admin-key': adminKey } }); await loadPmQuestions() }
+
+  // Automation handlers
+  async function handleCreateAuto(e: React.FormEvent) {
+    e.preventDefault(); setAutoFormError(''); setAutoFormSuccess('')
+    let criteria: unknown = []; try { criteria = JSON.parse(autoForm.evaluation_criteria) } catch { setAutoFormError('Evaluation criteria must be valid JSON array'); return }
+    try {
+      const url = editingAuto ? `${API_BASE}/automation/admin/questions/${editingAuto.id}` : `${API_BASE}/automation/admin/questions`
+      const method = editingAuto ? 'PUT' : 'POST'
+      const res = await fetch(url, { method, headers: { 'content-type': 'application/json', 'x-admin-key': adminKey }, body: JSON.stringify({ ...autoForm, evaluation_criteria: criteria, time_limit_seconds: Number(autoForm.time_limit_seconds) }) })
+      if (!res.ok) { setAutoFormError(((await res.json()) as { error: string }).error); return }
+      setAutoFormSuccess(editingAuto ? '✓ Updated' : '✓ Created'); setAutoForm(BLANK_AUTO_FORM); setEditingAuto(null); await loadAutoQuestions()
+    } catch (err) { setAutoFormError(String(err)) }
+  }
+  function startEditAuto(q: AutomationQuestion) { setEditingAuto(q); setAutoForm({ title: q.title, description: '', task: '', difficulty: q.difficulty, language: q.language, starter_code: '', evaluation_criteria: '[]', time_limit_seconds: String(q.time_limit_seconds) }); setAutoFormError(''); setAutoFormSuccess('') }
+  async function handleDeleteAuto(id: string) { await fetch(`${API_BASE}/automation/admin/questions/${id}`, { method: 'DELETE', headers: { 'x-admin-key': adminKey } }); await loadAutoQuestions() }
 
   // ── Schema browser ────────────────────────────────────────────────────────
   const TABLE_ORDER = ['departments', 'employees', 'projects', 'project_assignments', 'incidents']
@@ -443,7 +520,7 @@ export default function Admin({ onBack }: AdminProps) {
           <div className="space-y-5">
             {/* Tabs */}
             <div className="flex border-b border-[#30363d] overflow-x-auto">
-              {([['assign','📋 Assign'],['results','📊 Results'],['sql','🗄 SQL'],['cognitive','🧠 Cognitive'],['monitoring','📡 Monitoring']] as [Tab,string][]).map(([id, label]) => (
+              {([['assign','📋 Assign'],['results','📊 Results'],['sql','🗄 SQL'],['cognitive','🧠 Cognitive'],['monitoring','📡 Monitoring'],['postmortem','📄 Postmortem'],['automation','⚙ Automation']] as [Tab,string][]).map(([id, label]) => (
                 <button key={id} onClick={() => setTab(id)} className={`px-5 py-2.5 text-xs whitespace-nowrap border-b-2 transition-colors ${tab === id ? 'border-[#3fb950] text-[#e6edf3]' : 'border-transparent text-[#8b949e] hover:text-[#e6edf3]'}`}>{label}</button>
               ))}
             </div>
@@ -458,8 +535,8 @@ export default function Admin({ onBack }: AdminProps) {
                     <div>
                       <label className={labelCls}>Module Type</label>
                       <div className="flex gap-2 flex-wrap">
-                        {(['incident','sql','monitoring','cognitive'] as const).map(m => (
-                          <button key={m} type="button" onClick={() => { setModuleType(m); setSelectedQuestionId('') }} className={`px-4 py-1.5 rounded border text-xs font-bold transition-colors ${moduleType === m ? 'border-[#3fb950] text-[#3fb950] bg-[#0d1117]' : 'border-[#30363d] text-[#8b949e] hover:border-[#484f58]'}`}>{({ incident: 'Incident Simulation', sql: 'SQL Readiness', monitoring: 'Monitoring Design', cognitive: 'Cognitive Test' }[m])}</button>
+                        {(['incident','sql','monitoring','cognitive','postmortem','automation'] as const).map(m => (
+                          <button key={m} type="button" onClick={() => { setModuleType(m as typeof moduleType); setSelectedQuestionId('') }} className={`px-4 py-1.5 rounded border text-xs font-bold transition-colors ${moduleType === m ? 'border-[#3fb950] text-[#3fb950] bg-[#0d1117]' : 'border-[#30363d] text-[#8b949e] hover:border-[#484f58]'}`}>{({ incident: 'Incident', sql: 'SQL', monitoring: 'Monitoring', cognitive: 'Cognitive', postmortem: 'Postmortem', automation: 'Automation' }[m])}</button>
                         ))}
                       </div>
                     </div>
@@ -501,15 +578,48 @@ export default function Admin({ onBack }: AdminProps) {
 
                     {moduleType === 'cognitive' && <div className="bg-[#0d1117] border border-[#e3b341] rounded p-4"><div className="text-[#e3b341] font-bold mb-1">Cognitive Assessment</div><div className="text-[#8b949e] leading-relaxed">All {cogQuestions.length} cognitive questions are used automatically.</div></div>}
 
-                    {/* Practice mode + time limit */}
-                    <div className="flex gap-4 items-end">
+                    {moduleType === 'postmortem' && (
+                      <div><label className={labelCls}>Postmortem Question</label>
+                        {pmQuestions.length === 0 ? <div className="text-[#484f58]">No postmortem questions yet — create one in the Postmortem tab</div> : (
+                          <div className="space-y-1.5">{pmQuestions.map(q => (
+                            <label key={q.id} className={`flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors ${selectedQuestionId === q.id ? 'border-[#d29922] bg-[#0d1117]' : 'border-[#30363d] hover:border-[#484f58]'}`}>
+                              <input type="radio" name="pm_question" value={q.id} checked={selectedQuestionId === q.id} onChange={() => setSelectedQuestionId(q.id)} className="accent-[#d29922]" />
+                              <span className="text-[#e6edf3] flex-1">{q.title}</span>
+                              <span className="text-[#484f58] text-[10px] uppercase">{q.difficulty}</span>
+                            </label>
+                          ))}</div>
+                        )}
+                      </div>
+                    )}
+
+                    {moduleType === 'automation' && (
+                      <div><label className={labelCls}>Automation Question</label>
+                        {autoQuestions.length === 0 ? <div className="text-[#484f58]">No automation questions yet — create one in the Automation tab</div> : (
+                          <div className="space-y-1.5">{autoQuestions.map(q => (
+                            <label key={q.id} className={`flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors ${selectedQuestionId === q.id ? 'border-[#3fb950] bg-[#0d1117]' : 'border-[#30363d] hover:border-[#484f58]'}`}>
+                              <input type="radio" name="auto_question" value={q.id} checked={selectedQuestionId === q.id} onChange={() => setSelectedQuestionId(q.id)} className="accent-[#3fb950]" />
+                              <span className="text-[#e6edf3] flex-1">{q.title}</span>
+                              <span className="text-[#484f58] text-[10px] mr-2">{q.language}</span>
+                              <span className="text-[#484f58] text-[10px] uppercase">{q.difficulty}</span>
+                            </label>
+                          ))}</div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Practice mode + time limit + pass threshold */}
+                    <div className="flex gap-4 items-end flex-wrap">
                       <label className="flex items-center gap-2 cursor-pointer select-none">
                         <input type="checkbox" checked={isPractice} onChange={e => setIsPractice(e.target.checked)} className="accent-[#f46800] w-4 h-4" />
-                        <span className="text-[#8b949e]">Practice mode <span className="text-[#484f58]">(no scoring — candidate can explore freely)</span></span>
+                        <span className="text-[#8b949e]">Practice mode <span className="text-[#484f58]">(no scoring)</span></span>
                       </label>
                       <div className="flex-shrink-0">
-                        <label className={labelCls}>Custom time limit (min)</label>
-                        <input type="number" value={timeLimitMins} onChange={e => setTimeLimitMins(e.target.value)} placeholder="Default" className={inputCls + ' w-28'} min="1" max="120" />
+                        <label className={labelCls}>Time limit (min)</label>
+                        <input type="number" value={timeLimitMins} onChange={e => setTimeLimitMins(e.target.value)} placeholder="Default" className={inputCls + ' w-24'} min="1" max="120" />
+                      </div>
+                      <div className="flex-shrink-0">
+                        <label className={labelCls}>Pass threshold (%)</label>
+                        <input type="number" value={passThreshold} onChange={e => setPassThreshold(e.target.value)} className={inputCls + ' w-24'} min="0" max="100" />
                       </div>
                     </div>
 
@@ -542,6 +652,7 @@ export default function Admin({ onBack }: AdminProps) {
                           <td className="px-4 py-2.5"><span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${a.status === 'pending' ? 'border-[#3fb950] text-[#3fb950]' : 'border-[#484f58] text-[#484f58]'}`}>{a.status.toUpperCase()}</span></td>
                           <td className="px-4 py-2.5 text-right flex items-center gap-3 justify-end">
                             <button onClick={() => copyLink(a.candidate_name)} className="text-[#58a6ff] text-[10px] hover:underline" title="Copy login link">{copiedLink === a.candidate_name ? '✓ Copied' : '🔗 Link'}</button>
+                            {a.status === 'used' && <button onClick={() => handleResetAssignment(a.id)} className="text-[#d29922] hover:text-[#e3b341] text-[10px] transition-colors" title="Reset to pending">↺ Reset</button>}
                             {a.status === 'pending' && <button onClick={() => handleDeleteAssignment(a.id)} className="text-[#484f58] hover:text-[#f85149] transition-colors">✕</button>}
                           </td>
                         </tr>
@@ -573,12 +684,39 @@ export default function Admin({ onBack }: AdminProps) {
                   </div>
                 )}
 
+                {/* Score distribution chart */}
+                {results.length > 0 && (() => {
+                  const buckets = [
+                    { label: '0–20',  min: 0,  max: 20,  color: '#f85149' },
+                    { label: '21–40', min: 21, max: 40,  color: '#f85149' },
+                    { label: '41–60', min: 41, max: 60,  color: '#d29922' },
+                    { label: '61–80', min: 61, max: 80,  color: '#d29922' },
+                    { label: '81–100', min: 81, max: 100, color: '#3fb950' },
+                  ]
+                  const counts = buckets.map(b => results.filter(r => r.overall_score != null && r.overall_score >= b.min && r.overall_score <= b.max).length)
+                  const maxCount = Math.max(...counts, 1)
+                  return (
+                    <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
+                      <div className="text-[#8b949e] uppercase tracking-widest text-[10px] mb-4">Score Distribution</div>
+                      <div className="flex items-end gap-3 h-24">
+                        {buckets.map((b, i) => (
+                          <div key={b.label} className="flex-1 flex flex-col items-center gap-1">
+                            <div className="text-[#8b949e] text-[10px] font-bold">{counts[i]}</div>
+                            <div className="w-full rounded-t" style={{ height: `${(counts[i] / maxCount) * 72}px`, minHeight: counts[i] > 0 ? 4 : 0, background: b.color, opacity: 0.8 }} />
+                            <div className="text-[#484f58] text-[9px] text-center">{b.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
+
                 <div className="bg-[#161b22] border border-[#30363d] rounded-lg overflow-hidden">
                   <div className="px-5 py-3 border-b border-[#30363d] flex items-center justify-between gap-4">
                     <span className="text-[#8b949e] uppercase tracking-widest">Sessions ({filteredResults.length})</span>
                     <div className="flex items-center gap-3">
                       <div className="flex gap-1">
-                        {['all', 'incident', 'sql', 'monitoring', 'cognitive'].map(m => (
+                        {['all', 'incident', 'sql', 'monitoring', 'cognitive', 'postmortem', 'automation'].map(m => (
                           <button key={m} onClick={() => setFilterModule(m)} className={`px-2 py-1 rounded text-[10px] border transition-colors ${filterModule === m ? 'border-[#3fb950] text-[#3fb950]' : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e]'}`}>{m.toUpperCase()}</button>
                         ))}
                       </div>
@@ -611,11 +749,51 @@ export default function Admin({ onBack }: AdminProps) {
                               <td className="px-4 py-2.5 text-[#484f58]">{r.started_at ? fmt(r.started_at) : '—'}</td>
                               <td className="px-4 py-2.5 text-right text-[#484f58] text-[10px]">{expandedRow === r.id ? '▾' : '▸'}</td>
                             </tr>
-                            {expandedRow === r.id && r.postmortem && (
+                            {expandedRow === r.id && (
                               <tr key={`${r.id}-exp`} className="border-b border-[#30363d] bg-[#0d1117]">
-                                <td colSpan={6} className="px-6 py-3">
-                                  <div className="text-[#484f58] text-[10px] uppercase tracking-widest mb-1.5">AI Assessor Feedback</div>
-                                  <p className="text-[#8b949e] text-[11px] leading-relaxed">{r.postmortem}</p>
+                                <td colSpan={6} className="px-6 py-4 space-y-4">
+                                  {r.postmortem && (
+                                    <div>
+                                      <div className="text-[#484f58] text-[10px] uppercase tracking-widest mb-1.5">AI Assessor Feedback</div>
+                                      <p className="text-[#8b949e] text-[11px] leading-relaxed">{r.postmortem}</p>
+                                    </div>
+                                  )}
+                                  {/* Session replay */}
+                                  <div>
+                                    <div className="flex items-center gap-3 mb-2">
+                                      <div className="text-[#484f58] text-[10px] uppercase tracking-widest">Session Replay</div>
+                                      {!replayData[r.id] && (
+                                        <button onClick={() => loadReplay(r.id)} disabled={replayLoading === r.id} className="text-[10px] px-2 py-0.5 rounded border border-[#58a6ff]/40 text-[#58a6ff] hover:bg-[#58a6ff]/10 transition-colors">
+                                          {replayLoading === r.id ? '⏳ Loading…' : '▶ Load Events'}
+                                        </button>
+                                      )}
+                                    </div>
+                                    {replayData[r.id] && (
+                                      <div className="max-h-56 overflow-y-auto space-y-1 border border-[#21262d] rounded p-2 bg-[#0a0e13]">
+                                        {replayData[r.id].length === 0 ? (
+                                          <div className="text-[#484f58] text-[10px] text-center py-4">No events recorded for this session.</div>
+                                        ) : replayData[r.id].map((ev, i) => (
+                                          <div key={i} className="flex items-start gap-2 text-[10px]">
+                                            <span className="text-[#484f58] flex-shrink-0 tabular-nums">{new Date(ev.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                                            <span className={`flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                              ev.event_type === 'command_run' ? 'bg-[#58a6ff]/20 text-[#58a6ff]' :
+                                              ev.event_type === 'alert_received' ? 'bg-[#f85149]/20 text-[#f85149]' :
+                                              ev.event_type === 'incident_resolved' ? 'bg-[#3fb950]/20 text-[#3fb950]' :
+                                              ev.event_type === 'severity_declared' ? 'bg-[#d29922]/20 text-[#d29922]' :
+                                              'bg-[#30363d] text-[#8b949e]'
+                                            }`}>{ev.event_type.replace(/_/g, ' ')}</span>
+                                            <span className="text-[#8b949e] leading-relaxed truncate flex-1">
+                                              {ev.event_type === 'command_run' ? String(ev.payload.cmd ?? '') :
+                                               ev.event_type === 'alert_received' ? String(ev.payload.message ?? '') :
+                                               ev.event_type === 'slack_sent' ? `#${ev.payload.channel}: ${ev.payload.message}` :
+                                               ev.event_type === 'severity_declared' ? String(ev.payload.severity ?? '') :
+                                               JSON.stringify(ev.payload).slice(0, 80)}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
                                 </td>
                               </tr>
                             )}
@@ -740,6 +918,105 @@ export default function Admin({ onBack }: AdminProps) {
                   {monitoringQuestions.length === 0 ? <div className="px-5 py-8 text-center text-[#484f58]">No monitoring questions yet.</div> : (
                     <table className="w-full"><thead><tr className="text-[#484f58] border-b border-[#30363d]"><th className="text-left px-4 py-2">Title</th><th className="text-left px-4 py-2">Difficulty</th><th className="text-left px-4 py-2">Time</th><th className="px-4 py-2"></th></tr></thead>
                       <tbody>{monitoringQuestions.map(q => <tr key={q.id} className="border-b border-[#30363d] last:border-0 hover:bg-[#1c2128]"><td className="px-4 py-2.5 text-[#e6edf3]">{q.title}</td><td className="px-4 py-2.5 text-[#8b949e] uppercase text-[10px]">{q.difficulty}</td><td className="px-4 py-2.5 text-[#484f58]">{Math.round(q.time_limit_seconds / 60)}min</td><td className="px-4 py-2.5 text-right"><button onClick={() => handleDeleteMonitoring(q.id)} className="text-[#484f58] hover:text-[#f85149] transition-colors">✕</button></td></tr>)}</tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            )}
+            {/* ── POSTMORTEM TAB ── */}
+            {tab === 'postmortem' && (
+              <div className="space-y-5">
+                <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
+                  <div className="text-[#8b949e] uppercase tracking-widest mb-4">{editingPm ? `Editing: ${editingPm.title}` : 'Create Postmortem Question'}</div>
+                  <form onSubmit={handleCreatePm} className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className={labelCls}>Title</label><input value={pmForm.title} onChange={e => setPmForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Payment Service Outage" className={inputCls} /></div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div><label className={labelCls}>Difficulty</label><select value={pmForm.difficulty} onChange={e => setPmForm(f => ({ ...f, difficulty: e.target.value }))} className={inputCls}><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></div>
+                        <div><label className={labelCls}>Time (sec)</label><input type="number" value={pmForm.time_limit_seconds} onChange={e => setPmForm(f => ({ ...f, time_limit_seconds: e.target.value }))} className={inputCls} /></div>
+                      </div>
+                    </div>
+                    <div><label className={labelCls}>Incident Summary</label><textarea value={pmForm.incident_summary} onChange={e => setPmForm(f => ({ ...f, incident_summary: e.target.value }))} rows={5} placeholder="Describe the incident: what happened, impact, how it was detected and resolved…" className={inputCls + ' resize-none'} /></div>
+                    <div>
+                      <label className={labelCls}>Timeline (JSON array)</label>
+                      <div className="text-[#484f58] text-[10px] mb-1.5">{'[{ "time": "14:32", "description": "Alerts fired for payment service" }]'}</div>
+                      <textarea value={pmForm.timeline} onChange={e => setPmForm(f => ({ ...f, timeline: e.target.value }))} rows={6} placeholder={'[\n  { "time": "14:32", "description": "Alerts fired" },\n  { "time": "14:45", "description": "Root cause identified" }\n]'} className={inputCls + ' resize-none font-mono text-[11px]'} />
+                    </div>
+                    {pmFormError && <div className="text-[#f85149]">✗ {pmFormError}</div>}
+                    {pmFormSuccess && <div className="text-[#3fb950]">{pmFormSuccess}</div>}
+                    <div className="flex gap-3">
+                      <button type="submit" className="bg-[#238636] hover:bg-[#2ea043] text-white font-bold py-2 px-6 rounded border border-[#2ea043] transition-all">{editingPm ? '✓ Save Changes' : '+ Create Question'}</button>
+                      {editingPm && <button type="button" onClick={() => { setEditingPm(null); setPmForm(BLANK_PM_FORM) }} className="px-4 py-2 rounded border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] transition-colors">Cancel</button>}
+                    </div>
+                  </form>
+                </div>
+                <div className="bg-[#161b22] border border-[#30363d] rounded-lg overflow-hidden">
+                  <div className="px-5 py-3 border-b border-[#30363d] text-[#8b949e] uppercase tracking-widest">Questions ({pmQuestions.length})</div>
+                  {pmQuestions.length === 0 ? <div className="px-5 py-8 text-center text-[#484f58]">No postmortem questions yet.</div> : (
+                    <table className="w-full"><thead><tr className="text-[#484f58] border-b border-[#30363d]"><th className="text-left px-4 py-2">Title</th><th className="text-left px-4 py-2">Difficulty</th><th className="text-left px-4 py-2">Time</th><th className="px-4 py-2"></th></tr></thead>
+                      <tbody>{pmQuestions.map(q => (
+                        <tr key={q.id} className={`border-b border-[#30363d] last:border-0 hover:bg-[#1c2128] ${editingPm?.id === q.id ? 'bg-[#0f2a1a]' : ''}`}>
+                          <td className="px-4 py-2.5 text-[#e6edf3]">{q.title}</td>
+                          <td className="px-4 py-2.5 text-[#8b949e] uppercase text-[10px]">{q.difficulty}</td>
+                          <td className="px-4 py-2.5 text-[#484f58]">{Math.round(q.time_limit_seconds / 60)}min</td>
+                          <td className="px-4 py-2.5 text-right flex gap-3 justify-end">
+                            <button onClick={() => startEditPm(q)} className="text-[#58a6ff] hover:text-[#79c0ff] transition-colors text-[11px]">✏ Edit</button>
+                            <button onClick={() => handleDeletePm(q.id)} className="text-[#484f58] hover:text-[#f85149] transition-colors">✕</button>
+                          </td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── AUTOMATION TAB ── */}
+            {tab === 'automation' && (
+              <div className="space-y-5">
+                <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
+                  <div className="text-[#8b949e] uppercase tracking-widest mb-4">{editingAuto ? `Editing: ${editingAuto.title}` : 'Create Automation Question'}</div>
+                  <form onSubmit={handleCreateAuto} className="space-y-3">
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="col-span-2"><label className={labelCls}>Title</label><input value={autoForm.title} onChange={e => setAutoForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Write a Disk Usage Alert Script" className={inputCls} /></div>
+                      <div><label className={labelCls}>Language</label><select value={autoForm.language} onChange={e => setAutoForm(f => ({ ...f, language: e.target.value }))} className={inputCls}><option value="bash">Bash</option><option value="python">Python</option><option value="terraform">Terraform</option><option value="ansible">Ansible</option><option value="go">Go</option></select></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className={labelCls}>Difficulty</label><select value={autoForm.difficulty} onChange={e => setAutoForm(f => ({ ...f, difficulty: e.target.value }))} className={inputCls}><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></div>
+                      <div><label className={labelCls}>Time (sec)</label><input type="number" value={autoForm.time_limit_seconds} onChange={e => setAutoForm(f => ({ ...f, time_limit_seconds: e.target.value }))} className={inputCls} /></div>
+                    </div>
+                    <div><label className={labelCls}>Description</label><textarea value={autoForm.description} onChange={e => setAutoForm(f => ({ ...f, description: e.target.value }))} rows={2} placeholder="Brief overview of the question…" className={inputCls + ' resize-none'} /></div>
+                    <div><label className={labelCls}>Task / Requirements</label><textarea value={autoForm.task} onChange={e => setAutoForm(f => ({ ...f, task: e.target.value }))} rows={5} placeholder="Detailed requirements the candidate must implement…" className={inputCls + ' resize-none'} /></div>
+                    <div><label className={labelCls}>Starter Code</label><textarea value={autoForm.starter_code} onChange={e => setAutoForm(f => ({ ...f, starter_code: e.target.value }))} rows={5} placeholder="#!/bin/bash&#10;# Your script here" className={inputCls + ' resize-none font-mono text-[11px]'} /></div>
+                    <div>
+                      <label className={labelCls}>Evaluation Criteria (JSON array)</label>
+                      <div className="text-[#484f58] text-[10px] mb-1.5">{'[{ "label": "Error Handling", "description": "Proper use of set -e and exit codes" }]'}</div>
+                      <textarea value={autoForm.evaluation_criteria} onChange={e => setAutoForm(f => ({ ...f, evaluation_criteria: e.target.value }))} rows={5} placeholder={'[\n  { "label": "Correctness", "description": "Script achieves the stated goal" },\n  { "label": "Error Handling", "description": "Handles failures gracefully" }\n]'} className={inputCls + ' resize-none font-mono text-[11px]'} />
+                    </div>
+                    {autoFormError && <div className="text-[#f85149]">✗ {autoFormError}</div>}
+                    {autoFormSuccess && <div className="text-[#3fb950]">{autoFormSuccess}</div>}
+                    <div className="flex gap-3">
+                      <button type="submit" className="bg-[#238636] hover:bg-[#2ea043] text-white font-bold py-2 px-6 rounded border border-[#2ea043] transition-all">{editingAuto ? '✓ Save Changes' : '+ Create Question'}</button>
+                      {editingAuto && <button type="button" onClick={() => { setEditingAuto(null); setAutoForm(BLANK_AUTO_FORM) }} className="px-4 py-2 rounded border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] transition-colors">Cancel</button>}
+                    </div>
+                  </form>
+                </div>
+                <div className="bg-[#161b22] border border-[#30363d] rounded-lg overflow-hidden">
+                  <div className="px-5 py-3 border-b border-[#30363d] text-[#8b949e] uppercase tracking-widest">Questions ({autoQuestions.length})</div>
+                  {autoQuestions.length === 0 ? <div className="px-5 py-8 text-center text-[#484f58]">No automation questions yet.</div> : (
+                    <table className="w-full"><thead><tr className="text-[#484f58] border-b border-[#30363d]"><th className="text-left px-4 py-2">Title</th><th className="text-left px-4 py-2">Language</th><th className="text-left px-4 py-2">Difficulty</th><th className="text-left px-4 py-2">Time</th><th className="px-4 py-2"></th></tr></thead>
+                      <tbody>{autoQuestions.map(q => (
+                        <tr key={q.id} className={`border-b border-[#30363d] last:border-0 hover:bg-[#1c2128] ${editingAuto?.id === q.id ? 'bg-[#0f2a1a]' : ''}`}>
+                          <td className="px-4 py-2.5 text-[#e6edf3]">{q.title}</td>
+                          <td className="px-4 py-2.5 text-[#3fb950] text-[10px] uppercase">{q.language}</td>
+                          <td className="px-4 py-2.5 text-[#8b949e] uppercase text-[10px]">{q.difficulty}</td>
+                          <td className="px-4 py-2.5 text-[#484f58]">{Math.round(q.time_limit_seconds / 60)}min</td>
+                          <td className="px-4 py-2.5 text-right flex gap-3 justify-end">
+                            <button onClick={() => startEditAuto(q)} className="text-[#58a6ff] hover:text-[#79c0ff] transition-colors text-[11px]">✏ Edit</button>
+                            <button onClick={() => handleDeleteAuto(q.id)} className="text-[#484f58] hover:text-[#f85149] transition-colors">✕</button>
+                          </td>
+                        </tr>
+                      ))}</tbody>
                     </table>
                   )}
                 </div>

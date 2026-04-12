@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { SessionInfo } from '../types'
+import CountdownTimer from '../components/CountdownTimer'
+import FeedbackForm from '../components/FeedbackForm'
 
 const API_BASE = (import.meta.env.VITE_WS_URL ?? 'ws://localhost:3001')
   .replace('ws://', 'http://')
@@ -356,20 +358,17 @@ export default function MonitoringSimulation({ sessionInfo }: Props) {
   const [submitting, setSubmitting]     = useState(false)
   const [submitted, setSubmitted]       = useState(false)
   const [scoreResult, setScoreResult]   = useState<ScoreResult | null>(null)
-  const [elapsed, setElapsed]           = useState(0)
+  const [timedOut, setTimedOut]         = useState(false)
   const [activeIdx, setActiveIdx]       = useState(0)
   const [showTimeUpModal, setShowTimeUpModal] = useState(false)
+  const [showFeedback, setShowFeedback] = useState(false)
   const [phase, setPhase]               = useState<'pipeline' | 'questions'>('pipeline')
   const [pipelineLayout, setPipelineLayout] = useState<Record<string, string[]>>(
     Object.fromEntries(PIPELINE_STAGES.map(s => [s.id, []]))
   )
-  const timerRef          = useRef<ReturnType<typeof setInterval> | null>(null)
   const autoSubmittedRef  = useRef(false)
 
   const timeLimit = question?.time_limit_seconds ?? (sessionInfo.time_limit_minutes * 60)
-  const remaining = Math.max(0, timeLimit - elapsed)
-  const mins = Math.floor(remaining / 60)
-  const secs = remaining % 60
 
   useEffect(() => {
     if (!sessionInfo.question_id) { setLoadError('No question assigned. Contact your assessor.'); return }
@@ -384,25 +383,16 @@ export default function MonitoringSimulation({ sessionInfo }: Props) {
       .catch(() => setLoadError('Failed to load question. Please refresh.'))
   }, [sessionInfo.question_id])
 
-  useEffect(() => {
-    if (!question || submitted) return
-    timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
-    return () => { if (timerRef.current) clearInterval(timerRef.current) }
-  }, [question, submitted])
-
-  useEffect(() => {
-    if (remaining === 0 && !submitted && !autoSubmittedRef.current && question) {
-      autoSubmittedRef.current = true
-      setShowTimeUpModal(true)
-      if (timerRef.current) clearInterval(timerRef.current)
-      doSubmit()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remaining])
+  function handleTimerExpire() {
+    if (autoSubmittedRef.current || submitted) return
+    autoSubmittedRef.current = true
+    setTimedOut(true)
+    setShowTimeUpModal(true)
+    doSubmit()
+  }
 
   async function doSubmit() {
     if (!question || submitting || submitted) return
-    if (timerRef.current) clearInterval(timerRef.current)
     setSubmitting(true)
     try {
       // include pipeline design as a special answer
@@ -420,6 +410,7 @@ export default function MonitoringSimulation({ sessionInfo }: Props) {
       setScoreResult(data)
       setSubmitted(true)
       setShowTimeUpModal(false)
+      setShowFeedback(true)
     } catch (err) {
       alert('Submit failed: ' + String(err))
     } finally {
@@ -459,6 +450,7 @@ export default function MonitoringSimulation({ sessionInfo }: Props) {
   return (
     <div className="min-h-screen bg-[#111217] font-mono text-xs flex flex-col">
 
+      {showFeedback && <FeedbackForm sessionId={sessionInfo.session_id} onDone={() => setShowFeedback(false)} />}
       {/* Submission banner */}
       {submitted && (
         <div className="bg-[#0f2a1a] border-b border-[#3fb950] px-4 py-3 text-center flex-shrink-0">
@@ -507,9 +499,11 @@ export default function MonitoringSimulation({ sessionInfo }: Props) {
             : question.difficulty === 'medium' ? 'border-[#d29922] text-[#d29922]'
             : 'border-[#f85149] text-[#f85149]'
           }`}>{question.difficulty}</span>
-          <div className={`text-sm font-bold tabular-nums ${remaining < 120 ? 'text-[#f85149] animate-pulse' : remaining < 300 ? 'text-[#d29922]' : 'text-[#3fb950]'}`}>
-            {remaining === 0 ? 'TIME UP' : `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`}
-          </div>
+          {timedOut ? (
+            <span className="text-[#f85149] font-bold text-sm font-mono">TIME UP</span>
+          ) : (
+            <CountdownTimer totalSeconds={timeLimit} paused={submitted} onExpire={handleTimerExpire} />
+          )}
         </div>
       </div>
 
@@ -648,7 +642,7 @@ export default function MonitoringSimulation({ sessionInfo }: Props) {
                     key={subQ.id}
                     value={answers[subQ.id] ?? ''}
                     onChange={e => setAnswers(a => ({ ...a, [subQ.id]: e.target.value }))}
-                    disabled={submitted || remaining === 0}
+                    disabled={submitted || timedOut}
                     spellCheck={false}
                     placeholder={subQ.placeholder || `Answer here…`}
                     className="flex-1 bg-[#111217] text-[#e0e0e0] resize-none p-5 text-sm font-mono focus:outline-none disabled:opacity-60 placeholder:text-[#30363d]"
