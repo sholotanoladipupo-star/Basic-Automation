@@ -26,6 +26,8 @@ interface Assignment {
   question_id: string | null; created_at: string; used_at: string | null
   status: 'pending' | 'used'; is_practice?: boolean; time_limit_minutes?: number | null
   pass_threshold?: number
+  active_from?: string | null
+  active_until?: string | null
 }
 
 interface SQLQuestion {
@@ -83,6 +85,8 @@ export default function Admin({ onBack }: AdminProps) {
   const [isPractice, setIsPractice]                 = useState(false)
   const [timeLimitMins, setTimeLimitMins]           = useState('')
   const [passThreshold, setPassThreshold]           = useState('70')
+  const [activeFrom, setActiveFrom]                 = useState('')
+  const [activeUntil, setActiveUntil]               = useState('')
   const [creating, setCreating]                     = useState(false)
   const [createError, setCreateError]               = useState('')
   const [createSuccess, setCreateSuccess]           = useState('')
@@ -97,6 +101,7 @@ export default function Admin({ onBack }: AdminProps) {
   const [filterModule, setFilterModule] = useState<string>('all')
   const [replayData, setReplayData]   = useState<Record<string, {created_at: string; event_type: string; payload: Record<string, unknown>}[]>>({})
   const [replayLoading, setReplayLoading] = useState<string | null>(null)
+  const [replayFlaggedOnly, setReplayFlaggedOnly] = useState(false)
 
   // Results filtering enhancements
   const [filterPassFail, setFilterPassFail] = useState<'all' | 'pass' | 'fail'>('all')
@@ -250,11 +255,14 @@ export default function Admin({ onBack }: AdminProps) {
       if (moduleType === 'incident') body.scenario_id = scenarioId
       if (['sql', 'monitoring', 'postmortem', 'automation'].includes(moduleType)) body.question_id = selectedQuestionId
       if (timeLimitMins) body.time_limit_minutes = timeLimitMins
+      if (activeFrom) body.active_from = new Date(activeFrom).toISOString()
+      if (activeUntil) body.active_until = new Date(activeUntil).toISOString()
       const res = await fetch(`${API_BASE}/admin/assignments`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-key': adminKey }, body: JSON.stringify(body) })
       if (!res.ok) { setCreateError(((await res.json()) as { error: string }).error) }
       else {
         const name = candidateName.trim()
         setCandidateName(''); setSelectedQuestionId('')
+        setActiveFrom(''); setActiveUntil('')
         const lbl = moduleType === 'incident' ? SCENARIOS.find(s => s.id === scenarioId)?.name
           : moduleType === 'sql' ? sqlQuestions.find(q => q.id === selectedQuestionId)?.title
           : moduleType === 'monitoring' ? monitoringQuestions.find(q => q.id === selectedQuestionId)?.title
@@ -705,6 +713,28 @@ export default function Admin({ onBack }: AdminProps) {
                         <input type="number" value={passThreshold} onChange={e => setPassThreshold(e.target.value)} className={inputCls + ' w-24'} min="0" max="100" />
                       </div>
                     </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className={labelCls}>Active From (optional)</label>
+                        <input
+                          type="datetime-local"
+                          value={activeFrom}
+                          onChange={e => setActiveFrom(e.target.value)}
+                          className={inputCls}
+                        />
+                        <div className="text-[#484f58] text-[10px] mt-1">Leave blank to activate immediately</div>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Active Until (optional)</label>
+                        <input
+                          type="datetime-local"
+                          value={activeUntil}
+                          onChange={e => setActiveUntil(e.target.value)}
+                          className={inputCls}
+                        />
+                        <div className="text-[#484f58] text-[10px] mt-1">Leave blank for no expiry</div>
+                      </div>
+                    </div>
 
                     {createError   && <div className="text-[#f85149]">✗ {createError}</div>}
                     {createSuccess && (
@@ -732,7 +762,16 @@ export default function Admin({ onBack }: AdminProps) {
                           </td>
                           <td className="px-4 py-2.5"><span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${moduleBadgeClass(a.module_type ?? 'incident')}`}>{moduleLabel(a.module_type ?? 'incident')}</span></td>
                           <td className="px-4 py-2.5 text-[#484f58]">{fmt(a.created_at)}</td>
-                          <td className="px-4 py-2.5"><span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${a.status === 'pending' ? 'border-[#3fb950] text-[#3fb950]' : 'border-[#484f58] text-[#484f58]'}`}>{a.status.toUpperCase()}</span></td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex flex-col gap-0.5">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${a.status === 'pending' ? 'border-[#3fb950] text-[#3fb950]' : 'border-[#484f58] text-[#484f58]'}`}>{a.status.toUpperCase()}</span>
+                              {(a.active_from || a.active_until) && (
+                                <span className="text-[9px] text-[#484f58]">
+                                  🕐 {a.active_from ? `from ${fmt(a.active_from)}` : ''}{a.active_from && a.active_until ? ' ' : ''}{a.active_until ? `until ${fmt(a.active_until)}` : ''}
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td className="px-4 py-2.5 text-right flex items-center gap-3 justify-end">
                             <button onClick={() => copyLink(a.candidate_name)} className="text-[#58a6ff] text-[10px] hover:underline" title="Copy login link">{copiedLink === a.candidate_name ? '✓ Copied' : '🔗 Link'}</button>
                             {a.status === 'used' && <button onClick={() => handleResetAssignment(a.id)} className="text-[#d29922] hover:text-[#e3b341] text-[10px] transition-colors" title="Reset to pending">↺ Reset</button>}
@@ -861,14 +900,50 @@ export default function Admin({ onBack }: AdminProps) {
                                           {replayLoading === r.id ? '⏳ Loading…' : '▶ Load Events'}
                                         </button>
                                       )}
+                                      {replayData[r.id] && replayData[r.id].length > 0 && (
+                                        <button
+                                          onClick={() => setReplayFlaggedOnly(f => !f)}
+                                          className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${replayFlaggedOnly ? 'border-[#d29922]/60 text-[#d29922] bg-[#d29922]/10' : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e]'}`}
+                                        >
+                                          ⭐ Flagged only
+                                        </button>
+                                      )}
                                     </div>
                                     {replayData[r.id] && (
                                       <div className="max-h-56 overflow-y-auto space-y-1 border border-[#21262d] rounded p-2 bg-[#0a0e13]">
                                         {replayData[r.id].length === 0 ? (
                                           <div className="text-[#484f58] text-[10px] text-center py-4">No events recorded for this session.</div>
-                                        ) : replayData[r.id].map((ev, i) => (
+                                        ) : replayData[r.id].filter(ev => {
+                                          if (!replayFlaggedOnly) return true
+                                          const cmd = String(ev.payload?.cmd ?? '').toLowerCase()
+                                          return (
+                                            ev.event_type === 'incident_resolved' ||
+                                            ev.event_type === 'severity_declared' ||
+                                            ev.event_type === 'remediation_attempted' ||
+                                            ev.event_type === 'paste_detected' ||
+                                            (ev.event_type === 'command_run' && (
+                                              cmd.includes('scale') || cmd.includes('rollout') || cmd.includes('restart') ||
+                                              cmd.includes('apply') || cmd.includes('delete') || cmd.includes('patch') ||
+                                              cmd.includes('exec') || cmd.includes('fix') || cmd.includes('rollback')
+                                            ))
+                                          )
+                                        }).map((ev, i) => (
                                           <div key={i} className="flex items-start gap-2 text-[10px]">
                                             <span className="text-[#484f58] flex-shrink-0 tabular-nums">{new Date(ev.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                                            {(() => {
+                                              const cmd = String(ev.payload?.cmd ?? '').toLowerCase()
+                                              const isFlagged =
+                                                ev.event_type === 'incident_resolved' ||
+                                                ev.event_type === 'severity_declared' ||
+                                                ev.event_type === 'remediation_attempted' ||
+                                                ev.event_type === 'paste_detected' ||
+                                                (ev.event_type === 'command_run' && (
+                                                  cmd.includes('scale') || cmd.includes('rollout') || cmd.includes('restart') ||
+                                                  cmd.includes('apply') || cmd.includes('delete') || cmd.includes('patch') ||
+                                                  cmd.includes('exec') || cmd.includes('fix') || cmd.includes('rollback')
+                                                ))
+                                              return isFlagged ? <span className="flex-shrink-0 text-[10px]" title="High-impact action">⭐</span> : null
+                                            })()}
                                             <span className={`flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold ${
                                               ev.event_type === 'command_run' ? 'bg-[#58a6ff]/20 text-[#58a6ff]' :
                                               ev.event_type === 'alert_received' ? 'bg-[#f85149]/20 text-[#f85149]' :
@@ -888,6 +963,31 @@ export default function Admin({ onBack }: AdminProps) {
                                       </div>
                                     )}
                                   </div>
+                                  {/* Time per question (cognitive only) */}
+                                  {r.module_type === 'cognitive' && replayData[r.id] && (() => {
+                                    const timeEvent = replayData[r.id].find(ev => ev.event_type === 'question_time_analytics')
+                                    if (!timeEvent) return null
+                                    const times = timeEvent.payload?.times as Record<string, number> | undefined
+                                    if (!times || Object.keys(times).length === 0) return null
+                                    const entries = Object.entries(times).sort(([, a], [, b]) => b - a)
+                                    const maxTime = Math.max(...entries.map(([, t]) => t), 1)
+                                    return (
+                                      <div>
+                                        <div className="text-[#484f58] text-[10px] uppercase tracking-widest mb-2">Time Per Question</div>
+                                        <div className="space-y-1.5 bg-[#0a0e13] border border-[#21262d] rounded p-3">
+                                          {entries.map(([qId, secs]) => (
+                                            <div key={qId} className="flex items-center gap-2 text-[10px]">
+                                              <span className="text-[#484f58] w-28 flex-shrink-0 truncate font-mono">{qId.slice(0, 8)}…</span>
+                                              <div className="flex-1 h-1.5 bg-[#21262d] rounded overflow-hidden">
+                                                <div className="h-full rounded bg-[#bc8cff]" style={{ width: `${(secs / maxTime) * 100}%` }} />
+                                              </div>
+                                              <span className="text-[#8b949e] w-12 text-right flex-shrink-0">{secs < 60 ? `${secs}s` : `${Math.floor(secs/60)}m${secs%60}s`}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )
+                                  })()}
                                   {/* Assessor annotations */}
                                   <div>
                                     <div className="text-[#484f58] text-[10px] uppercase tracking-widest mb-2">Assessor Notes</div>

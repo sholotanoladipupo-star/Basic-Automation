@@ -67,7 +67,7 @@ app.get('/sessions', async (_req, res) => {
 app.get('/admin/assignments', requireAdmin, async (_req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, candidate_name, scenario_id, module_type, question_id, created_at, used_at, status FROM session_assignments ORDER BY created_at DESC LIMIT 100'
+      'SELECT id, candidate_name, scenario_id, module_type, question_id, created_at, used_at, status, active_from, active_until FROM session_assignments ORDER BY created_at DESC LIMIT 100'
     )
     res.json(result.rows)
   } catch (err) {
@@ -77,7 +77,7 @@ app.get('/admin/assignments', requireAdmin, async (_req, res) => {
 
 // Admin: create assignment
 app.post('/admin/assignments', requireAdmin, async (req, res) => {
-  const { candidate_name, scenario_id, module_type, question_id, is_practice, time_limit_minutes, pass_threshold } = req.body as Record<string, string | undefined>
+  const { candidate_name, scenario_id, module_type, question_id, is_practice, time_limit_minutes, pass_threshold, active_from, active_until } = req.body as Record<string, string | undefined>
   if (!candidate_name) { res.status(400).json({ error: 'candidate_name required' }); return }
   const mt = module_type ?? 'incident'
   if (mt !== 'incident' && mt !== 'cognitive' && !question_id) {
@@ -85,8 +85,8 @@ app.post('/admin/assignments', requireAdmin, async (req, res) => {
   }
   try {
     const result = await pool.query(
-      'INSERT INTO session_assignments (candidate_name, scenario_id, module_type, question_id, is_practice, time_limit_minutes, pass_threshold) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-      [candidate_name.trim(), scenario_id ?? 'cache-db-cascade', mt, question_id ?? null, is_practice === 'true', time_limit_minutes ? Number(time_limit_minutes) : null, pass_threshold ? Number(pass_threshold) : 70]
+      'INSERT INTO session_assignments (candidate_name, scenario_id, module_type, question_id, is_practice, time_limit_minutes, pass_threshold, active_from, active_until) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
+      [candidate_name.trim(), scenario_id ?? 'cache-db-cascade', mt, question_id ?? null, is_practice === 'true', time_limit_minutes ? Number(time_limit_minutes) : null, pass_threshold ? Number(pass_threshold) : 70, active_from ?? null, active_until ?? null]
     )
     res.json(result.rows[0])
   } catch (err) { res.status(500).json({ error: String(err) }) }

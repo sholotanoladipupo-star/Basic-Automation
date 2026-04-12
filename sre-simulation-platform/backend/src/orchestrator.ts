@@ -114,6 +114,8 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
   const assignmentResult = await pool.query(
     `SELECT id, scenario_id, module_type, question_id, is_practice, time_limit_minutes FROM session_assignments
      WHERE LOWER(candidate_name) = LOWER($1) AND status = 'pending'
+     AND (active_from IS NULL OR active_from <= NOW())
+     AND (active_until IS NULL OR active_until >= NOW())
      ORDER BY created_at DESC LIMIT 1`,
     [payload.candidate_name]
   )
@@ -121,7 +123,7 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
   if (!assignmentResult.rows[0]) {
     sendMessage(ws, {
       type: 'error',
-      payload: { message: `No simulation assigned for "${payload.candidate_name}". Ask your assessor to assign you a scenario first.` }
+      payload: { message: `No active simulation assigned for "${payload.candidate_name}". Either no assignment exists, or the session window hasn't opened yet. Check with your assessor.` }
     })
     ws.close()
     return

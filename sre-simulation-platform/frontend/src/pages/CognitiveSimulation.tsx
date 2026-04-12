@@ -76,6 +76,8 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
   const [reviewIdx, setReviewIdx] = useState<number | null>(null)
   const [showFeedback, setShowFeedback] = useState(false)
   const autoSubmittedRef = useRef(false)
+  const questionEnterTimeRef = useRef<Record<string, number>>({})  // question_id -> timestamp when user entered
+  const questionTimeRef = useRef<Record<string, number>>({})       // question_id -> accumulated seconds
   const autosaveKey = `sre-cog-${sessionInfo.session_id}`
 
   const timeLimit = sessionInfo.time_limit_minutes * 60
@@ -123,6 +125,25 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
     return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [submitted, sessionInfo.session_id])
 
+  useEffect(() => {
+    const now = Date.now()
+    // Record time spent on PREVIOUS question (all questions except current)
+    Object.keys(questionEnterTimeRef.current).forEach(qId => {
+      if (qId !== (questions[currentIdx]?.id ?? '')) {
+        const entered = questionEnterTimeRef.current[qId]
+        if (entered) {
+          questionTimeRef.current[qId] = (questionTimeRef.current[qId] ?? 0) + Math.floor((now - entered) / 1000)
+          delete questionEnterTimeRef.current[qId]
+        }
+      }
+    })
+    // Start tracking current question
+    const currentId = questions[currentIdx]?.id
+    if (currentId) {
+      questionEnterTimeRef.current[currentId] = now
+    }
+  }, [currentIdx, questions])
+
   function handleTimerExpire() {
     if (autoSubmittedRef.current || submitted) return
     autoSubmittedRef.current = true
@@ -141,6 +162,20 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
     setSubmitting(true)
     setSubmitError('')
     try {
+      // Finalize any in-progress question timer
+      const now = Date.now()
+      Object.entries(questionEnterTimeRef.current).forEach(([qId, entered]) => {
+        questionTimeRef.current[qId] = (questionTimeRef.current[qId] ?? 0) + Math.floor((now - entered) / 1000)
+      })
+      // Log time analytics as a batch event
+      fetch(`${API_BASE}/sessions/${sessionInfo.session_id}/events`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          event_type: 'question_time_analytics',
+          payload: { times: questionTimeRef.current, question_count: questions.length }
+        })
+      }).catch(() => {})
       const payload = {
         session_id: sessionInfo.session_id,
         answers: questions.map(q => ({ question_id: q.id, answer: answers[q.id] ?? '' })),

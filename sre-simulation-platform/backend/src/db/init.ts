@@ -235,6 +235,10 @@ export async function initDb(): Promise<void> {
       )
     `)
 
+    // Scheduled assessment time windows
+    await client.query(`ALTER TABLE session_assignments ADD COLUMN IF NOT EXISTS active_from TIMESTAMPTZ`)
+    await client.query(`ALTER TABLE session_assignments ADD COLUMN IF NOT EXISTS active_until TIMESTAMPTZ`)
+
     // Pause/resume support
     await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS paused BOOLEAN DEFAULT false`)
 

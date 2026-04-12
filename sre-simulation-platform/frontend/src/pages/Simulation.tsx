@@ -187,6 +187,46 @@ export default function Simulation({ state, actions }: SimulationProps) {
     setEscalateTo(''); setEscalateMsg(''); setShowEscalateModal(false)
   }
 
+  function handleSendSlackWithBot(channel: string, message: string) {
+    actions.sendSlack(channel, message)
+
+    const lower = message.toLowerCase()
+    const mentionsBot = lower.includes('@bot') || lower.includes('@oncall') || lower.includes('@sre') || lower.includes('@help')
+    if (!mentionsBot) return
+
+    // Build context-aware bot response
+    const svc = systemState ? Object.entries(systemState.services) : []
+    const down = svc.filter(([, s]) => s.status === 'down').map(([n]) => n)
+    const degraded = svc.filter(([, s]) => s.status === 'degraded').map(([n]) => n)
+
+    let reply = ''
+
+    if (lower.includes('deploy') || lower.includes('change') || lower.includes('release')) {
+      reply = `Hey — I checked the deploy log. Last deploy was ~23 min ago: \`checkout-service v2.4.1\` rolled out to prod. Commit: fix(checkout): increase connection pool size. Could be related. Rollback is available if needed.`
+    } else if (lower.includes('rollback') || lower.includes('roll back')) {
+      reply = `Rollback to previous version is available. Run: \`kubectl rollout undo deployment/checkout-service -n prod\`. Estimated rollback time: ~2 min. Confirm you want to proceed?`
+    } else if (lower.includes('status') || lower.includes('update') || lower.includes('what')) {
+      const statusLines = []
+      if (down.length) statusLines.push(`🔴 DOWN: ${down.join(', ')}`)
+      if (degraded.length) statusLines.push(`🟡 DEGRADED: ${degraded.join(', ')}`)
+      if (!down.length && !degraded.length) statusLines.push('✅ All services appear healthy from my vantage point')
+      reply = `Current system state:\n${statusLines.join('\n')}\n\nI'm monitoring from the secondary region — primary region metrics may differ.`
+    } else if (lower.includes('runbook') || lower.includes('procedure')) {
+      reply = `Runbooks are in Confluence under SRE > Incident Response. Most relevant for current state: "Connection Pool Exhaustion" and "Cache Invalidation Storm". Both are also available in the Runbook tab on the left.`
+    } else if (lower.includes('escalat') || lower.includes('page') || lower.includes('who')) {
+      reply = `Primary on-call: Uche Nwosu (SRE Lead) — paged automatically at P1 declaration. Secondary: Chidi Okonkwo. You can also use the Escalate button in the toolbar to formally loop in leadership.`
+    } else if (lower.includes('database') || lower.includes('db') || lower.includes('postgres')) {
+      reply = `DB metrics look ${down.some(n => n.includes('db')) ? '⚠ degraded — replica lag is 4.2s and climbing' : 'stable — no lag detected'}. Connection pool utilization is at 89%. Check \`SHOW pg_stat_activity\` for blocking queries.`
+    } else {
+      reply = `On it. Monitoring situation from my end. ${down.length ? `Seeing the same ${down.join(', ')} failures.` : 'No additional signals from my monitoring.'} Keep me posted — I'll alert the team if this escalates past 15 min.`
+    }
+
+    const botName = 'Yemi Oladele (SRE-Bot 🤖)'
+    setTimeout(() => {
+      actions.injectSlack(channel, botName, reply)
+    }, 1200 + Math.random() * 800)
+  }
+
   const timeLimitSeconds = (sessionInfo?.time_limit_minutes ?? 15) * 60
   // Timer counts from when the user dismissed the onboarding modal
   const effectiveElapsed = elapsedAtDismissal !== null ? Math.max(0, elapsedSeconds - elapsedAtDismissal) : 0
@@ -537,7 +577,7 @@ export default function Simulation({ state, actions }: SimulationProps) {
                   </div>
                   <button onClick={() => setShowCommsDrawer(false)} className="text-[#484f58] hover:text-[#e6edf3] text-xs">✕</button>
                 </div>
-                <CommsPanel messages={state.slackMessages} onSendMessage={actions.sendSlack} />
+                <CommsPanel messages={state.slackMessages} onSendMessage={handleSendSlackWithBot} />
               </div>
             )}
             {/* Unread badge */}
