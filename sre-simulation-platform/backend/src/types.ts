@@ -185,4 +185,6 @@ export interface SessionState {
   applied_steps: Set<number>
   ticker?: ReturnType<typeof setInterval>
   recovery_ticks: number
+  last_command_at: Date
+  idle_degradations: number  // how many idle degradation steps have been applied
 }

@@ -219,6 +219,22 @@ export async function initDb(): Promise<void> {
       )
     `)
 
+    // Configurable pass threshold + hint tracking
+    await client.query(`ALTER TABLE session_assignments ADD COLUMN IF NOT EXISTS pass_threshold INTEGER NOT NULL DEFAULT 70`)
+    await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS pass_threshold INTEGER NOT NULL DEFAULT 70`)
+    await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS hints_used INTEGER NOT NULL DEFAULT 0`)
+
+    // Session feedback
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS session_feedback (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+        rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+        comment TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+
     await client.query(`CREATE INDEX IF NOT EXISTS idx_event_logs_session ON event_logs(session_id)`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_state_snapshots_session ON state_snapshots(session_id)`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_scorecards_session ON scorecards(session_id)`)

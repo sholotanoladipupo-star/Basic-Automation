@@ -325,6 +325,32 @@ monitoringRouter.post('/admin/questions', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
+monitoringRouter.get('/admin/questions/:id', requireAdmin, async (req, res) => {
+  try {
+    const r = await pool.query(`SELECT * FROM monitoring_questions WHERE id = $1`, [req.params.id])
+    if (!r.rows[0]) { res.status(404).json({ error: 'Not found' }); return }
+    res.json(r.rows[0])
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+monitoringRouter.put('/admin/questions/:id', requireAdmin, async (req, res) => {
+  const { title, scenario, difficulty, sub_questions, time_limit_seconds } = req.body as Record<string, unknown>
+  try {
+    const r = await pool.query(
+      `UPDATE monitoring_questions SET
+        title = COALESCE($1, title),
+        scenario = COALESCE($2, scenario),
+        difficulty = COALESCE($3, difficulty),
+        sub_questions = COALESCE($4::jsonb, sub_questions),
+        time_limit_seconds = COALESCE($5, time_limit_seconds)
+       WHERE id = $6 RETURNING *`,
+      [title, scenario, difficulty, sub_questions ? JSON.stringify(sub_questions) : null, time_limit_seconds, req.params.id]
+    )
+    if (!r.rows[0]) { res.status(404).json({ error: 'Not found' }); return }
+    res.json(r.rows[0])
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
 monitoringRouter.delete('/admin/questions/:id', requireAdmin, async (req, res) => {
   try {
     await pool.query(`DELETE FROM monitoring_questions WHERE id = $1`, [req.params.id])

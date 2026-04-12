@@ -146,6 +146,32 @@ postmortemRouter.post('/admin/questions', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
+postmortemRouter.get('/admin/questions/:id', requireAdmin, async (req, res) => {
+  try {
+    const r = await pool.query(`SELECT * FROM postmortem_questions WHERE id = $1`, [req.params.id])
+    if (!r.rows[0]) { res.status(404).json({ error: 'Not found' }); return }
+    res.json(r.rows[0])
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+postmortemRouter.put('/admin/questions/:id', requireAdmin, async (req, res) => {
+  const { title, incident_summary, timeline, difficulty, time_limit_seconds } = req.body as Record<string, unknown>
+  try {
+    const r = await pool.query(
+      `UPDATE postmortem_questions SET
+        title = COALESCE($1, title),
+        incident_summary = COALESCE($2, incident_summary),
+        timeline = COALESCE($3::jsonb, timeline),
+        difficulty = COALESCE($4, difficulty),
+        time_limit_seconds = COALESCE($5, time_limit_seconds)
+       WHERE id = $6 RETURNING *`,
+      [title, incident_summary, timeline ? JSON.stringify(timeline) : null, difficulty, time_limit_seconds, req.params.id]
+    )
+    if (!r.rows[0]) { res.status(404).json({ error: 'Not found' }); return }
+    res.json(r.rows[0])
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
 postmortemRouter.delete('/admin/questions/:id', requireAdmin, async (req, res) => {
   try {
     await pool.query(`DELETE FROM postmortem_questions WHERE id = $1`, [req.params.id])

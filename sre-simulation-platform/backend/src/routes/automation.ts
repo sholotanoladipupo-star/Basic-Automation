@@ -156,6 +156,35 @@ automationRouter.post('/admin/questions', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
+automationRouter.get('/admin/questions/:id', requireAdmin, async (req, res) => {
+  try {
+    const r = await pool.query(`SELECT * FROM automation_questions WHERE id = $1`, [req.params.id])
+    if (!r.rows[0]) { res.status(404).json({ error: 'Not found' }); return }
+    res.json(r.rows[0])
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+automationRouter.put('/admin/questions/:id', requireAdmin, async (req, res) => {
+  const { title, description, task, difficulty, language, starter_code, evaluation_criteria, time_limit_seconds } = req.body as Record<string, unknown>
+  try {
+    const r = await pool.query(
+      `UPDATE automation_questions SET
+        title = COALESCE($1, title),
+        description = COALESCE($2, description),
+        task = COALESCE($3, task),
+        difficulty = COALESCE($4, difficulty),
+        language = COALESCE($5, language),
+        starter_code = COALESCE($6, starter_code),
+        evaluation_criteria = COALESCE($7::jsonb, evaluation_criteria),
+        time_limit_seconds = COALESCE($8, time_limit_seconds)
+       WHERE id = $9 RETURNING *`,
+      [title, description, task, difficulty, language, starter_code, evaluation_criteria ? JSON.stringify(evaluation_criteria) : null, time_limit_seconds, req.params.id]
+    )
+    if (!r.rows[0]) { res.status(404).json({ error: 'Not found' }); return }
+    res.json(r.rows[0])
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
 automationRouter.delete('/admin/questions/:id', requireAdmin, async (req, res) => {
   try {
     await pool.query(`DELETE FROM automation_questions WHERE id = $1`, [req.params.id])

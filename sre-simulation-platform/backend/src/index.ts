@@ -77,7 +77,7 @@ app.get('/admin/assignments', requireAdmin, async (_req, res) => {
 
 // Admin: create assignment
 app.post('/admin/assignments', requireAdmin, async (req, res) => {
-  const { candidate_name, scenario_id, module_type, question_id, is_practice, time_limit_minutes } = req.body as Record<string, string | undefined>
+  const { candidate_name, scenario_id, module_type, question_id, is_practice, time_limit_minutes, pass_threshold } = req.body as Record<string, string | undefined>
   if (!candidate_name) { res.status(400).json({ error: 'candidate_name required' }); return }
   const mt = module_type ?? 'incident'
   if (mt !== 'incident' && mt !== 'cognitive' && !question_id) {
@@ -85,8 +85,8 @@ app.post('/admin/assignments', requireAdmin, async (req, res) => {
   }
   try {
     const result = await pool.query(
-      'INSERT INTO session_assignments (candidate_name, scenario_id, module_type, question_id, is_practice, time_limit_minutes) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [candidate_name.trim(), scenario_id ?? 'cache-db-cascade', mt, question_id ?? null, is_practice === 'true', time_limit_minutes ? Number(time_limit_minutes) : null]
+      'INSERT INTO session_assignments (candidate_name, scenario_id, module_type, question_id, is_practice, time_limit_minutes, pass_threshold) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+      [candidate_name.trim(), scenario_id ?? 'cache-db-cascade', mt, question_id ?? null, is_practice === 'true', time_limit_minutes ? Number(time_limit_minutes) : null, pass_threshold ? Number(pass_threshold) : 70]
     )
     res.json(result.rows[0])
   } catch (err) { res.status(500).json({ error: String(err) }) }
@@ -100,6 +100,18 @@ app.delete('/admin/assignments/:id', requireAdmin, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: String(err) })
   }
+})
+
+// Admin: reset assignment back to pending
+app.patch('/admin/assignments/:id/reset', requireAdmin, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `UPDATE session_assignments SET status = 'pending', used_at = NULL WHERE id = $1 RETURNING *`,
+      [req.params.id]
+    )
+    if (!r.rows[0]) { res.status(404).json({ error: 'Not found' }); return }
+    res.json(r.rows[0])
+  } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
 // Admin: full results dashboard — sessions + scores
@@ -162,10 +174,49 @@ app.get('/admin/percentile/:score', requireAdmin, async (req, res) => {
 app.get('/admin/sessions/:id/events', requireAdmin, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT event_type, payload, created_at FROM event_logs WHERE session_id = $1 ORDER BY created_at ASC`,
+      `SELECT event_type, payload, ts AS created_at FROM event_logs WHERE session_id = $1 ORDER BY ts ASC`,
       [req.params.id]
     )
     res.json(result.rows)
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+// Post-session feedback (candidate-submitted, no auth needed)
+app.post('/sessions/:id/feedback', async (req, res) => {
+  const { rating, comment } = req.body as { rating?: number; comment?: string }
+  if (!rating || rating < 1 || rating > 5) { res.status(400).json({ error: 'rating 1-5 required' }); return }
+  try {
+    await pool.query(
+      `INSERT INTO session_feedback (session_id, rating, comment) VALUES ($1, $2, $3)`,
+      [req.params.id, rating, comment ?? '']
+    )
+    res.json({ ok: true })
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+// Admin: view all feedback
+app.get('/admin/feedback', requireAdmin, async (_req, res) => {
+  try {
+    const r = await pool.query(`
+      SELECT f.id, f.rating, f.comment, f.created_at, s.candidate_name, s.module_type, s.scenario_name
+      FROM session_feedback f JOIN sessions s ON s.id = f.session_id
+      ORDER BY f.created_at DESC LIMIT 200
+    `)
+    const rows = r.rows
+    const avg = rows.length ? (rows.reduce((a, b) => a + Number(b.rating), 0) / rows.length).toFixed(1) : null
+    res.json({ feedback: rows, avg_rating: avg })
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+// Hint request during incident simulation (deducts 5 pts from final score)
+app.post('/sessions/:id/hint', async (req, res) => {
+  try {
+    const sr = await pool.query(`SELECT hints_used FROM sessions WHERE id = $1`, [req.params.id])
+    if (!sr.rows[0]) { res.status(404).json({ error: 'Session not found' }); return }
+    const used = Number(sr.rows[0].hints_used)
+    if (used >= 3) { res.status(400).json({ error: 'Maximum 3 hints per session' }); return }
+    await pool.query(`UPDATE sessions SET hints_used = hints_used + 1 WHERE id = $1`, [req.params.id])
+    res.json({ hints_used: used + 1, hints_remaining: 2 - used, penalty_per_hint: 5 })
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 

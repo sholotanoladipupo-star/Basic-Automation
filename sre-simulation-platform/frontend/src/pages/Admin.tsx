@@ -262,7 +262,7 @@ export default function Admin({ onBack }: AdminProps) {
   }
 
   async function loadReplay(sessionId: string) {
-    if (replayData[sessionId]) return
+    if (replayData[sessionId]?.length) return
     setReplayLoading(sessionId)
     try {
       const r = await fetch(`${API_BASE}/admin/sessions/${sessionId}/events`, { headers: { 'x-admin-key': adminKey } })

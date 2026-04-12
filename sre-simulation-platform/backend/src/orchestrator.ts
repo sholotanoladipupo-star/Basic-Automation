@@ -127,7 +127,7 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
     return
   }
 
-  const assignment = assignmentResult.rows[0] as { id: string; scenario_id: string; module_type: string; question_id: string | null; is_practice: boolean; time_limit_minutes: number | null }
+  const assignment = assignmentResult.rows[0] as { id: string; scenario_id: string; module_type: string; question_id: string | null; is_practice: boolean; time_limit_minutes: number | null; pass_threshold: number | null }
   const moduleType = (assignment.module_type ?? 'incident') as 'incident' | 'sql' | 'monitoring' | 'cognitive' | 'postmortem' | 'automation'
   const questionId = assignment.question_id ?? null
 
@@ -206,7 +206,9 @@ async function handleStartSession(ws: SREWebSocket, payload: { candidate_name: s
     sim_time_offset_seconds: 0,
     resolved: false,
     applied_steps: new Set([0]),
-    recovery_ticks: 0
+    recovery_ticks: 0,
+    last_command_at: new Date(),
+    idle_degradations: 0
   }
 
   sessions.set(sessionId, session)
@@ -283,6 +285,29 @@ async function tickSession(ws: SREWebSocket, sessionId: string): Promise<void> {
       for (const alert of newAlerts) {
         sendMessage(ws, { type: 'new_alert', payload: alert })
         await logEvent(session, 'alert_received', { alert_id: alert.id, service: alert.service })
+      }
+    }
+  }
+
+  // Idle degradation — if no commands in 5 real minutes, cascade worsens (max 2 extra steps)
+  const idleMinutes = (Date.now() - session.last_command_at.getTime()) / 60000
+  if (idleMinutes >= 5 && session.idle_degradations < 2 && !session.resolved) {
+    session.idle_degradations++
+    // Degrade a healthy service to degraded, or a degraded service to down
+    const svcs = Object.values(session.system_state.services)
+    const toDegrade = svcs.find(s => s.status === 'healthy') ?? svcs.find(s => s.status === 'degraded')
+    if (toDegrade) {
+      const newState: SystemState = JSON.parse(JSON.stringify(session.system_state))
+      const svc = newState.services[toDegrade.name]
+      if (svc) {
+        svc.status = svc.status === 'healthy' ? 'degraded' : 'down'
+        svc.current_alerts = svc.status === 'down'
+          ? [{ id: uuidv4(), service: svc.name, severity: 'sev1' as const, message: `${svc.name} has gone down — cascading failure (idle escalation)`, fired_at: new Date().toISOString(), acknowledged: false }]
+          : svc.current_alerts
+        session.system_state = newState
+        stateChanged = true
+        const idleAlert = { id: uuidv4(), service: svc.name, severity: 'sev1' as const, message: `⚠ ${svc.name} degrading further — no action detected for ${Math.round(idleMinutes)} minutes`, fired_at: new Date().toISOString(), acknowledged: false }
+        sendMessage(ws, { type: 'new_alert', payload: idleAlert })
       }
     }
   }
@@ -375,6 +400,7 @@ async function handleRunCommand(ws: SREWebSocket, payload: { cmd: string }): Pro
   const session = getSession(ws)
   if (!session) return
 
+  session.last_command_at = new Date()
   await logEvent(session, 'command_run', { cmd: payload.cmd })
   sendMessage(ws, { type: 'thinking', payload: { message: 'Simulator processing command...' } })
 

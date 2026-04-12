@@ -190,7 +190,11 @@ export function useSimulation(): [SimulationState, SimulationActions] {
           sessionIdRef.current = msg.payload.session_id
           reconnectAttemptsRef.current = 0
           if (timerRef.current) clearInterval(timerRef.current)
-          timerRef.current = setInterval(() => setState(prev => ({ ...prev, elapsedSeconds: prev.elapsedSeconds + 1 })), 1000)
+          const sessionStart = Date.now()
+          timerRef.current = setInterval(() => setState(prev => ({
+            ...prev,
+            elapsedSeconds: Math.floor((Date.now() - sessionStart) / 1000)
+          })), 1000)
           const moduleType = msg.payload.module_type ?? 'incident'
           const info: SessionInfo = {
             session_id: msg.payload.session_id,

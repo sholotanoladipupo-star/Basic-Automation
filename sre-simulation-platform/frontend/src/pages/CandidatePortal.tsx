@@ -1,6 +1,8 @@
 import { useState } from 'react'
 
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+const API = (import.meta.env.VITE_WS_URL ?? 'ws://localhost:3001')
+  .replace('ws://', 'http://')
+  .replace('wss://', 'https://')
 
 interface Session {
   id: string
