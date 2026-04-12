@@ -328,6 +328,112 @@ app.get('/sessions/:id/scorecard', async (req, res) => {
   }
 })
 
+// ── Candidate event logging (tab-switch / copy-paste audit) ──────────────────
+app.post('/sessions/:id/events', async (req, res) => {
+  const { event_type, payload } = req.body as { event_type?: string; payload?: object }
+  if (!event_type) { res.status(400).json({ error: 'event_type required' }); return }
+  try {
+    const result = await pool.query(
+      `INSERT INTO event_logs (id, session_id, sim_ts, event_type, payload)
+       VALUES (gen_random_uuid(), $1, NOW()::text, $2, $3)
+       RETURNING id`,
+      [req.params.id, event_type, JSON.stringify(payload ?? {})]
+    )
+    res.json({ ok: true, id: result.rows[0].id })
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+// ── Admin: pause / resume session ────────────────────────────────────────────
+app.patch('/admin/sessions/:id/pause', requireAdmin, async (req, res) => {
+  const { paused } = req.body as { paused?: boolean }
+  if (typeof paused !== 'boolean') { res.status(400).json({ error: 'paused (boolean) required' }); return }
+  try {
+    const r = await pool.query(
+      `UPDATE sessions SET paused = $1 WHERE id = $2 RETURNING id`,
+      [paused, req.params.id]
+    )
+    if (!r.rows[0]) { res.status(404).json({ error: 'Session not found' }); return }
+    res.json({ ok: true, paused })
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+// ── Admin: assessor annotations ───────────────────────────────────────────────
+app.post('/admin/sessions/:id/annotations', requireAdmin, async (req, res) => {
+  const { text } = req.body as { text?: string }
+  if (!text || !text.trim()) { res.status(400).json({ error: 'text required' }); return }
+  try {
+    const r = await pool.query(
+      `INSERT INTO session_annotations (session_id, text) VALUES ($1, $2)
+       RETURNING id, session_id, text, created_at`,
+      [req.params.id, text.trim()]
+    )
+    res.json(r.rows[0])
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+app.get('/admin/sessions/:id/annotations', requireAdmin, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, session_id, text, created_at FROM session_annotations
+       WHERE session_id = $1 ORDER BY created_at ASC`,
+      [req.params.id]
+    )
+    res.json(r.rows)
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+// ── Public annotations (candidate-facing, shown in candidate portal debrief) ──
+app.get('/sessions/:id/annotations-public', async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, text, created_at FROM session_annotations WHERE session_id = $1 ORDER BY created_at ASC`,
+      [req.params.id]
+    )
+    res.json(r.rows)
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
+// ── Comparative benchmark (candidate-facing, no auth) ─────────────────────────
+app.get('/sessions/:id/benchmark', async (req, res) => {
+  try {
+    const sessionRes = await pool.query(
+      `SELECT overall_score, scenario_name, status FROM sessions WHERE id = $1`,
+      [req.params.id]
+    )
+    const session = sessionRes.rows[0]
+    if (!session) { res.status(404).json({ error: 'Session not found' }); return }
+    if (session.status !== 'completed' || session.overall_score == null) {
+      res.status(404).json({ error: 'Session not completed' }); return
+    }
+    const candidateScore = Number(session.overall_score)
+    const statsRes = await pool.query(
+      `SELECT COUNT(*) AS total,
+              COUNT(CASE WHEN overall_score < $1 THEN 1 END) AS ranked_below
+       FROM sessions
+       WHERE scenario_name = $2 AND status = 'completed' AND overall_score IS NOT NULL`,
+      [candidateScore, session.scenario_name]
+    )
+    const { total, ranked_below } = statsRes.rows[0]
+    const totalNum = Number(total)
+    const rankNum = totalNum - Number(ranked_below)   // 1-based rank (1 = best)
+    const percentile = totalNum > 1 ? Math.round((Number(ranked_below) / totalNum) * 100) : null
+    const avgRes = await pool.query(
+      `SELECT ROUND(AVG(overall_score))::int AS avg_score
+       FROM sessions
+       WHERE scenario_name = $1 AND status = 'completed' AND overall_score IS NOT NULL`,
+      [session.scenario_name]
+    )
+    res.json({
+      scenario_name: session.scenario_name,
+      total_attempts: totalNum,
+      rank: rankNum,
+      percentile,
+      avg_score: avgRes.rows[0]?.avg_score ?? null,
+      candidate_score: candidateScore,
+    })
+  } catch (err) { res.status(500).json({ error: String(err) }) }
+})
+
 const server = createServer(app)
 
 const wss = new WebSocketServer({ server })

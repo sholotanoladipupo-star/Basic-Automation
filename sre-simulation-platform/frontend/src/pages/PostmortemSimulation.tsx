@@ -52,6 +52,7 @@ export default function PostmortemSimulation({ sessionInfo }: Props) {
   const [showTimeUpModal, setShowTimeUpModal] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)
   const autoSubmittedRef = useRef(false)
+  const autosaveKey = `sre-pm-${sessionInfo.session_id}`
 
   const timeLimit = question?.time_limit_seconds ?? (sessionInfo.time_limit_minutes * 60)
 
@@ -67,6 +68,38 @@ export default function PostmortemSimulation({ sessionInfo }: Props) {
       })
       .catch(() => setLoadError('Failed to load question. Please refresh.'))
   }, [sessionInfo.question_id])
+
+  // Load saved answers on mount (after key is established)
+  useEffect(() => {
+    const saved = localStorage.getItem(autosaveKey)
+    if (saved) {
+      try { setAnswers(JSON.parse(saved) as Record<string, string>) } catch { /* */ }
+    }
+  }, [autosaveKey])
+
+  // Auto-save on change
+  useEffect(() => {
+    if (submitted) return
+    if (Object.values(answers).some(v => v.trim())) {
+      localStorage.setItem(autosaveKey, JSON.stringify(answers))
+    }
+  }, [answers, submitted, autosaveKey])
+
+  // Tab-switch audit
+  useEffect(() => {
+    if (submitted) return
+    function handleVisibility() {
+      if (document.hidden) {
+        fetch(`${API_BASE}/sessions/${sessionInfo.session_id}/events`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ event_type: 'tab_hidden', payload: { module: 'postmortem' } })
+        }).catch(() => {})
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [submitted, sessionInfo.session_id])
 
   function handleTimerExpire() {
     if (autoSubmittedRef.current || submitted) return
@@ -92,6 +125,7 @@ export default function PostmortemSimulation({ sessionInfo }: Props) {
       const data = await res.json() as ScoreResult
       setScoreResult(data)
       setSubmitted(true)
+      localStorage.removeItem(autosaveKey)
       setShowTimeUpModal(false)
       setShowFeedback(true)
     } catch (err) {
@@ -160,6 +194,7 @@ export default function PostmortemSimulation({ sessionInfo }: Props) {
             : 'border-[#f85149] text-[#f85149]'
           }`}>{question.difficulty}</span>
           <span className="text-[#8b949e]">{completedSections}/{SECTIONS.length} sections · {totalWords} words</span>
+          {!submitted && <span className="text-[#484f58] text-[10px]">💾 saved</span>}
           {timedOut ? (
             <span className="text-[#f85149] font-bold text-sm font-mono">TIME UP</span>
           ) : (

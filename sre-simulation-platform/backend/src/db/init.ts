@@ -235,11 +235,25 @@ export async function initDb(): Promise<void> {
       )
     `)
 
+    // Pause/resume support
+    await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS paused BOOLEAN DEFAULT false`)
+
+    // Assessor annotations
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS session_annotations (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
+        text TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+
     await client.query(`CREATE INDEX IF NOT EXISTS idx_event_logs_session ON event_logs(session_id)`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_state_snapshots_session ON state_snapshots(session_id)`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_scorecards_session ON scorecards(session_id)`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_cmd_responses_pattern ON command_responses(command_pattern)`)
     await client.query(`CREATE INDEX IF NOT EXISTS idx_assignments_candidate ON session_assignments(candidate_name)`)
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_annotations_session ON session_annotations(session_id)`)
 
     console.log('Database schema initialized successfully')
   } finally {

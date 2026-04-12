@@ -68,6 +68,7 @@ export default function Simulation({ state, actions }: SimulationProps) {
   const [showHintModal, setShowHintModal] = useState(false)
   const [hintLoading, setHintLoading] = useState(false)
   const [hintText, setHintText] = useState('')
+  const [severityDeclaredAt, setSeverityDeclaredAt] = useState<number | null>(null)
 
   // Load notes from localStorage when session is known
   useEffect(() => {
@@ -81,6 +82,13 @@ export default function Simulation({ state, actions }: SimulationProps) {
     if (!notesKey) return
     localStorage.setItem(notesKey, notes)
   }, [notes, notesKey])
+
+  // Capture the timestamp when severity is first declared
+  useEffect(() => {
+    if (severityDeclared && severityDeclaredAt === null) {
+      setSeverityDeclaredAt(Date.now())
+    }
+  }, [severityDeclared, severityDeclaredAt])
 
   // Auto-request fullscreen when simulation loads
   useEffect(() => {
@@ -241,6 +249,14 @@ export default function Simulation({ state, actions }: SimulationProps) {
         </div>
       )}
 
+      {/* Reconnect banner */}
+      {!connected && sessionInfo && !state.sessionEnded && (
+        <div className="flex-shrink-0 bg-[#2a0a0a] border-b border-[#f85149] px-4 py-2 flex items-center gap-3 animate-pulse">
+          <span className="text-[#f85149] font-bold text-xs">⚠ Connection lost</span>
+          <span className="text-[#8b949e] text-xs">Attempting to reconnect… Your timer is paused until reconnected.</span>
+        </div>
+      )}
+
       {/* Top bar */}
       <div className="flex-shrink-0 h-11 bg-[#161b22] border-b border-[#30363d] flex items-center px-3 gap-3">
         <span className="text-[#3fb950] font-bold tracking-tight">SRE·SIM</span>
@@ -255,11 +271,27 @@ export default function Simulation({ state, actions }: SimulationProps) {
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          {severityDeclared && (
-            <span className={`text-xs px-2 py-0.5 rounded font-bold ${SEVERITY_STYLE[severityDeclared] ?? ''}`}>
-              {SEVERITY_LABEL[severityDeclared] ?? severityDeclared.toUpperCase()}
-            </span>
-          )}
+          {severityDeclared && (() => {
+            const slaMins = severityDeclared === 'sev1' ? 15 : severityDeclared === 'sev2' ? 30 : 60
+            const elapsedSinceSev = severityDeclaredAt ? Math.floor((Date.now() - severityDeclaredAt) / 1000) : 0
+            const slaRemaining = Math.max(0, slaMins * 60 - elapsedSinceSev)
+            const slaM = Math.floor(slaRemaining / 60)
+            const slaS = slaRemaining % 60
+            const slaBreached = slaRemaining === 0
+            return (
+              <div className="flex items-center gap-1.5">
+                <span className={`text-xs px-2 py-0.5 rounded font-bold ${SEVERITY_STYLE[severityDeclared] ?? ''}`}>
+                  {SEVERITY_LABEL[severityDeclared] ?? severityDeclared.toUpperCase()}
+                </span>
+                {severityDeclaredAt && (
+                  <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${slaBreached ? 'text-[#f85149] border-[#f85149]/50 bg-[#2a0a0a] animate-pulse' : 'text-[#d29922] border-[#d29922]/40'}`}
+                    title={`SLA: ${slaMins}min to resolve`}>
+                    SLA {slaBreached ? 'BREACHED' : `${String(slaM).padStart(2,'0')}:${String(slaS).padStart(2,'0')}`}
+                  </span>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Countdown timer */}
           <div className={`font-bold tabular-nums px-2 py-0.5 rounded ${timeIsLow ? 'bg-[#f85149] text-white animate-pulse' : 'text-[#3fb950]'}`}>

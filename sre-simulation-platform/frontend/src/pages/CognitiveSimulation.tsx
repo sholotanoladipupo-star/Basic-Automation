@@ -76,6 +76,7 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
   const [reviewIdx, setReviewIdx] = useState<number | null>(null)
   const [showFeedback, setShowFeedback] = useState(false)
   const autoSubmittedRef = useRef(false)
+  const autosaveKey = `sre-cog-${sessionInfo.session_id}`
 
   const timeLimit = sessionInfo.time_limit_minutes * 60
 
@@ -91,6 +92,36 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
       })
       .catch(() => setLoadError('Failed to load questions. Please refresh.'))
   }, [])
+
+  // Load saved answers on mount
+  useEffect(() => {
+    const saved = localStorage.getItem(autosaveKey)
+    if (saved) {
+      try { setAnswers(JSON.parse(saved) as Record<string, string>) } catch { /* */ }
+    }
+  }, [autosaveKey])
+
+  // Save on every answers change (skip after submitted)
+  useEffect(() => {
+    if (submitted) return
+    localStorage.setItem(autosaveKey, JSON.stringify(answers))
+  }, [answers, submitted, autosaveKey])
+
+  // Tab-switch audit
+  useEffect(() => {
+    if (submitted) return
+    function handleVisibility() {
+      if (document.hidden) {
+        fetch(`${API_BASE}/sessions/${sessionInfo.session_id}/events`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ event_type: 'tab_hidden', payload: { module: 'cognitive' } })
+        }).catch(() => {})
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [submitted, sessionInfo.session_id])
 
   function handleTimerExpire() {
     if (autoSubmittedRef.current || submitted) return
@@ -126,6 +157,7 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
       }
       setScoreResult(data)
       setSubmitted(true)
+      localStorage.removeItem(autosaveKey)
       setShowFeedback(true)
     } catch (err) {
       setSubmitError('Submit failed: ' + String(err))
@@ -277,6 +309,16 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
                         setCurrentIdx(i => i + 1)
                       }
                     }}
+                    onPaste={e => {
+                      const pasted = e.clipboardData.getData('text')
+                      if (pasted.length > 20) {
+                        fetch(`${API_BASE}/sessions/${sessionInfo.session_id}/events`, {
+                          method: 'POST',
+                          headers: { 'content-type': 'application/json' },
+                          body: JSON.stringify({ event_type: 'paste_detected', payload: { module: 'cognitive', length: pasted.length } })
+                        }).catch(() => {})
+                      }
+                    }}
                   />
                   <div className="text-[#484f58] mt-1.5">Press Enter to go to the next question</div>
                 </div>
@@ -313,6 +355,7 @@ export default function CognitiveSimulation({ sessionInfo }: Props) {
             </div>
             <div className="flex items-center gap-3">
               {submitError && <span className="text-[#f85149]">✗ {submitError}</span>}
+              <span className="text-[#484f58] text-[10px]">💾 Auto-saved</span>
               <button
                 onClick={handleSubmit}
                 disabled={submitting || submitted}

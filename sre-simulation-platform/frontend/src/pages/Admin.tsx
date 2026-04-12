@@ -98,6 +98,22 @@ export default function Admin({ onBack }: AdminProps) {
   const [replayData, setReplayData]   = useState<Record<string, {created_at: string; event_type: string; payload: Record<string, unknown>}[]>>({})
   const [replayLoading, setReplayLoading] = useState<string | null>(null)
 
+  // Results filtering enhancements
+  const [filterPassFail, setFilterPassFail] = useState<'all' | 'pass' | 'fail'>('all')
+  const [filterScoreMin, setFilterScoreMin] = useState('')
+  const [filterScoreMax, setFilterScoreMax] = useState('')
+
+  // Question preview modal
+  const [previewQuestion, setPreviewQuestion] = useState<{ type: string; data: unknown } | null>(null)
+
+  // Pause/resume active sessions
+  const [pausingSessions, setPausingSessions] = useState<Set<string>>(new Set())
+
+  // Assessor annotations
+  const [annotations, setAnnotations] = useState<Record<string, { id: string; text: string; created_at: string }[]>>({})
+  const [annotationText, setAnnotationText] = useState<Record<string, string>>({})
+  const [annotationsLoading, setAnnotationsLoading] = useState<string | null>(null)
+
   // ── SQL tab ──────────────────────────────────────────────────────────────
   const [sqlQuestions, setSqlQuestions] = useState<SQLQuestion[]>([])
   const [sqlForm, setSqlForm]           = useState(BLANK_SQL_FORM)
@@ -269,6 +285,66 @@ export default function Admin({ onBack }: AdminProps) {
       if (r.ok) { const events = await r.json() as {created_at: string; event_type: string; payload: Record<string, unknown>}[]; setReplayData(d => ({ ...d, [sessionId]: events })) }
     } catch { /* */ }
     finally { setReplayLoading(null) }
+  }
+
+  async function handlePauseSession(sessionId: string, currentlyPaused: boolean) {
+    setPausingSessions(s => new Set(s).add(sessionId))
+    try {
+      await fetch(`${API_BASE}/admin/sessions/${sessionId}/pause`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', 'x-admin-key': adminKey },
+        body: JSON.stringify({ paused: !currentlyPaused })
+      })
+      await loadResults()
+    } catch { /* */ } finally {
+      setPausingSessions(s => { const n = new Set(s); n.delete(sessionId); return n })
+    }
+  }
+
+  async function loadAnnotations(sessionId: string) {
+    if (annotations[sessionId]) return
+    setAnnotationsLoading(sessionId)
+    try {
+      const r = await fetch(`${API_BASE}/admin/sessions/${sessionId}/annotations`, { headers: { 'x-admin-key': adminKey } })
+      if (r.ok) { const data = await r.json() as { id: string; text: string; created_at: string }[]; setAnnotations(d => ({ ...d, [sessionId]: data })) }
+    } catch { /* */ } finally { setAnnotationsLoading(null) }
+  }
+
+  async function handleAddAnnotation(sessionId: string) {
+    const text = (annotationText[sessionId] ?? '').trim()
+    if (!text) return
+    try {
+      await fetch(`${API_BASE}/admin/sessions/${sessionId}/annotations`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-admin-key': adminKey },
+        body: JSON.stringify({ text })
+      })
+      setAnnotationText(t => ({ ...t, [sessionId]: '' }))
+      setAnnotations(d => ({ ...d, [sessionId]: undefined as unknown as { id: string; text: string; created_at: string }[] }))
+      await loadAnnotations(sessionId)
+    } catch { /* */ }
+  }
+
+  function duplicateCog(q: CognitiveQuestion) {
+    setCogForm({ question: q.question + ' (copy)', type: q.type, options: JSON.stringify(q.options ?? []), correct_answer: q.correct_answer, explanation: q.explanation, difficulty: q.difficulty, points: String(q.points) })
+    setEditingCog(null)
+    setCogFormError(''); setCogFormSuccess('')
+    setTab('cognitive')
+    setTimeout(() => document.getElementById('cog-form-top')?.scrollIntoView({ behavior: 'smooth' }), 100)
+  }
+
+  function duplicatePm(q: PostmortemQuestion) {
+    setPmForm({ title: q.title + ' (copy)', incident_summary: '', timeline: '[]', difficulty: q.difficulty, time_limit_seconds: String(q.time_limit_seconds) })
+    setEditingPm(null)
+    setPmFormError(''); setPmFormSuccess('')
+    setTimeout(() => document.getElementById('pm-form-top')?.scrollIntoView({ behavior: 'smooth' }), 100)
+  }
+
+  function duplicateAuto(q: AutomationQuestion) {
+    setAutoForm({ title: q.title + ' (copy)', description: '', task: '', difficulty: q.difficulty, language: q.language, starter_code: '', evaluation_criteria: '[]', time_limit_seconds: String(q.time_limit_seconds) })
+    setEditingAuto(null)
+    setAutoFormError(''); setAutoFormSuccess('')
+    setTimeout(() => document.getElementById('auto-form-top')?.scrollIntoView({ behavior: 'smooth' }), 100)
   }
 
   // SQL handlers
@@ -483,7 +559,14 @@ export default function Admin({ onBack }: AdminProps) {
   }
 
   // ── Filtered results ──────────────────────────────────────────────────────
-  const filteredResults = filterModule === 'all' ? results : results.filter(r => r.module_type === filterModule)
+  const filteredResults = results.filter(r => {
+    if (filterModule !== 'all' && r.module_type !== filterModule) return false
+    if (filterPassFail === 'pass' && (r.overall_score == null || r.overall_score < 70)) return false
+    if (filterPassFail === 'fail' && (r.overall_score == null || r.overall_score >= 70)) return false
+    if (filterScoreMin && r.overall_score != null && r.overall_score < Number(filterScoreMin)) return false
+    if (filterScoreMax && r.overall_score != null && r.overall_score > Number(filterScoreMax)) return false
+    return true
+  })
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -720,6 +803,17 @@ export default function Admin({ onBack }: AdminProps) {
                           <button key={m} onClick={() => setFilterModule(m)} className={`px-2 py-1 rounded text-[10px] border transition-colors ${filterModule === m ? 'border-[#3fb950] text-[#3fb950]' : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e]'}`}>{m.toUpperCase()}</button>
                         ))}
                       </div>
+                      <div className="flex gap-1">
+                        {(['all', 'pass', 'fail'] as const).map(f => (
+                          <button key={f} onClick={() => setFilterPassFail(f)} className={`px-2 py-1 rounded text-[10px] border transition-colors ${filterPassFail === f ? 'border-[#3fb950] text-[#3fb950]' : 'border-[#30363d] text-[#484f58] hover:text-[#8b949e]'}`}>{f.toUpperCase()}</button>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-1 text-[10px] text-[#484f58]">
+                        <span>Score:</span>
+                        <input type="number" value={filterScoreMin} onChange={e => setFilterScoreMin(e.target.value)} placeholder="min" className="w-12 bg-[#0d1117] border border-[#30363d] rounded px-1 py-0.5 text-[#8b949e] text-[10px] focus:outline-none" />
+                        <span>–</span>
+                        <input type="number" value={filterScoreMax} onChange={e => setFilterScoreMax(e.target.value)} placeholder="max" className="w-12 bg-[#0d1117] border border-[#30363d] rounded px-1 py-0.5 text-[#8b949e] text-[10px] focus:outline-none" />
+                      </div>
                       <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#58a6ff]/10 hover:bg-[#58a6ff]/20 border border-[#58a6ff]/40 text-[#58a6ff] rounded text-[11px] font-bold transition-all">↓ Export CSV</button>
                       <button onClick={loadResults} disabled={resultsLoading} className="text-[10px] px-3 py-1 rounded border border-[#30363d] text-[#484f58] hover:text-[#8b949e] transition-colors">{resultsLoading ? '⏳' : '↻ Refresh'}</button>
                     </div>
@@ -794,6 +888,41 @@ export default function Admin({ onBack }: AdminProps) {
                                       </div>
                                     )}
                                   </div>
+                                  {/* Assessor annotations */}
+                                  <div>
+                                    <div className="text-[#484f58] text-[10px] uppercase tracking-widest mb-2">Assessor Notes</div>
+                                    {!annotations[r.id] && (
+                                      <button onClick={() => loadAnnotations(r.id)} disabled={annotationsLoading === r.id}
+                                        className="text-[10px] px-2 py-0.5 rounded border border-[#d29922]/40 text-[#d29922] hover:bg-[#d29922]/10 transition-colors">
+                                        {annotationsLoading === r.id ? '⏳ Loading…' : '📝 Load Notes'}
+                                      </button>
+                                    )}
+                                    {annotations[r.id] && (
+                                      <div className="space-y-2">
+                                        {annotations[r.id].length === 0 && <div className="text-[#484f58] text-[10px]">No notes yet.</div>}
+                                        {annotations[r.id].map(a => (
+                                          <div key={a.id} className="bg-[#1a1600] border border-[#d29922]/30 rounded px-3 py-2">
+                                            <div className="text-[#d29922] text-[10px] mb-0.5">{fmt(a.created_at)}</div>
+                                            <div className="text-[#c9d1d9] text-[11px] leading-relaxed">{a.text}</div>
+                                          </div>
+                                        ))}
+                                        <div className="flex gap-2 mt-2">
+                                          <input
+                                            type="text"
+                                            value={annotationText[r.id] ?? ''}
+                                            onChange={e => setAnnotationText(t => ({ ...t, [r.id]: e.target.value }))}
+                                            placeholder="Add a note for the candidate's debrief…"
+                                            className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1.5 text-[#e6edf3] text-[11px] focus:outline-none focus:border-[#d29922] transition-colors"
+                                            onKeyDown={e => { if (e.key === 'Enter') handleAddAnnotation(r.id) }}
+                                          />
+                                          <button onClick={() => handleAddAnnotation(r.id)}
+                                            className="px-3 py-1.5 bg-[#d29922]/20 hover:bg-[#d29922]/40 border border-[#d29922]/50 text-[#d29922] rounded text-[10px] font-bold transition-colors">
+                                            Save
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
                                 </td>
                               </tr>
                             )}
@@ -844,7 +973,7 @@ export default function Admin({ onBack }: AdminProps) {
             {/* ── COGNITIVE TAB ── */}
             {tab === 'cognitive' && (
               <div className="space-y-5">
-                <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
+                <div id="cog-form-top" className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
                   <div className="text-[#8b949e] uppercase tracking-widest mb-4">{editingCog ? 'Edit Question' : 'Create Cognitive Question'}</div>
                   <form onSubmit={handleCreateCog} className="space-y-3">
                     <div><label className={labelCls}>Question</label><textarea value={cogForm.question} onChange={e => setCogForm(f => ({ ...f, question: e.target.value }))} rows={3} placeholder="A server processes N requests per second…" className={inputCls + ' resize-none'} /></div>
@@ -875,6 +1004,7 @@ export default function Admin({ onBack }: AdminProps) {
                           <td className="px-4 py-2.5 text-[#8b949e] uppercase text-[10px]">{q.difficulty}</td>
                           <td className="px-4 py-2.5 text-[#484f58]">{q.points} pts</td>
                           <td className="px-4 py-2.5 text-right flex gap-3 justify-end">
+                            <button onClick={() => duplicateCog(q)} className="text-[#3fb950] hover:text-[#56d364] transition-colors text-[11px]" title="Duplicate">⎘</button>
                             <button onClick={() => startEditCog(q)} className="text-[#58a6ff] hover:text-[#79c0ff] transition-colors text-[11px]">✏ Edit</button>
                             <button onClick={() => handleDeleteCog(q.id)} className="text-[#484f58] hover:text-[#f85149] transition-colors">✕</button>
                           </td>
@@ -926,7 +1056,7 @@ export default function Admin({ onBack }: AdminProps) {
             {/* ── POSTMORTEM TAB ── */}
             {tab === 'postmortem' && (
               <div className="space-y-5">
-                <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
+                <div id="pm-form-top" className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
                   <div className="text-[#8b949e] uppercase tracking-widest mb-4">{editingPm ? `Editing: ${editingPm.title}` : 'Create Postmortem Question'}</div>
                   <form onSubmit={handleCreatePm} className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
@@ -960,6 +1090,7 @@ export default function Admin({ onBack }: AdminProps) {
                           <td className="px-4 py-2.5 text-[#8b949e] uppercase text-[10px]">{q.difficulty}</td>
                           <td className="px-4 py-2.5 text-[#484f58]">{Math.round(q.time_limit_seconds / 60)}min</td>
                           <td className="px-4 py-2.5 text-right flex gap-3 justify-end">
+                            <button onClick={() => duplicatePm(q)} className="text-[#3fb950] hover:text-[#56d364] transition-colors text-[11px]" title="Duplicate">⎘</button>
                             <button onClick={() => startEditPm(q)} className="text-[#58a6ff] hover:text-[#79c0ff] transition-colors text-[11px]">✏ Edit</button>
                             <button onClick={() => handleDeletePm(q.id)} className="text-[#484f58] hover:text-[#f85149] transition-colors">✕</button>
                           </td>
@@ -974,7 +1105,7 @@ export default function Admin({ onBack }: AdminProps) {
             {/* ── AUTOMATION TAB ── */}
             {tab === 'automation' && (
               <div className="space-y-5">
-                <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
+                <div id="auto-form-top" className="bg-[#161b22] border border-[#30363d] rounded-lg p-5">
                   <div className="text-[#8b949e] uppercase tracking-widest mb-4">{editingAuto ? `Editing: ${editingAuto.title}` : 'Create Automation Question'}</div>
                   <form onSubmit={handleCreateAuto} className="space-y-3">
                     <div className="grid grid-cols-3 gap-3">
@@ -1012,6 +1143,7 @@ export default function Admin({ onBack }: AdminProps) {
                           <td className="px-4 py-2.5 text-[#8b949e] uppercase text-[10px]">{q.difficulty}</td>
                           <td className="px-4 py-2.5 text-[#484f58]">{Math.round(q.time_limit_seconds / 60)}min</td>
                           <td className="px-4 py-2.5 text-right flex gap-3 justify-end">
+                            <button onClick={() => duplicateAuto(q)} className="text-[#3fb950] hover:text-[#56d364] transition-colors text-[11px]" title="Duplicate">⎘</button>
                             <button onClick={() => startEditAuto(q)} className="text-[#58a6ff] hover:text-[#79c0ff] transition-colors text-[11px]">✏ Edit</button>
                             <button onClick={() => handleDeleteAuto(q.id)} className="text-[#484f58] hover:text-[#f85149] transition-colors">✕</button>
                           </td>

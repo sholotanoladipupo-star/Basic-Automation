@@ -28,6 +28,8 @@ export default function CandidatePortal({ onBack }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [scorecard, setScorecard] = useState<Record<string, unknown> | null>(null)
   const [scorecardLoading, setScorecardLoading] = useState(false)
+  const [benchmark, setBenchmark] = useState<{ percentile: number; avg_score: number; total_attempts: number } | null>(null)
+  const [annotations, setAnnotations] = useState<{ id: string; text: string; created_at: string }[]>([])
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault()
@@ -52,13 +54,23 @@ export default function CandidatePortal({ onBack }: Props) {
   }
 
   async function handleViewScorecard(sessionId: string) {
-    if (expandedId === sessionId) { setExpandedId(null); setScorecard(null); return }
+    if (expandedId === sessionId) { setExpandedId(null); setScorecard(null); setBenchmark(null); setAnnotations([]); return }
     setExpandedId(sessionId)
     setScorecard(null)
     setScorecardLoading(true)
     try {
       const r = await fetch(`${API}/sessions/${sessionId}/scorecard`)
       if (r.ok) setScorecard(await r.json())
+      // Fetch benchmark data
+      fetch(`${API}/sessions/${sessionId}/benchmark`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setBenchmark(d as { percentile: number; avg_score: number; total_attempts: number }) })
+        .catch(() => {})
+      // Fetch assessor annotations (if any exist, show them in debrief)
+      fetch(`${API}/sessions/${sessionId}/annotations-public`)
+        .then(r => r.ok ? r.json() : [])
+        .then(d => { if (Array.isArray(d)) setAnnotations(d as { id: string; text: string; created_at: string }[]) })
+        .catch(() => {})
     } catch { /* silent */ } finally {
       setScorecardLoading(false)
     }
@@ -173,25 +185,78 @@ export default function CandidatePortal({ onBack }: Props) {
                               </div>
                             ) : null}
                             {/* Dimension breakdown */}
-                            {scorecard.dimensions != null && (
-                              <div>
-                                <div className="text-[#484f58] text-[10px] uppercase tracking-widest mb-2">Performance Breakdown</div>
-                                <div className="grid grid-cols-2 gap-2">
-                                  {Object.entries(scorecard.dimensions as Record<string, { score: number; notes?: string }>).map(([key, dim]) => (
-                                    <div key={key} className="bg-[#161b22] border border-[#30363d] rounded-lg p-3">
-                                      <div className="flex items-center justify-between mb-1.5">
-                                        <span className="text-[#8b949e] text-[10px] capitalize">{key.replace(/_/g, ' ')}</span>
-                                        <span className="font-bold text-[11px]" style={{ color: scoreColor(dim.score) }}>{dim.score}/100</span>
-                                      </div>
-                                      <div className="h-1 bg-[#21262d] rounded overflow-hidden">
-                                        <div className="h-full rounded" style={{ width: `${dim.score}%`, background: scoreColor(dim.score) }} />
-                                      </div>
-                                      {dim.notes && <p className="text-[#484f58] text-[10px] mt-1.5 leading-relaxed">{dim.notes}</p>}
+                            {scorecard.dimensions != null && (() => {
+                              const dims = Object.entries(scorecard.dimensions as Record<string, { score: number; notes?: string }>)
+                              const n = dims.length
+                              if (n === 0) return null
+
+                              // SVG radar chart
+                              const size = 180
+                              const cx = size / 2, cy = size / 2, r = 70
+                              const levels = [20, 40, 60, 80, 100]
+
+                              function angleFor(i: number) { return (i / n) * 2 * Math.PI - Math.PI / 2 }
+                              function pointAt(angle: number, radius: number) {
+                                return `${cx + radius * Math.cos(angle)},${cy + radius * Math.sin(angle)}`
+                              }
+
+                              const spokePoints = dims.map((_, i) => ({ angle: angleFor(i), label: dims[i][0] }))
+                              const dataPath = dims.map(([, d], i) => pointAt(angleFor(i), (d.score / 100) * r)).join(' ')
+
+                              return (
+                                <div>
+                                  <div className="text-[#484f58] text-[10px] uppercase tracking-widest mb-3">Performance Breakdown</div>
+                                  <div className="flex gap-4 items-start">
+                                    {/* Radar chart */}
+                                    <div className="flex-shrink-0">
+                                      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="overflow-visible">
+                                        {/* Level rings */}
+                                        {levels.map(pct => {
+                                          const pts = dims.map((_, i) => pointAt(angleFor(i), (pct / 100) * r)).join(' ')
+                                          return <polygon key={pct} points={pts} fill="none" stroke="#30363d" strokeWidth="0.5" />
+                                        })}
+                                        {/* Spokes */}
+                                        {spokePoints.map(({ angle, label }, i) => (
+                                          <g key={i}>
+                                            <line x1={cx} y1={cy} x2={cx + r * Math.cos(angle)} y2={cy + r * Math.sin(angle)} stroke="#30363d" strokeWidth="0.5" />
+                                            <text
+                                              x={cx + (r + 14) * Math.cos(angle)}
+                                              y={cy + (r + 14) * Math.sin(angle)}
+                                              textAnchor="middle" dominantBaseline="middle"
+                                              fontSize="8" fill="#8b949e"
+                                              style={{ fontFamily: 'monospace' }}
+                                            >
+                                              {label.replace(/_/g, ' ').split(' ').map((w: string) => w[0]?.toUpperCase() + w.slice(1)).join(' ')}
+                                            </text>
+                                          </g>
+                                        ))}
+                                        {/* Data polygon */}
+                                        <polygon points={dataPath} fill="#3fb950" fillOpacity="0.15" stroke="#3fb950" strokeWidth="1.5" />
+                                        {/* Data points */}
+                                        {dims.map(([, d], i) => (
+                                          <circle key={i} cx={cx + (d.score / 100) * r * Math.cos(angleFor(i))} cy={cy + (d.score / 100) * r * Math.sin(angleFor(i))} r="3" fill="#3fb950" />
+                                        ))}
+                                      </svg>
                                     </div>
-                                  ))}
+                                    {/* Dimension cards */}
+                                    <div className="flex-1 grid grid-cols-1 gap-2">
+                                      {dims.map(([key, dim]) => (
+                                        <div key={key} className="bg-[#161b22] border border-[#30363d] rounded-lg p-2.5">
+                                          <div className="flex items-center justify-between mb-1">
+                                            <span className="text-[#8b949e] text-[10px] capitalize">{key.replace(/_/g, ' ')}</span>
+                                            <span className="font-bold text-[11px]" style={{ color: scoreColor(dim.score) }}>{dim.score}/100</span>
+                                          </div>
+                                          <div className="h-1 bg-[#21262d] rounded overflow-hidden">
+                                            <div className="h-full rounded" style={{ width: `${dim.score}%`, background: scoreColor(dim.score) }} />
+                                          </div>
+                                          {dim.notes && <p className="text-[#484f58] text-[10px] mt-1 leading-relaxed">{dim.notes}</p>}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              )
+                            })()}
                             {/* Pass/fail badge */}
                             <div className="flex items-center gap-2">
                               <span className={`px-3 py-1 rounded-full text-[11px] font-bold border ${(scorecard.overall_score as number) >= 70 ? 'bg-[#3fb950]/20 text-[#3fb950] border-[#3fb950]/40' : 'bg-[#f85149]/20 text-[#f85149] border-[#f85149]/40'}`}>
@@ -203,6 +268,28 @@ export default function CandidatePortal({ onBack }: Props) {
                                 </span>
                               )}
                             </div>
+                            {/* Benchmark comparison */}
+                            {benchmark && (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="px-3 py-1 rounded-full text-[11px] bg-[#0d2a40] text-[#58a6ff] border border-[#58a6ff]/40">
+                                  📊 Top {100 - benchmark.percentile}% — scored higher than {benchmark.percentile}% of candidates
+                                </span>
+                                <span className="px-3 py-1 rounded-full text-[11px] bg-[#21262d] text-[#8b949e] border border-[#30363d]">
+                                  Avg: {benchmark.avg_score}/100 across {benchmark.total_attempts} attempts
+                                </span>
+                              </div>
+                            )}
+                            {/* Assessor annotations */}
+                            {annotations.length > 0 && (
+                              <div className="bg-[#1a1600] border border-[#d29922]/30 rounded-lg p-4">
+                                <div className="text-[#d29922] font-bold text-[10px] uppercase tracking-widest mb-2">📝 Assessor Notes</div>
+                                <div className="space-y-2">
+                                  {annotations.map(a => (
+                                    <p key={a.id} className="text-[#c9d1d9] text-[11px] leading-relaxed">{a.text}</p>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <div className="text-[#484f58] text-center py-2">No detailed scorecard available.</div>
