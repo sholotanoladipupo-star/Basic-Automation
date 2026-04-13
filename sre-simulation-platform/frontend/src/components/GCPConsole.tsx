@@ -4,10 +4,12 @@ import { SystemState } from '../types'
 interface GCPConsoleProps { systemState: SystemState | null; onScaleService?: (service: string, replicas: number) => void }
 
 const GCP_NAV = [
-  { id: 'gke',      icon: '☸',  label: 'Kubernetes Engine' },
-  { id: 'cloudsql', icon: '🗄', label: 'Cloud SQL' },
-  { id: 'logging',  icon: '📋', label: 'Cloud Logging' },
-  { id: 'iam',      icon: '🔑', label: 'IAM & Admin' },
+  { id: 'gke',        icon: '☸',  label: 'Kubernetes Engine' },
+  { id: 'cloudsql',   icon: '🗄', label: 'Cloud SQL' },
+  { id: 'logging',    icon: '📋', label: 'Cloud Logging' },
+  { id: 'iam',        icon: '🔑', label: 'IAM & Admin' },
+  { id: 'monitoring', icon: '🔔', label: 'Cloud Monitoring' },
+  { id: 'audit',      icon: '🗒', label: 'Audit Logs' },
 ]
 
 const STATIC_SERVICES = [
@@ -1084,6 +1086,130 @@ export default function GCPConsole({ systemState, onScaleService }: GCPConsolePr
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {activeSection === 'monitoring' && (() => {
+          const gcpAlerts = (() => {
+            if (!systemState) return []
+            const alerts: Array<{ name: string; condition: string; severity: 'CRITICAL' | 'ERROR' | 'WARNING'; firing: boolean; service: string; threshold: string; current: string }> = []
+
+            Object.entries(systemState.services).forEach(([name, svc]) => {
+              if (svc.error_rate > 0.1) alerts.push({
+                name: `High Error Rate — ${name}`, condition: 'error_rate > 10%',
+                severity: svc.error_rate > 0.3 ? 'CRITICAL' : 'ERROR', firing: true,
+                service: name, threshold: '10%', current: `${(svc.error_rate * 100).toFixed(1)}%`
+              })
+              if (svc.p99_latency_ms > 1000) alerts.push({
+                name: `High P99 Latency — ${name}`, condition: 'p99_latency > 1000ms',
+                severity: svc.p99_latency_ms > 3000 ? 'CRITICAL' : 'WARNING', firing: true,
+                service: name, threshold: '1000ms', current: `${svc.p99_latency_ms}ms`
+              })
+              if (svc.status === 'down') alerts.push({
+                name: `Service DOWN — ${name}`, condition: 'uptime_check failed',
+                severity: 'CRITICAL', firing: true, service: name, threshold: '> 0 failures', current: '100% failure'
+              })
+            })
+            systemState.infrastructure.databases.forEach(db => {
+              const connPct = db.connection_count / db.max_connections
+              if (connPct > 0.8) alerts.push({
+                name: `DB Connection Saturation — ${db.name}`, condition: 'connection_utilization > 80%',
+                severity: connPct > 0.95 ? 'CRITICAL' : 'ERROR', firing: true,
+                service: db.name, threshold: '80%', current: `${(connPct * 100).toFixed(0)}%`
+              })
+            })
+            return alerts
+          })()
+
+          return (
+            <div className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-[#9aa0a6] text-[10px] uppercase tracking-widest">Cloud Monitoring — Alert Policies</div>
+                <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${gcpAlerts.some(a => a.severity === 'CRITICAL') ? 'bg-[#f85149]/20 text-[#f85149]' : gcpAlerts.length > 0 ? 'bg-[#d29922]/20 text-[#d29922]' : 'bg-[#3fb950]/10 text-[#3fb950]'}`}>
+                  {gcpAlerts.filter(a => a.firing).length} FIRING
+                </span>
+              </div>
+
+              {gcpAlerts.length === 0 ? (
+                <div className="text-center py-8 text-[#5f6368] text-[11px]">✓ All alert policies are within normal thresholds</div>
+              ) : (
+                <div className="space-y-2">
+                  {gcpAlerts.map((alert, i) => (
+                    <div key={i} className={`rounded-lg p-3 border text-[10px] ${alert.severity === 'CRITICAL' ? 'bg-[#f85149]/10 border-[#f85149]/30' : alert.severity === 'ERROR' ? 'bg-[#d29922]/10 border-[#d29922]/30' : 'bg-[#e3b341]/10 border-[#e3b341]/30'}`}>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <span className={`font-bold ${alert.severity === 'CRITICAL' ? 'text-[#f85149]' : alert.severity === 'ERROR' ? 'text-[#d29922]' : 'text-[#e3b341]'}`}>
+                            {alert.severity}
+                          </span>
+                          <span className="text-[#e8eaed] ml-2">{alert.name}</span>
+                        </div>
+                        <span className={`flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold ${alert.firing ? 'bg-[#f85149]/20 text-[#f85149]' : 'bg-[#3fb950]/10 text-[#3fb950]'}`}>
+                          {alert.firing ? '● FIRING' : '○ OK'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-[9px]">
+                        <div><span className="text-[#9aa0a6]">Condition: </span><span className="text-[#e8eaed] font-mono">{alert.condition}</span></div>
+                        <div><span className="text-[#9aa0a6]">Threshold: </span><span className="text-[#e8eaed]">{alert.threshold}</span></div>
+                        <div><span className="text-[#9aa0a6]">Current: </span><span className={`font-bold ${alert.severity === 'CRITICAL' ? 'text-[#f85149]' : 'text-[#d29922]'}`}>{alert.current}</span></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Static always-firing SLO alert */}
+              <div className="rounded-lg p-3 border border-[#30363d] bg-[#1a1d2e] text-[10px]">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[#9aa0a6]">SLO — payment-service availability (99.9% target)</span>
+                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${gcpAlerts.some(a => a.service === 'payment-service') ? 'bg-[#f85149]/20 text-[#f85149]' : 'bg-[#3fb950]/10 text-[#3fb950]'}`}>
+                    {gcpAlerts.some(a => a.service === 'payment-service') ? '● BURNING' : '○ OK'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-[9px]">
+                  <div><span className="text-[#9aa0a6]">30d budget: </span><span className="text-[#e8eaed]">43.2 min</span></div>
+                  <div><span className="text-[#9aa0a6]">Consumed: </span><span className={gcpAlerts.some(a => a.service === 'payment-service') ? 'text-[#f85149] font-bold' : 'text-[#3fb950]'}>{gcpAlerts.some(a => a.service === 'payment-service') ? '78%' : '12%'}</span></div>
+                  <div><span className="text-[#9aa0a6]">Burn rate: </span><span className={gcpAlerts.some(a => a.service === 'payment-service') ? 'text-[#f85149] font-bold' : 'text-[#e8eaed]'}>{gcpAlerts.some(a => a.service === 'payment-service') ? '14.2x ⚠' : '0.8x'}</span></div>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
+
+        {activeSection === 'audit' && (
+          <div className="p-4 space-y-3">
+            <div className="text-[#9aa0a6] text-[10px] uppercase tracking-widest mb-3">Cloud Audit Logs — Admin Activity</div>
+            <div className="space-y-1.5">
+              {(() => {
+                const now = Date.now()
+                const entries = [
+                  { ago: 2,  who: 'payment-service@prod.iam.gserviceaccount.com',  action: 'cloudsql.instances.connect',      resource: 'db-primary',                         result: 'DENIED' },
+                  { ago: 5,  who: 'sre-deploy-sa@prod.iam.gserviceaccount.com',     action: 'container.deployments.update',    resource: 'checkout-service',                   result: 'OK' },
+                  { ago: 8,  who: 'sre-deploy-sa@prod.iam.gserviceaccount.com',     action: 'container.deployments.scale',     resource: 'payment-service',                    result: 'OK' },
+                  { ago: 12, who: 'ci-pipeline@prod.iam.gserviceaccount.com',       action: 'storage.objects.create',          resource: 'prod-artifacts/checkout-service-v2.4.1.tar', result: 'OK' },
+                  { ago: 18, who: 'terraform-sa@prod.iam.gserviceaccount.com',      action: 'compute.firewalls.update',        resource: 'prod-allow-internal',                result: 'OK' },
+                  { ago: 23, who: 'payment-service@prod.iam.gserviceaccount.com',   action: 'cloudsql.instances.connect',      resource: 'db-primary',                         result: 'OK' },
+                  { ago: 25, who: 'sre-deploy-sa@prod.iam.gserviceaccount.com',     action: 'container.deployments.create',    resource: 'checkout-service',                   result: 'OK' },
+                  { ago: 31, who: 'ci-pipeline@prod.iam.gserviceaccount.com',       action: 'cloudbuild.builds.create',        resource: 'checkout-service',                   result: 'OK' },
+                ]
+                return entries.map((e, i) => {
+                  const t = new Date(now - e.ago * 60_000)
+                  const hhmm = `${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}`
+                  const isDenied = e.result === 'DENIED'
+                  return (
+                    <div key={i} className={`rounded p-2.5 border text-[10px] ${isDenied ? 'border-[#f85149]/30 bg-[#f85149]/5' : 'border-[#2d2f45] bg-[#12131a]'}`}>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[#5f6368] flex-shrink-0 font-mono">{hhmm}</span>
+                        <span className={`flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold ${isDenied ? 'bg-[#f85149]/20 text-[#f85149]' : 'bg-[#3fb950]/10 text-[#3fb950]'}`}>{e.result}</span>
+                        <span className="text-[#8ab4f8] font-mono truncate flex-1">{e.action}</span>
+                        <span className="text-[#9aa0a6] font-mono">{e.resource}</span>
+                      </div>
+                      <div className="text-[#5f6368] mt-1 text-[9px] truncate">{e.who}</div>
+                      {isDenied && <div className="text-[#f85149] text-[9px] mt-1">⚠ Permission denied — this service account may lack the required IAM role. Check roles/cloudsql.client on the service account.</div>}
+                    </div>
+                  )
+                })
+              })()}
             </div>
           </div>
         )}

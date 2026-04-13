@@ -44,13 +44,37 @@ const TAB_COMPLETIONS = [
   'grep -r ', 'cat /etc/hosts', 'env | grep ', 'which ',
 ]
 
+const PALETTE_GROUPS = [
+  { label: 'Pods & Workloads', cmds: ['kubectl get pods -A', 'kubectl get pods -n cache', 'kubectl get pods -n payments', 'kubectl describe pod ', 'kubectl logs ', 'kubectl logs --previous ', 'kubectl get deployments -A', 'kubectl rollout restart deployment/', 'kubectl rollout status deployment/', 'kubectl scale deployment/ --replicas=', 'kubectl get events --sort-by=.metadata.creationTimestamp', 'kubectl top pods'] },
+  { label: 'Cluster', cmds: ['kubectl get nodes', 'kubectl get services -A', 'kubectl get configmap', 'kubectl get hpa', 'kubectl get namespaces', 'kubectl top nodes'] },
+  { label: 'GCloud', cmds: ['gcloud sql instances list', 'gcloud redis instances list', 'gcloud container clusters list', 'gcloud compute instances list', 'gcloud logging read '] },
+  { label: 'Database', cmds: ['psql -U postgres', 'redis-cli ping', 'redis-cli info memory', 'redis-cli info replication', 'redis-cli dbsize', 'redis-cli monitor'] },
+  { label: 'Network', cmds: ['curl -s http://localhost:8080/health', 'netstat -tlnp', 'ss -tlnp', 'nslookup ', 'dig '] },
+  { label: 'System', cmds: ['df -h', 'free -m', 'top', 'ps aux | grep ', 'journalctl -u ', 'systemctl status '] },
+]
+
+const PINNED_COMMANDS = [
+  { label: 'pods', cmd: 'kubectl get pods -A' },
+  { label: 'events', cmd: 'kubectl get events --sort-by=.metadata.creationTimestamp' },
+  { label: 'top pods', cmd: 'kubectl top pods -A' },
+  { label: 'describe', cmd: 'kubectl describe pod ' },
+  { label: 'logs', cmd: 'kubectl logs ' },
+  { label: 'db health', cmd: 'gcloud sql instances list' },
+  { label: 'redis info', cmd: 'redis-cli info memory' },
+]
+
 export default function Terminal({ lines, onCommand, onCancel, busy }: TerminalProps) {
   const [input, setInput] = useState('')
   const [history, setHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const [tabSuggestions, setTabSuggestions] = useState<string[]>([])
+  const [clearedAt, setClearedAt] = useState(0)
+  const [showPalette, setShowPalette] = useState(false)
+  const [paletteQuery, setPaletteQuery] = useState('')
+  const [showPinned, setShowPinned] = useState(true)
   const outputRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const paletteInputRef = useRef<HTMLInputElement>(null)
   const tabIdxRef = useRef(-1)
   const lastTabInputRef = useRef('')
 
@@ -70,6 +94,16 @@ export default function Terminal({ lines, onCommand, onCancel, busy }: TerminalP
     e.preventDefault()
     const cmd = input.trim()
     if (!cmd || busy) return
+
+    // Handle `clear` locally
+    if (cmd === 'clear') {
+      setClearedAt(lines.length)
+      setInput('')
+      setHistory(h => [cmd, ...h.slice(0, 49)])
+      setHistoryIndex(-1)
+      return
+    }
+
     setHistory(h => [cmd, ...h.slice(0, 49)])
     setHistoryIndex(-1)
     setInput('')
@@ -83,6 +117,29 @@ export default function Terminal({ lines, onCommand, onCancel, busy }: TerminalP
       if (busy && onCancel) { onCancel() } else { setInput('') }
       setTabSuggestions([])
       return
+    }
+
+    // Ctrl+L clears the terminal
+    if (e.key === 'l' && e.ctrlKey) {
+      e.preventDefault()
+      setClearedAt(lines.length)
+      setTabSuggestions([])
+      return
+    }
+
+    // Ctrl+K toggles command palette
+    if (e.key === 'k' && e.ctrlKey) {
+      e.preventDefault()
+      setShowPalette(p => !p)
+      setPaletteQuery('')
+      setTabSuggestions([])
+      return
+    }
+
+    // Escape closes palette / clears tab suggestions
+    if (e.key === 'Escape') {
+      setShowPalette(false)
+      setTabSuggestions([])
     }
 
     // Tab completion
@@ -153,14 +210,24 @@ export default function Terminal({ lines, onCommand, onCancel, busy }: TerminalP
         )
       case 'output':
         return (
-          <div key={line.id} className="text-[#e6edf3] whitespace-pre-wrap break-words">
+          <div key={line.id} className="relative group text-[#e6edf3] whitespace-pre-wrap break-words">
             {line.content}
+            <button
+              onClick={() => navigator.clipboard.writeText(line.content)}
+              className="absolute right-0 top-0 hidden group-hover:flex items-center px-1.5 py-0.5 bg-[#21262d] border border-[#30363d] rounded text-[9px] text-[#8b949e] hover:text-[#e6edf3] transition-colors"
+              title="Copy"
+            >⎘</button>
           </div>
         )
       case 'error':
         return (
-          <div key={line.id} className="text-[#f85149] whitespace-pre-wrap break-words">
+          <div key={line.id} className="relative group text-[#f85149] whitespace-pre-wrap break-words">
             {line.content}
+            <button
+              onClick={() => navigator.clipboard.writeText(line.content)}
+              className="absolute right-0 top-0 hidden group-hover:flex items-center px-1.5 py-0.5 bg-[#21262d] border border-[#30363d] rounded text-[9px] text-[#8b949e] hover:text-[#e6edf3] transition-colors"
+              title="Copy"
+            >⎘</button>
           </div>
         )
       case 'system':
@@ -182,7 +249,52 @@ export default function Terminal({ lines, onCommand, onCancel, busy }: TerminalP
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#0d1117] font-mono text-sm">
+    <div className="flex flex-col h-full bg-[#0d1117] font-mono text-sm relative">
+      {/* Ctrl+K Command palette modal */}
+      {showPalette && (
+        <div className="absolute inset-0 z-50 bg-black/70 flex items-start justify-center pt-8" onClick={() => setShowPalette(false)}>
+          <div className="bg-[#161b22] border border-[#30363d] rounded-xl shadow-2xl w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-[#30363d]">
+              <span className="text-[#484f58] text-sm">⌘</span>
+              <input
+                ref={paletteInputRef}
+                type="text"
+                value={paletteQuery}
+                onChange={e => setPaletteQuery(e.target.value)}
+                placeholder="Search commands…"
+                className="flex-1 bg-transparent text-[#e6edf3] text-sm focus:outline-none font-mono"
+                autoFocus
+                onKeyDown={e => {
+                  if (e.key === 'Escape') setShowPalette(false)
+                }}
+              />
+              <span className="text-[#484f58] text-[10px]">Esc to close</span>
+            </div>
+            <div className="max-h-80 overflow-y-auto py-1">
+              {(() => {
+                const q = paletteQuery.toLowerCase()
+                const groups = paletteQuery.trim()
+                  ? [{ label: 'Results', cmds: TAB_COMPLETIONS.filter(c => c.toLowerCase().includes(q)) }]
+                  : PALETTE_GROUPS
+                return groups.map(g => g.cmds.length === 0 ? null : (
+                  <div key={g.label}>
+                    <div className="px-4 py-1 text-[9px] text-[#484f58] uppercase tracking-widest">{g.label}</div>
+                    {g.cmds.map(cmd => (
+                      <button key={cmd}
+                        onMouseDown={e => { e.preventDefault(); setInput(cmd); setShowPalette(false); setTimeout(() => inputRef.current?.focus(), 0) }}
+                        className="w-full text-left px-4 py-2 text-[11px] font-mono text-[#8b949e] hover:bg-[#21262d] hover:text-[#e6edf3] transition-colors"
+                      >
+                        {cmd}
+                      </button>
+                    ))}
+                  </div>
+                ))
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Title bar */}
       <div className="flex items-center gap-2 px-3 py-2 bg-[#161b22] border-b border-[#30363d] flex-shrink-0">
         <span className="w-3 h-3 rounded-full bg-[#f85149]" />
@@ -192,7 +304,29 @@ export default function Terminal({ lines, onCommand, onCancel, busy }: TerminalP
         {busy && (
           <span className="text-[10px] text-[#484f58]">Ctrl+C to cancel</span>
         )}
+        {!busy && (
+          <button onClick={() => { setShowPalette(true); setPaletteQuery('') }} className="text-[#484f58] text-[10px] hover:text-[#8b949e] transition-colors ml-auto">
+            Ctrl+K
+          </button>
+        )}
       </div>
+
+      {/* Pinned quick-commands bar */}
+      {showPinned && !busy && (
+        <div className="flex-shrink-0 bg-[#0d1117] border-b border-[#21262d] px-2 py-1 flex items-center gap-1.5 overflow-x-auto">
+          <span className="text-[#484f58] text-[9px] flex-shrink-0">Quick:</span>
+          {PINNED_COMMANDS.map(p => (
+            <button
+              key={p.cmd}
+              onMouseDown={e => { e.preventDefault(); setInput(p.cmd); inputRef.current?.focus() }}
+              className="flex-shrink-0 px-2 py-0.5 rounded border border-[#21262d] text-[9px] text-[#484f58] hover:border-[#30363d] hover:text-[#8b949e] transition-colors font-mono"
+            >
+              {p.label}
+            </button>
+          ))}
+          <span className="ml-auto flex-shrink-0 text-[#484f58] text-[9px]">Ctrl+K for all</span>
+        </div>
+      )}
 
       {/* Output area */}
       <div
@@ -200,7 +334,7 @@ export default function Terminal({ lines, onCommand, onCancel, busy }: TerminalP
         className="flex-1 overflow-y-auto p-3 space-y-0.5 leading-5"
         onClick={() => busy ? null : inputRef.current?.focus()}
       >
-        {lines.map(line => renderLine(line))}
+        {lines.slice(clearedAt).map(line => renderLine(line))}
       </div>
 
       {/* Tab suggestions */}

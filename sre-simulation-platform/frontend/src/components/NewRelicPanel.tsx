@@ -6,6 +6,9 @@ interface Props { systemState: SystemState | null }
 const NR_NAV = [
   { id: 'apm', label: 'APM & Services' },
   { id: 'servicemap', label: 'Service Map' },
+  { id: 'traces', label: 'Distributed Traces' },
+  { id: 'errors', label: 'Error Inbox' },
+  { id: 'slo', label: 'SLO / Burn Rate' },
   { id: 'infra', label: 'Infrastructure' },
 ]
 
@@ -802,6 +805,199 @@ export default function NewRelicPanel({ systemState }: Props) {
             ))}
           </>
         )}
+
+        {activeTab === 'traces' && (() => {
+          const svcs = systemState ? Object.entries(systemState.services) : []
+          const hasSlow = svcs.some(([, s]) => s.p99_latency_ms > 500)
+          const slowSvc = svcs.find(([, s]) => s.p99_latency_ms > 500)
+          const traceDuration = slowSvc ? slowSvc[1].p99_latency_ms : 280
+
+          // Simulated trace spans
+          const spans = [
+            { name: 'api-gateway → payment-service', service: 'api-gateway', start: 0, duration: traceDuration, status: slowSvc ? 'error' : 'ok' },
+            { name: 'payment-service DB query', service: 'payment-service', start: 12, duration: slowSvc ? traceDuration - 30 : 180, status: slowSvc ? 'slow' : 'ok' },
+            { name: 'redis GET session', service: 'redis', start: 8, duration: slowSvc ? 280 : 4, status: slowSvc && systemState?.infrastructure.caches.find(c => c.name.includes('redis'))?.status !== 'healthy' ? 'slow' : 'ok' },
+            { name: 'postgres SELECT payments', service: 'postgres', start: 14, duration: slowSvc ? traceDuration - 40 : 160, status: slowSvc ? 'slow' : 'ok' },
+            { name: 'notification-service.notify()', service: 'notification-service', start: traceDuration - 45, duration: 42, status: 'ok' },
+          ]
+          const totalDur = Math.max(...spans.map(s => s.start + s.duration))
+
+          return (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-[#888] text-[10px] uppercase tracking-widest">Distributed Traces — Latest</span>
+                {hasSlow && <span className="text-[9px] px-2 py-0.5 rounded bg-[#f85149]/20 text-[#f85149] font-bold">SLOW TRACE DETECTED</span>}
+              </div>
+
+              {/* Trace summary cards */}
+              <div className="space-y-2">
+                {[
+                  { id: 'trace-a8f2', root: 'POST /v1/payments', duration: traceDuration, spans: 5, status: hasSlow ? 'error' : 'ok' },
+                  { id: 'trace-b3c1', root: 'GET /v1/users/profile', duration: 48, spans: 3, status: 'ok' },
+                  { id: 'trace-d9e4', root: 'POST /v1/transactions', duration: hasSlow ? 2100 : 180, spans: 4, status: hasSlow ? 'slow' : 'ok' },
+                ].map(t => (
+                  <div key={t.id} className={`bg-[#12131a] border rounded p-3 text-[10px] ${t.status === 'error' || t.status === 'slow' ? 'border-[#f85149]/30' : 'border-[#2d2f45]'}`}>
+                    <div className="flex items-center gap-3">
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.status === 'error' ? 'bg-[#f85149]' : t.status === 'slow' ? 'bg-[#d29922]' : 'bg-[#00b4a0]'}`} />
+                      <span className="text-[#d4d4d4] font-mono flex-1">{t.root}</span>
+                      <span className="text-[#555] font-mono text-[9px]">{t.id}</span>
+                      <span className={`font-bold tabular-nums ${t.duration > 1000 ? 'text-[#f85149]' : t.duration > 500 ? 'text-[#d29922]' : 'text-[#00b4a0]'}`}>{t.duration}ms</span>
+                      <span className="text-[#555]">{t.spans} spans</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Waterfall for first trace */}
+              <div className="bg-[#12131a] border border-[#2d2f45] rounded p-4">
+                <div className="text-[#888] text-[9px] uppercase tracking-widest mb-3">Span Waterfall — trace-a8f2 · {traceDuration}ms total</div>
+                <div className="space-y-2">
+                  {spans.map((span, i) => {
+                    const leftPct = (span.start / totalDur) * 100
+                    const widthPct = Math.max((span.duration / totalDur) * 100, 1)
+                    const color = span.status === 'error' ? '#f85149' : span.status === 'slow' ? '#d29922' : '#00b4a0'
+                    return (
+                      <div key={i} className="flex items-center gap-3 text-[9px]">
+                        <div className="w-44 flex-shrink-0 text-[#9aa0a6] truncate font-mono">{span.name}</div>
+                        <div className="flex-1 relative h-5 bg-[#1a1d2e] rounded">
+                          <div
+                            className="absolute h-full rounded flex items-center px-1.5 overflow-hidden"
+                            style={{ left: `${leftPct}%`, width: `${widthPct}%`, background: color, opacity: 0.85 }}
+                          >
+                            <span className="text-[8px] text-white whitespace-nowrap font-bold">{span.duration}ms</span>
+                          </div>
+                        </div>
+                        <div className="w-12 text-right flex-shrink-0" style={{ color }}>
+                          {span.status === 'slow' ? 'SLOW' : span.status === 'error' ? 'ERR' : 'OK'}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                {hasSlow && (
+                  <div className="mt-3 p-2 bg-[#f85149]/10 border border-[#f85149]/20 rounded text-[9px] text-[#f85149]">
+                    ⚠ Bottleneck identified: postgres SELECT is consuming {Math.round(((traceDuration - 40) / traceDuration) * 100)}% of total trace duration. Check slow query log.
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+
+        {activeTab === 'errors' && (() => {
+          const svcs = systemState ? Object.entries(systemState.services) : []
+          const hasErrors = svcs.some(([, s]) => s.error_rate > 0.05)
+
+          const errorGroups = [
+            { id: 'ERR-001', fingerprint: 'NullPointerException @ PaymentProcessor:284', count: hasErrors ? 1284 : 3, service: 'payment-service', first: '14:21:08', last: '14:31:44', status: hasErrors ? 'unresolved' : 'resolved' },
+            { id: 'ERR-002', fingerprint: 'Connection refused: jdbc:postgresql://db-primary:5432', count: hasErrors ? 892 : 0, service: 'payment-service', first: '14:23:12', last: '14:31:41', status: hasErrors ? 'unresolved' : 'resolved' },
+            { id: 'ERR-003', fingerprint: 'TimeoutException: redis-primary:6379 did not respond within 500ms', count: hasErrors ? 441 : 0, service: 'checkout-service', first: '14:22:55', last: '14:31:39', status: hasErrors ? 'unresolved' : 'resolved' },
+            { id: 'ERR-004', fingerprint: 'SchemaValidationError: field "amount_currency" missing in payload', count: 7, service: 'notification-service', first: '14:26:01', last: '14:28:12', status: 'investigating' },
+            { id: 'ERR-005', fingerprint: 'HTTP 503: upstream payment gateway unavailable', count: hasErrors ? 2100 : 12, service: 'api-gateway', first: '14:20:44', last: '14:31:50', status: hasErrors ? 'unresolved' : 'resolved' },
+          ].filter(e => e.count > 0)
+
+          return (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[#888] text-[10px] uppercase tracking-widest">Error Inbox</span>
+                <span className={`text-[9px] px-2 py-0.5 rounded font-bold ${hasErrors ? 'bg-[#f85149]/20 text-[#f85149]' : 'bg-[#3fb950]/10 text-[#3fb950]'}`}>
+                  {errorGroups.filter(e => e.status === 'unresolved').length} UNRESOLVED
+                </span>
+              </div>
+              <div className="space-y-2">
+                {errorGroups.map(err => (
+                  <div key={err.id} className={`bg-[#12131a] border rounded p-3 text-[10px] ${err.status === 'unresolved' ? 'border-[#f85149]/30' : err.status === 'investigating' ? 'border-[#d29922]/30' : 'border-[#2d2f45]'}`}>
+                    <div className="flex items-start gap-2 mb-2">
+                      <span className={`flex-shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold ${err.status === 'unresolved' ? 'bg-[#f85149]/20 text-[#f85149]' : err.status === 'investigating' ? 'bg-[#d29922]/20 text-[#d29922]' : 'bg-[#3fb950]/10 text-[#3fb950]'}`}>
+                        {err.status.toUpperCase()}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-mono text-[#d4d4d4] text-[10px] leading-relaxed break-all">{err.fingerprint}</div>
+                        <div className="flex items-center gap-3 mt-1 text-[9px] text-[#555]">
+                          <span className="text-[#8ab4f8]">{err.service}</span>
+                          <span>first: {err.first}</span>
+                          <span>last: {err.last}</span>
+                        </div>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <div className={`font-bold tabular-nums text-sm ${err.count > 500 ? 'text-[#f85149]' : err.count > 50 ? 'text-[#d29922]' : 'text-[#d4d4d4]'}`}>{err.count.toLocaleString()}</div>
+                        <div className="text-[#555] text-[9px]">occurrences</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {errorGroups.length === 0 && <div className="text-[#00b4a0] text-center py-8 text-[11px]">✓ Error inbox is clear</div>}
+              </div>
+            </div>
+          )
+        })()}
+
+        {activeTab === 'slo' && (() => {
+          const svcs = systemState ? Object.entries(systemState.services) : []
+          const hasErrors = svcs.some(([, s]) => s.error_rate > 0.05)
+
+          const slos = [
+            { service: 'payment-service', target: 99.9, window: '30d', budgetMins: 43.2, consumed: hasErrors ? 78 : 12, burnRate: hasErrors ? 14.2 : 0.8, metric: 'availability' },
+            { service: 'api-gateway', target: 99.95, window: '30d', budgetMins: 21.6, consumed: hasErrors ? 45 : 5, burnRate: hasErrors ? 6.8 : 0.4, metric: 'error_rate < 0.05%' },
+            { service: 'checkout-service', target: 99.0, window: '30d', budgetMins: 432, consumed: hasErrors ? 22 : 3, burnRate: hasErrors ? 3.1 : 0.2, metric: 'latency p99 < 500ms' },
+            { service: 'user-service', target: 99.5, window: '30d', budgetMins: 216, consumed: 8, burnRate: 0.6, metric: 'availability' },
+          ]
+
+          return (
+            <div className="space-y-3">
+              <div className="text-[#888] text-[10px] uppercase tracking-widest">SLO Dashboard — Error Budget Status</div>
+              {slos.map(slo => {
+                const isBreaching = slo.burnRate > 2
+                const pct = Math.min(slo.consumed, 100)
+                const color = pct > 80 ? '#f85149' : pct > 50 ? '#d29922' : '#00b4a0'
+                return (
+                  <div key={slo.service} className={`bg-[#12131a] border rounded p-4 ${isBreaching ? 'border-[#f85149]/40' : 'border-[#2d2f45]'}`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <span className="text-[#d4d4d4] font-bold">{slo.service}</span>
+                        <span className="text-[#555] ml-2 text-[9px]">{slo.target}% {slo.metric}</span>
+                      </div>
+                      {isBreaching && <span className="text-[9px] px-2 py-0.5 rounded bg-[#f85149]/20 text-[#f85149] font-bold animate-pulse">🔥 BURNING FAST</span>}
+                    </div>
+
+                    {/* Budget gauge */}
+                    <div className="mb-3">
+                      <div className="flex justify-between text-[9px] mb-1">
+                        <span className="text-[#555]">Error budget consumed ({slo.window})</span>
+                        <span style={{ color }} className="font-bold">{pct}%</span>
+                      </div>
+                      <div className="h-2 bg-[#1a1d2e] rounded overflow-hidden">
+                        <div className="h-full rounded transition-all" style={{ width: `${pct}%`, background: color }} />
+                      </div>
+                      <div className="flex justify-between text-[9px] mt-1 text-[#555]">
+                        <span>Remaining: {(slo.budgetMins * (1 - pct / 100)).toFixed(1)} min</span>
+                        <span>Budget: {slo.budgetMins} min / {slo.window}</span>
+                      </div>
+                    </div>
+
+                    {/* Burn rate */}
+                    <div className="grid grid-cols-2 gap-3 text-[10px]">
+                      <div>
+                        <div className="text-[#555] text-[9px] mb-0.5">1h burn rate</div>
+                        <div className={`font-bold text-lg tabular-nums ${slo.burnRate > 10 ? 'text-[#f85149]' : slo.burnRate > 2 ? 'text-[#d29922]' : 'text-[#00b4a0]'}`}>
+                          {slo.burnRate}x
+                        </div>
+                        <div className="text-[#555] text-[9px]">{slo.burnRate > 1 ? 'consuming budget faster than target' : 'within target'}</div>
+                      </div>
+                      <div>
+                        <div className="text-[#555] text-[9px] mb-0.5">Projected exhaustion</div>
+                        <div className={`font-bold ${slo.burnRate > 10 ? 'text-[#f85149]' : 'text-[#d4d4d4]'}`}>
+                          {slo.burnRate > 10 ? `~${Math.round(slo.budgetMins * (1 - pct / 100) / (slo.burnRate * 60))}h` : slo.burnRate > 1 ? 'Days' : 'End of window'}
+                        </div>
+                        <div className="text-[#555] text-[9px]">at current burn rate</div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })()}
       </div>
     </div>
   )

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { SystemState } from '../types'
 
 interface ConfluentPanelProps {
@@ -62,7 +62,7 @@ function sampleMessages(topic: string, isDown: boolean): Array<{ offset: number;
 }
 
 export default function ConfluentPanel({ systemState }: ConfluentPanelProps) {
-  const [activeTab, setActiveTab] = useState<'topics' | 'consumers' | 'brokers' | 'messages'>('topics')
+  const [activeTab, setActiveTab] = useState<'topics' | 'consumers' | 'brokers' | 'messages' | 'schema' | 'dlq'>('topics')
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null)
 
   // Derive Kafka health from systemState
@@ -111,7 +111,7 @@ export default function ConfluentPanel({ systemState }: ConfluentPanelProps) {
 
       {/* Nav tabs */}
       <div className="flex border-b border-[#30363d] bg-[#161b22]">
-        {(['topics', 'consumers', 'brokers', 'messages'] as const).map(tab => (
+        {(['topics', 'consumers', 'brokers', 'messages', 'schema', 'dlq'] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             className={`px-4 py-2 text-[11px] capitalize border-b-2 transition-colors -mb-px ${
               activeTab === tab ? 'text-[#d29922] border-[#d29922]' : 'text-[#8b949e] border-transparent hover:text-[#e6edf3]'
@@ -204,6 +204,49 @@ export default function ConfluentPanel({ systemState }: ConfluentPanelProps) {
                 Check consumer health with: kafka-consumer-groups.sh --describe --group analytics-consumer-grp
               </div>
             )}
+            {/* Lag sparklines */}
+            <div className="mt-4">
+              <div className="text-[#8b949e] text-[10px] uppercase tracking-widest mb-2">Consumer Lag Trend (last 10 min)</div>
+              <div className="space-y-2">
+                {computedGroups.filter(g => g.lag > 0 || isKafkaDegraded).slice(0, 4).map(g => {
+                  // Generate a spike trend for lagging groups
+                  const pts = Array.from({ length: 20 }, (_, i) => {
+                    if (!isKafkaDegraded) return 0
+                    const lag = g.topic === 'analytics-events' ? 142880 : g.topic === 'order-updates' ? 28440 : g.topic === 'notification-queue' ? 9210 : 0
+                    return lag > 0 ? Math.max(0, lag * (i / 19) * (0.7 + Math.random() * 0.3)) : 0
+                  })
+                  const max = Math.max(...pts, 1)
+                  const w = 200, h = 30
+                  const polyPts = pts.map((v, i) => `${(i / (pts.length - 1)) * w},${h - (v / max) * (h - 2)}`).join(' ')
+                  const lagColor = g.lag > 50000 ? '#f85149' : g.lag > 5000 ? '#d29922' : '#3fb950'
+                  return (
+                    <div key={g.id} className="flex items-center gap-3 bg-[#161b22] border border-[#30363d] rounded p-2">
+                      <div className="w-40 flex-shrink-0">
+                        <div className="text-[#e6edf3] text-[10px] font-mono truncate">{g.id.replace('-grp', '')}</div>
+                        <div className="text-[#484f58] text-[9px]">{g.topic}</div>
+                      </div>
+                      <svg width={w} height={h} className="flex-1">
+                        <defs>
+                          <linearGradient id={`lag-${g.id}`} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={lagColor} stopOpacity="0.3" />
+                            <stop offset="100%" stopColor={lagColor} stopOpacity="0" />
+                          </linearGradient>
+                        </defs>
+                        <polygon points={`0,${h} ${polyPts} ${w},${h}`} fill={`url(#lag-${g.id})`} />
+                        <polyline points={polyPts} fill="none" stroke={lagColor} strokeWidth="1.5" />
+                      </svg>
+                      <div className="w-20 text-right flex-shrink-0">
+                        <div className="font-bold text-[11px]" style={{ color: lagColor }}>{g.lag === 0 ? '0' : fmtNum(g.lag)}</div>
+                        <div className="text-[#484f58] text-[9px]">msgs behind</div>
+                      </div>
+                    </div>
+                  )
+                })}
+                {computedGroups.every(g => g.lag === 0) && (
+                  <div className="text-[#3fb950] text-[10px] text-center py-3">✓ All consumer groups at zero lag</div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -289,11 +332,149 @@ export default function ConfluentPanel({ systemState }: ConfluentPanelProps) {
                     </div>
                   ))}
                 </div>
+                {selectedTopic && !isKafkaDown && (
+                  <div className="mt-4 border-t border-[#30363d] pt-4">
+                    <div className="text-[#8b949e] text-[10px] uppercase tracking-widest mb-2">Produce Test Message</div>
+                    <ProduceForm topic={selectedTopic} />
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
+
+        {/* SCHEMA REGISTRY */}
+        {activeTab === 'schema' && (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[#8b949e] text-[10px] uppercase tracking-widest">Schema Registry</div>
+              <span className="text-[9px] px-2 py-0.5 rounded bg-[#3fb950]/10 text-[#3fb950] border border-[#3fb950]/30">ONLINE</span>
+            </div>
+            <div className="space-y-2">
+              {[
+                { subject: 'transactions-value', format: 'AVRO', version: 3, compat: 'BACKWARD', status: isKafkaDegraded ? 'INCOMPATIBLE' : 'OK' },
+                { subject: 'payment-events-value', format: 'AVRO', version: 2, compat: 'BACKWARD', status: 'OK' },
+                { subject: 'user-activity-value', format: 'PROTOBUF', version: 1, compat: 'FULL', status: 'OK' },
+                { subject: 'order-updates-value', format: 'JSON', version: 4, compat: 'NONE', status: isKafkaDegraded ? 'WARNING' : 'OK' },
+                { subject: 'analytics-events-value', format: 'AVRO', version: 7, compat: 'BACKWARD', status: 'OK' },
+                { subject: 'audit-log-value', format: 'AVRO', version: 1, compat: 'FULL_TRANSITIVE', status: 'OK' },
+              ].map(s => (
+                <div key={s.subject} className="bg-[#161b22] border border-[#30363d] rounded p-3 text-[10px]">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[#58a6ff] font-mono">{s.subject}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                      s.status === 'INCOMPATIBLE' ? 'bg-[#f85149]/20 text-[#f85149]' :
+                      s.status === 'WARNING' ? 'bg-[#d29922]/20 text-[#d29922]' :
+                      'bg-[#3fb950]/10 text-[#3fb950]'
+                    }`}>{s.status}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-[9px]">
+                    <div><span className="text-[#484f58]">Format: </span><span className="text-[#d2a8ff]">{s.format}</span></div>
+                    <div><span className="text-[#484f58]">Version: </span><span className="text-[#e6edf3]">v{s.version}</span></div>
+                    <div><span className="text-[#484f58]">Compat: </span><span className="text-[#e6edf3]">{s.compat}</span></div>
+                  </div>
+                  {s.status === 'INCOMPATIBLE' && (
+                    <div className="mt-2 text-[#f85149] text-[9px]">
+                      ⚠ Schema v{s.version} is incompatible with v{s.version - 1}. Consumers expecting old schema will fail to deserialize. This may be causing consumer lag.
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* DLQ INSPECTOR */}
+        {activeTab === 'dlq' && (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[#8b949e] text-[10px] uppercase tracking-widest">Dead Letter Queue Inspector</div>
+              <span className={`text-[9px] px-2 py-0.5 rounded border font-bold ${isKafkaDegraded ? 'text-[#f85149] border-[#f85149]/40 bg-[#f85149]/10' : 'text-[#484f58] border-[#30363d]'}`}>
+                {isKafkaDegraded ? `${4219 + (isKafkaDegraded ? 312 : 0)} msgs` : '4,219 msgs'}
+              </span>
+            </div>
+            {isKafkaDegraded && (
+              <div className="mb-3 p-3 bg-[#f85149]/10 border border-[#f85149]/30 rounded text-[10px] text-[#f85149]">
+                ⚠ DLQ message count is growing. New failures are being routed here. Investigate consumer errors before re-processing.
+              </div>
+            )}
+            <div className="space-y-3">
+              {[
+                { id: 'dlq-001', original_topic: 'transactions', error: 'NullPointerException: payment_method is null at PaymentProcessor.java:284', retries: 3, first_seen: '14:23:11', last_seen: '14:29:44', count: isKafkaDegraded ? 312 : 28 },
+                { id: 'dlq-002', original_topic: 'payment-events', error: 'Connection refused: jdbc:postgresql://db-primary:5432/payments — too many clients', retries: 5, first_seen: '14:24:02', last_seen: '14:31:18', count: isKafkaDegraded ? 189 : 12 },
+                { id: 'dlq-003', original_topic: 'order-updates', error: 'Schema deserialization error: field "amount_currency" missing in record', retries: 2, first_seen: '14:26:55', last_seen: '14:28:01', count: 7 },
+                { id: 'dlq-004', original_topic: 'notification-queue', error: 'Timeout: downstream SMS gateway did not respond within 5000ms', retries: 3, first_seen: '14:27:30', last_seen: '14:30:12', count: isKafkaDegraded ? 47 : 3 },
+              ].map(m => (
+                <div key={m.id} className="bg-[#161b22] border border-[#30363d] rounded p-3 text-[10px]">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div>
+                      <span className="text-[#d29922] font-mono">{m.original_topic}</span>
+                      <span className="text-[#484f58] mx-2">→</span>
+                      <span className="text-[#f85149] font-mono text-[9px]">dead-letter-queue</span>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className={`font-bold ${m.count > 100 ? 'text-[#f85149]' : m.count > 20 ? 'text-[#d29922]' : 'text-[#8b949e]'}`}>{m.count.toLocaleString()} msgs</div>
+                      <div className="text-[#484f58] text-[9px]">{m.first_seen} → {m.last_seen}</div>
+                    </div>
+                  </div>
+                  <div className="bg-[#0d1117] rounded p-2 font-mono text-[9px] text-[#f85149] leading-relaxed break-all">
+                    {m.error}
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-[#484f58] text-[9px]">Retries: {m.retries}/5</span>
+                    <button className="ml-auto px-2 py-0.5 rounded border border-[#58a6ff]/40 text-[#58a6ff] text-[9px] hover:bg-[#58a6ff]/10 transition-colors">Re-process</button>
+                    <button className="px-2 py-0.5 rounded border border-[#484f58] text-[#484f58] text-[9px] hover:border-[#f85149] hover:text-[#f85149] transition-colors">Discard</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
+  )
+}
+
+function ProduceForm({ topic }: { topic: string }) {
+  const [key, setKey] = useState(`test-key-${Date.now()}`)
+  const [value, setValue] = useState(`{"event":"test","topic":"${topic}","ts":${Date.now()}}`)
+  const [sent, setSent] = useState(false)
+
+  function handleProduce(e: React.FormEvent) {
+    e.preventDefault()
+    setSent(true)
+    setTimeout(() => setSent(false), 3000)
+  }
+
+  return (
+    <form onSubmit={handleProduce} className="space-y-2 text-[10px]">
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <div className="text-[#8b949e] mb-1">Key</div>
+          <input value={key} onChange={e => setKey(e.target.value)}
+            className="w-full bg-[#0d1117] border border-[#30363d] text-[#e6edf3] px-2 py-1.5 rounded font-mono text-[10px] focus:outline-none focus:border-[#d29922]" />
+        </div>
+        <div>
+          <div className="text-[#8b949e] mb-1">Partition</div>
+          <select className="w-full bg-[#0d1117] border border-[#30363d] text-[#e6edf3] px-2 py-1.5 rounded text-[10px] focus:outline-none">
+            <option>Auto (round-robin)</option>
+            <option>Partition 0</option>
+            <option>Partition 1</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <div className="text-[#8b949e] mb-1">Value (JSON)</div>
+        <textarea value={value} onChange={e => setValue(e.target.value)} rows={3}
+          className="w-full bg-[#0d1117] border border-[#30363d] text-[#e6edf3] px-2 py-1.5 rounded font-mono text-[10px] focus:outline-none focus:border-[#d29922] resize-none" />
+      </div>
+      <div className="flex items-center gap-3">
+        <button type="submit"
+          className="px-4 py-1.5 bg-[#d29922]/20 hover:bg-[#d29922]/30 border border-[#d29922]/50 text-[#d29922] rounded text-[10px] font-bold transition-colors">
+          ▶ Produce
+        </button>
+        {sent && <span className="text-[#3fb950] text-[10px]">✓ Message produced to {topic} · offset +1</span>}
+      </div>
+    </form>
   )
 }

@@ -40,7 +40,7 @@ function getRedisInfo(state: SystemState | null): { usedMb: number; maxMb: numbe
 }
 
 export default function RedisPanel({ systemState }: RedisPanelProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'keys' | 'monitor' | 'slowlog'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'keys' | 'monitor' | 'slowlog' | 'cluster' | 'stats'>('overview')
   const [selectedNs, setSelectedNs] = useState<string | null>(null)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [cliInput, setCliInput] = useState('')
@@ -105,12 +105,12 @@ export default function RedisPanel({ systemState }: RedisPanelProps) {
 
       {/* Tabs */}
       <div className="flex border-b border-[#30363d] bg-[#161b22]">
-        {(['overview', 'keys', 'monitor', 'slowlog'] as const).map(tab => (
+        {(['overview', 'keys', 'monitor', 'slowlog', 'cluster', 'stats'] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             className={`px-4 py-2 text-[11px] capitalize border-b-2 transition-colors -mb-px ${
               activeTab === tab ? 'text-[#f85149] border-[#f85149]' : 'text-[#8b949e] border-transparent hover:text-[#e6edf3]'
             }`}>
-            {tab === 'monitor' ? 'CLI' : tab}
+            {tab === 'monitor' ? 'CLI' : tab === 'cluster' ? 'Cluster' : tab === 'stats' ? 'Stats' : tab}
           </button>
         ))}
       </div>
@@ -152,6 +152,69 @@ export default function RedisPanel({ systemState }: RedisPanelProps) {
                 <div className="text-[#8b949e] text-[9px] uppercase tracking-widest mb-1">Ops/sec</div>
                 <div className="text-base font-bold text-[#e6edf3]">{info.ops.toLocaleString()}</div>
                 <div className="text-[#484f58] text-[9px] mt-1">instantaneous_ops</div>
+              </div>
+            </div>
+
+            {/* Hit/Miss ratio sparkline */}
+            <div className="bg-[#161b22] border border-[#30363d] rounded p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-[#8b949e] text-[9px] uppercase tracking-widest">Cache Hit Rate Trend (last 10 min)</div>
+                <span className={`font-bold text-[11px] ${info.hitRate < 50 ? 'text-[#f85149]' : info.hitRate < 80 ? 'text-[#d29922]' : 'text-[#3fb950]'}`}>{info.hitRate}%</span>
+              </div>
+              {(() => {
+                const pts = Array.from({ length: 30 }, (_, i) => {
+                  if (info.status === 'degraded') {
+                    // Show drop from 96% → 42%
+                    const frac = i / 29
+                    return frac < 0.4 ? 96 : 96 - (96 - 42) * ((frac - 0.4) / 0.6)
+                  }
+                  return 94 + Math.sin(i * 0.5) * 2
+                })
+                const w = 400, h = 40
+                const min = Math.min(...pts) - 5, max = Math.max(...pts) + 2
+                const polyPts = pts.map((v, i) => `${(i / (pts.length - 1)) * w},${h - ((v - min) / (max - min)) * (h - 2)}`).join(' ')
+                const color = info.hitRate < 50 ? '#f85149' : info.hitRate < 80 ? '#d29922' : '#3fb950'
+                return (
+                  <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: 40 }}>
+                    <defs>
+                      <linearGradient id="hit-grad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+                        <stop offset="100%" stopColor={color} stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                    <polygon points={`0,${h} ${polyPts} ${w},${h}`} fill="url(#hit-grad)" />
+                    <polyline points={polyPts} fill="none" stroke={color} strokeWidth="1.5" />
+                  </svg>
+                )
+              })()}
+              {info.status === 'degraded' && (
+                <div className="text-[#f85149] text-[9px] mt-1">↓ Hit rate dropped from 96% — cache evictions causing misses. Keys being evicted: ~{info.evictedKeys.toLocaleString()}</div>
+              )}
+            </div>
+
+            {/* Memory fragmentation ratio + eviction policy */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-[#161b22] border border-[#30363d] rounded p-3">
+                <div className="text-[#8b949e] text-[9px] uppercase tracking-widest mb-1">Memory Fragmentation Ratio</div>
+                {(() => {
+                  const ratio = info.status === 'degraded' ? 2.41 : info.status === 'down' ? 0 : 1.08
+                  const color = ratio > 1.5 ? '#f85149' : ratio > 1.2 ? '#d29922' : '#3fb950'
+                  return (
+                    <>
+                      <div className="text-base font-bold" style={{ color }}>{ratio.toFixed(2)}</div>
+                      <div className="text-[#484f58] text-[9px] mt-1">
+                        {ratio > 1.5 ? '⚠ High fragmentation — consider MEMORY PURGE or restart' : ratio > 1.2 ? 'Moderate fragmentation' : '✓ Healthy'}
+                      </div>
+                    </>
+                  )
+                })()}
+              </div>
+              <div className="bg-[#161b22] border border-[#30363d] rounded p-3">
+                <div className="text-[#8b949e] text-[9px] uppercase tracking-widest mb-1">Eviction Policy</div>
+                <div className="text-[#e6edf3] font-mono text-[11px] font-bold">allkeys-lru</div>
+                <div className="text-[#484f58] text-[9px] mt-1">
+                  Evicted this session: <span className={`font-bold ${info.evictedKeys > 0 ? 'text-[#d29922]' : 'text-[#3fb950]'}`}>{info.evictedKeys.toLocaleString()}</span> keys
+                </div>
               </div>
             </div>
 
@@ -300,6 +363,132 @@ export default function RedisPanel({ systemState }: RedisPanelProps) {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* CLUSTER TAB */}
+        {activeTab === 'cluster' && (
+          <div className="p-4 space-y-4">
+            <div className="text-[#8b949e] text-[10px] uppercase tracking-widest">Redis Cluster Topology</div>
+
+            {/* Primary node */}
+            <div className="bg-[#161b22] border border-[#30363d] rounded p-3">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <span className="text-[#f85149] font-bold">⬡ redis-primary</span>
+                  <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] bg-[#d29922]/20 text-[#d29922] font-bold">PRIMARY</span>
+                  {info.status === 'down' && <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] bg-[#f85149]/20 text-[#f85149] font-bold">DOWN</span>}
+                </div>
+                <span className="text-[#484f58] text-[10px] font-mono">10.0.1.10:6379</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[10px]">
+                <div><span className="text-[#8b949e]">Memory: </span><span className="text-[#e6edf3]">{(info.usedMb / 1024).toFixed(1)}GB / {info.maxMb / 1024}GB</span></div>
+                <div><span className="text-[#8b949e]">Keys: </span><span className="text-[#e6edf3]">49,041</span></div>
+                <div><span className="text-[#8b949e]">Clients: </span><span className={info.connectedClients > 250 ? 'text-[#f85149]' : 'text-[#e6edf3]'}>{info.connectedClients}</span></div>
+              </div>
+            </div>
+
+            {/* Replicas */}
+            <div className="text-[#484f58] text-[9px] uppercase tracking-widest">Replicas</div>
+            {[
+              { name: 'redis-replica-1', ip: '10.0.1.11:6379', lag: info.status === 'degraded' ? '4.2s ⚠' : '2ms', slot: '0-8191', status: info.status === 'down' ? 'DISCONNECTED' : 'CONNECTED' },
+              { name: 'redis-replica-2', ip: '10.0.1.12:6379', lag: info.status === 'degraded' ? '8.7s ⚠' : '3ms', slot: '8192-16383', status: info.status === 'down' ? 'DISCONNECTED' : 'CONNECTED' },
+            ].map(r => (
+              <div key={r.name} className={`bg-[#161b22] border rounded p-3 ${r.status === 'DISCONNECTED' ? 'border-[#f85149]/30' : 'border-[#30363d]'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#8b949e] font-mono text-[11px]">{r.name}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${r.status === 'DISCONNECTED' ? 'bg-[#f85149]/20 text-[#f85149]' : 'bg-[#3fb950]/10 text-[#3fb950]'}`}>{r.status}</span>
+                  </div>
+                  <span className="text-[#484f58] text-[10px] font-mono">{r.ip}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                  <div><span className="text-[#8b949e]">Replication lag: </span><span className={r.lag.includes('⚠') ? 'text-[#d29922]' : 'text-[#3fb950]'}>{r.lag}</span></div>
+                  <div><span className="text-[#8b949e]">Hash slots: </span><span className="text-[#e6edf3] font-mono">{r.slot}</span></div>
+                </div>
+              </div>
+            ))}
+
+            {info.status === 'degraded' && (
+              <div className="p-3 bg-[#d29922]/10 border border-[#d29922]/30 rounded text-[10px] text-[#d29922]">
+                ⚠ Replica lag is high ({'>'}4s). Reads from replicas may return stale data. Consider forcing reads to primary or flushing stale keys.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STATS TAB */}
+        {activeTab === 'stats' && (
+          <div className="p-4 space-y-4">
+            <div className="text-[#8b949e] text-[10px] uppercase tracking-widest">Command Statistics</div>
+
+            {/* Command breakdown */}
+            <div className="bg-[#161b22] border border-[#30363d] rounded overflow-hidden">
+              <table className="w-full text-[10px]">
+                <thead className="bg-[#0d1117] border-b border-[#30363d]">
+                  <tr>
+                    <th className="text-left px-3 py-2 text-[#8b949e] font-normal">Command</th>
+                    <th className="text-right px-3 py-2 text-[#8b949e] font-normal">Calls/s</th>
+                    <th className="text-right px-3 py-2 text-[#8b949e] font-normal">Avg µs</th>
+                    <th className="text-right px-3 py-2 text-[#8b949e] font-normal">% CPU</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { cmd: 'GET', rate: info.status === 'degraded' ? 8200 : 28400, avg: 42, cpu: info.status === 'degraded' ? 18 : 12 },
+                    { cmd: 'SET', rate: info.status === 'degraded' ? 3100 : 11200, avg: 68, cpu: 8 },
+                    { cmd: 'HGETALL', rate: info.status === 'degraded' ? 1800 : 4200, avg: 124, cpu: info.status === 'degraded' ? 22 : 9 },
+                    { cmd: 'KEYS', rate: info.status === 'degraded' ? 24 : 0, avg: info.status === 'degraded' ? 8200 : 0, cpu: info.status === 'degraded' ? 38 : 0 },
+                    { cmd: 'EXPIRE', rate: 2100, avg: 31, cpu: 4 },
+                    { cmd: 'DEL', rate: 890, avg: 29, cpu: 2 },
+                    { cmd: 'PING', rate: 140, avg: 12, cpu: 1 },
+                  ].filter(c => c.rate > 0).map(c => (
+                    <tr key={c.cmd} className="border-b border-[#21262d] last:border-0">
+                      <td className="px-3 py-2 font-mono text-[#e6edf3] font-bold">{c.cmd}</td>
+                      <td className="px-3 py-2 text-right text-[#e6edf3]">{c.rate.toLocaleString()}</td>
+                      <td className={`px-3 py-2 text-right font-mono ${c.avg > 1000 ? 'text-[#f85149]' : c.avg > 200 ? 'text-[#d29922]' : 'text-[#3fb950]'}`}>{c.avg.toLocaleString()}</td>
+                      <td className={`px-3 py-2 text-right ${c.cpu > 30 ? 'text-[#f85149] font-bold' : 'text-[#e6edf3]'}`}>{c.cpu}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {info.status === 'degraded' && (
+              <div className="p-3 bg-[#f85149]/10 border border-[#f85149]/30 rounded text-[10px] text-[#f85149]">
+                ⚠ KEYS command detected! This is O(N) and is blocking the event loop. Consuming 38% CPU. Replace with SCAN for production use.
+              </div>
+            )}
+
+            {/* Memory timeline */}
+            <div className="bg-[#161b22] border border-[#30363d] rounded p-3">
+              <div className="text-[#8b949e] text-[9px] uppercase tracking-widest mb-2">Memory Usage Trend</div>
+              {(() => {
+                const pts = Array.from({ length: 24 }, (_, i) => {
+                  if (info.status === 'degraded') return 2840 + (i / 23) * (6800 - 2840)
+                  return 2840 + Math.sin(i * 0.4) * 120
+                })
+                const w = 400, h = 50
+                const max = Math.max(...pts), min = Math.min(...pts) - 200
+                const polyPts = pts.map((v, i) => `${(i / (pts.length - 1)) * w},${h - ((v - min) / (max - min)) * (h - 2)}`).join(' ')
+                const color = info.status === 'degraded' ? '#f85149' : '#58a6ff'
+                return (
+                  <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: 50 }}>
+                    <defs>
+                      <linearGradient id="mem-grad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+                        <stop offset="100%" stopColor={color} stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                    <polygon points={`0,${h} ${polyPts} ${w},${h}`} fill="url(#mem-grad)" />
+                    <polyline points={polyPts} fill="none" stroke={color} strokeWidth="1.5" />
+                  </svg>
+                )
+              })()}
+              <div className="flex justify-between text-[9px] text-[#484f58] mt-1">
+                <span>24 min ago</span><span>Now: {(info.usedMb / 1024).toFixed(2)}GB</span>
+              </div>
+            </div>
           </div>
         )}
       </div>

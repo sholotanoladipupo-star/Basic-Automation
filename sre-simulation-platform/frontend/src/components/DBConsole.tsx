@@ -394,6 +394,47 @@ function executeQuery(sql: string, currentDb: string, systemState: SystemState |
     }
   }
 
+  // SHOW PROCESSLIST
+  if (/^SHOW\s+PROCESSLIST/i.test(q)) {
+    const isDbDegraded = systemState?.infrastructure.databases.some(d => d.status === 'down' || d.status === 'degraded') ?? false
+    if (!isDbDegraded) {
+      return { columns: ['Id', 'User', 'Host', 'db', 'Command', 'Time', 'State', 'Info'], rows: [
+        { Id: 1, User: 'app_user', Host: '10.0.0.2:42811', db: 'payments', Command: 'Sleep', Time: 0, State: '', Info: 'NULL' },
+        { Id: 2, User: 'app_user', Host: '10.0.0.3:51204', db: 'payments', Command: 'Query', Time: 0, State: 'sending data', Info: 'SELECT * FROM transactions WHERE user_id=...' },
+        { Id: 3, User: 'monitoring', Host: '10.0.0.10:38291', db: 'payments', Command: 'Query', Time: 0, State: 'executing', Info: 'SELECT COUNT(*) FROM payments' },
+      ], rowCount: 3, execTimeMs: execMs, isError: false }
+    }
+    return { columns: ['Id', 'User', 'Host', 'db', 'Command', 'Time', 'State', 'Info'], rows: [
+      { Id: 1, User: 'app_user', Host: '10.0.0.2:42811', db: 'payments', Command: 'Query', Time: 148, State: 'Waiting for lock', Info: 'UPDATE payments SET status="completed" WHERE id=7743' },
+      { Id: 2, User: 'app_user', Host: '10.0.0.3:51204', db: 'payments', Command: 'Query', Time: 148, State: 'Waiting for lock', Info: 'INSERT INTO transactions VALUES (...)' },
+      { Id: 3, User: 'app_user', Host: '10.0.0.4:39012', db: 'payments', Command: 'Query', Time: 150, State: 'Locked', Info: 'BEGIN; UPDATE payment_methods SET active=0 WHERE user_id=2291; (uncommitted!)' },
+      { Id: 4, User: 'app_user', Host: '10.0.0.5:44231', db: 'payments', Command: 'Query', Time: 148, State: 'Waiting for lock', Info: 'SELECT * FROM transactions WHERE status="pending" FOR UPDATE' },
+      { Id: 5, User: 'monitoring', Host: '10.0.0.10:38291', db: 'payments', Command: 'Query', Time: 12, State: 'executing', Info: 'SELECT COUNT(*) FROM payments' },
+    ], rowCount: 5, execTimeMs: execMs, isError: false }
+  }
+
+  // SHOW SLAVE STATUS / SHOW REPLICA STATUS
+  if (/^SHOW\s+(SLAVE|REPLICA)\s+STATUS/i.test(q)) {
+    const isDbDegraded = systemState?.infrastructure.databases.some(d => d.status === 'down' || d.status === 'degraded') ?? false
+    const lag = isDbDegraded ? 12 : 0
+    return { columns: ['Variable_name', 'Value'], rows: [
+      { Variable_name: 'Slave_IO_Running', Value: isDbDegraded ? 'Connecting' : 'Yes' },
+      { Variable_name: 'Slave_SQL_Running', Value: isDbDegraded ? 'No' : 'Yes' },
+      { Variable_name: 'Seconds_Behind_Master', Value: String(lag) },
+      { Variable_name: 'Last_SQL_Error', Value: isDbDegraded ? 'Error reading relay log event: slave SQL thread was killed' : '' },
+      { Variable_name: 'Master_Host', Value: 'db-primary.internal' },
+      { Variable_name: 'Master_Log_File', Value: 'mysql-bin.000142' },
+      { Variable_name: 'Read_Master_Log_Pos', Value: '14928291' },
+      { Variable_name: 'Relay_Log_File', Value: isDbDegraded ? 'relay-bin.000089' : 'relay-bin.000091' },
+    ], rowCount: 8, execTimeMs: execMs, isError: false }
+  }
+
+  // KILL <pid>
+  if (/^KILL\s+\d+/i.test(q)) {
+    const pid = q.match(/\d+/)?.[0]
+    return { columns: ['result'], rows: [{ result: `Query OK — process ${pid} killed` }], rowCount: 1, execTimeMs: execMs, isError: false }
+  }
+
   // INSERT / UPDATE / DELETE — simulate row-affected style
   if (/^(INSERT|UPDATE|DELETE)/i.test(q)) {
     const affected = Math.floor(Math.random() * 5) + 1
@@ -432,6 +473,10 @@ const QUICK_QUERIES = [
   { label: 'Show tables',         sql: 'SHOW TABLES;' },
   { label: 'Check schema',        sql: 'DESCRIBE accounts;' },
   { label: 'Active accounts',     sql: "SELECT * FROM accounts WHERE status = 'active';" },
+  { label: 'Show processlist',    sql: 'SHOW PROCESSLIST;' },
+  { label: 'Blocking locks',      sql: 'SELECT * FROM information_schema.INNODB_LOCKS;' },
+  { label: 'Replica status',      sql: 'SHOW SLAVE STATUS\\G' },
+  { label: 'InnoDB status',       sql: 'SHOW ENGINE INNODB STATUS\\G' },
 ]
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -442,7 +487,7 @@ export default function DBConsole({ systemState }: DBConsoleProps) {
   const [selectedTable, setSelectedTable] = useState<string | null>('accounts')
   const [query, setQuery] = useState('SELECT * FROM accounts LIMIT 10;')
   const [result, setResult] = useState<QueryResult | null>(null)
-  const [activeTab, setActiveTab] = useState<'results' | 'plan'>('results')
+  const [activeTab, setActiveTab] = useState<'results' | 'plan' | 'processlist' | 'locks' | 'replica'>('results')
   const [isRunning, setIsRunning] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -590,15 +635,34 @@ export default function DBConsole({ systemState }: DBConsoleProps) {
 
         {/* Results area */}
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          {/* Replica lag banner */}
+          {(() => {
+            const dbDegraded = systemState?.infrastructure.databases.some(d => d.status === 'degraded' || d.status === 'down')
+            if (!dbDegraded) return null
+            return (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-[#d29922]/10 border-b border-[#d29922]/30 text-[10px] text-[#d29922]">
+                <span className="font-bold">⚠ Replica Lag:</span>
+                <span className="font-mono font-bold">12s</span>
+                <span className="text-[#8b949e]">— replica is falling behind. Reads from replica may be stale.</span>
+              </div>
+            )
+          })()}
+
           {/* Tabs */}
           <div className="flex border-b border-[#30363d] bg-[#161b22]">
-            {(['results', 'plan'] as const).map(tab => (
+            {([
+              { id: 'results', label: 'Results' },
+              { id: 'plan', label: 'Query Plan' },
+              { id: 'processlist', label: 'Processlist' },
+              { id: 'locks', label: 'Locks' },
+              { id: 'replica', label: 'Replica' },
+            ] as const).map(tab => (
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-4 py-2 text-[10px] font-bold transition-colors border-b-2 ${activeTab === tab ? 'text-[#58a6ff] border-[#58a6ff]' : 'text-[#8b949e] border-transparent hover:text-[#c9d1d9]'}`}
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-2 text-[10px] font-bold transition-colors border-b-2 ${activeTab === tab.id ? 'text-[#58a6ff] border-[#58a6ff]' : 'text-[#8b949e] border-transparent hover:text-[#c9d1d9]'}`}
               >
-                {tab === 'results' ? 'Results' : 'Query Plan'}
+                {tab.label}
               </button>
             ))}
             {result && (
@@ -613,7 +677,7 @@ export default function DBConsole({ systemState }: DBConsoleProps) {
 
           {/* Tab content */}
           <div className="flex-1 overflow-auto">
-            {!result && (
+            {!result && activeTab === 'results' && (
               <div className="flex items-center justify-center h-32 text-[#484f58] text-[11px]">
                 No results yet — run a query above
               </div>
@@ -679,6 +743,139 @@ export default function DBConsole({ systemState }: DBConsoleProps) {
                 )}
               </div>
             )}
+
+            {/* Processlist tab */}
+            {activeTab === 'processlist' && (() => {
+              const isDbDegraded = systemState?.infrastructure.databases.some(d => d.status === 'down' || d.status === 'degraded') ?? false
+              const processes = isDbDegraded
+                ? [
+                    { Id: 1, User: 'app_user', Host: '10.0.0.2:42811', db: 'payments', Command: 'Query', Time: 148, State: 'Waiting for lock', Info: 'UPDATE payments SET status="completed" WHERE id=7743' },
+                    { Id: 2, User: 'app_user', Host: '10.0.0.3:51204', db: 'payments', Command: 'Query', Time: 148, State: 'Waiting for lock', Info: 'INSERT INTO transactions VALUES (...)' },
+                    { Id: 3, User: 'app_user', Host: '10.0.0.4:39012', db: 'payments', Command: 'Query', Time: 150, State: 'Locked', Info: 'BEGIN; UPDATE payment_methods SET active=0 WHERE user_id=2291; (uncommitted!)' },
+                    { Id: 4, User: 'app_user', Host: '10.0.0.5:44231', db: 'payments', Command: 'Query', Time: 148, State: 'Waiting for lock', Info: 'SELECT * FROM transactions WHERE status="pending" FOR UPDATE' },
+                    { Id: 5, User: 'monitoring', Host: '10.0.0.10:38291', db: 'payments', Command: 'Query', Time: 12, State: 'executing', Info: 'SELECT COUNT(*) FROM payments' },
+                  ]
+                : [
+                    { Id: 1, User: 'app_user', Host: '10.0.0.2:42811', db: 'payments', Command: 'Sleep', Time: 0, State: '', Info: 'NULL' },
+                    { Id: 2, User: 'app_user', Host: '10.0.0.3:51204', db: 'payments', Command: 'Query', Time: 0, State: 'sending data', Info: 'SELECT * FROM transactions WHERE user_id=...' },
+                    { Id: 3, User: 'monitoring', Host: '10.0.0.10:38291', db: 'payments', Command: 'Query', Time: 0, State: 'executing', Info: 'SELECT COUNT(*) FROM payments' },
+                  ]
+              const cols = ['Id', 'User', 'Host', 'db', 'Command', 'Time', 'State', 'Info']
+              return (
+                <table className="w-full text-[10px] border-collapse min-w-max">
+                  <thead>
+                    <tr className="bg-[#161b22] border-b border-[#30363d] sticky top-0 z-10">
+                      {cols.map(col => (
+                        <th key={col} className="px-3 py-2 text-left text-[#8b949e] font-bold whitespace-nowrap border-r border-[#30363d] last:border-r-0">{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {processes.map((row, i) => (
+                      <tr key={i} className={`border-b border-[#21262d] hover:bg-[#21262d] transition-colors ${i % 2 === 0 ? 'bg-[#0d1117]' : 'bg-[#161b22]'}`}>
+                        {cols.map(col => {
+                          const val = (row as Record<string, string | number>)[col]
+                          const isWaiting = col === 'State' && typeof val === 'string' && (val.includes('Waiting') || val === 'Locked')
+                          return (
+                            <td key={col} className={`px-3 py-1.5 whitespace-nowrap border-r border-[#21262d] last:border-r-0 ${isWaiting ? 'text-[#f85149]' : ''}`}>
+                              {val === null || val === undefined || val === '' ? <span className="text-[#484f58] italic">—</span> : String(val)}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+            })()}
+
+            {/* Locks tab */}
+            {activeTab === 'locks' && (() => {
+              const isDbDegraded = systemState?.infrastructure.databases.some(d => d.status === 'down' || d.status === 'degraded') ?? false
+              if (!isDbDegraded) {
+                return (
+                  <div className="flex items-center justify-center h-32 text-[#3fb950] text-[11px] gap-2">
+                    <span>✓</span>
+                    <span>No active locks detected — database is healthy</span>
+                  </div>
+                )
+              }
+              return (
+                <div className="p-4 space-y-2 text-[10px]">
+                  <div className="flex items-center gap-2">
+                    <div className="text-[#8b949e] uppercase tracking-widest">Active Table Locks &amp; Waits</div>
+                    <span className="px-1.5 py-0.5 rounded bg-[#f85149]/20 text-[#f85149] text-[9px] font-bold">3 BLOCKED</span>
+                  </div>
+                  <div className="bg-[#161b22] border border-[#f85149]/30 rounded p-3 space-y-2">
+                    <div className="text-[#f85149] font-bold text-[10px] mb-2">Deadlock chain detected</div>
+                    {[
+                      { pid: 3, holds: 'payment_methods (X lock)', blocks: 'pid 1, pid 2, pid 4', query: 'BEGIN; UPDATE payment_methods SET active=0... (uncommitted)' },
+                      { pid: 1, holds: 'waiting', blocks: '—', query: 'UPDATE payments SET status="completed"...' },
+                      { pid: 2, holds: 'waiting', blocks: '—', query: 'INSERT INTO transactions VALUES...' },
+                    ].map(lock => (
+                      <div key={lock.pid} className="border-b border-[#30363d] pb-2 last:border-0 last:pb-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[#8b949e]">PID {lock.pid}</span>
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] ${lock.holds.includes('waiting') ? 'bg-[#d29922]/20 text-[#d29922]' : 'bg-[#f85149]/20 text-[#f85149]'}`}>
+                            {lock.holds.includes('waiting') ? 'WAITING' : 'HOLDING LOCK'}
+                          </span>
+                          {!lock.holds.includes('waiting') && <span className="text-[#484f58] text-[9px]">blocks: {lock.blocks}</span>}
+                        </div>
+                        <div className="font-mono text-[#8b949e] text-[9px] truncate">{lock.query}</div>
+                      </div>
+                    ))}
+                    <div className="mt-2 pt-2 border-t border-[#30363d] text-[9px] text-[#d29922]">
+                      Fix: Run <span className="font-mono bg-[#0d1117] px-1 rounded">KILL 3</span> to terminate the blocking transaction
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Replica tab */}
+            {activeTab === 'replica' && (() => {
+              const isDbDegraded = systemState?.infrastructure.databases.some(d => d.status === 'down' || d.status === 'degraded') ?? false
+              const lag = isDbDegraded ? 12 : 0
+              const rows = [
+                { Variable_name: 'Slave_IO_Running', Value: isDbDegraded ? 'Connecting' : 'Yes' },
+                { Variable_name: 'Slave_SQL_Running', Value: isDbDegraded ? 'No' : 'Yes' },
+                { Variable_name: 'Seconds_Behind_Master', Value: String(lag) },
+                { Variable_name: 'Last_SQL_Error', Value: isDbDegraded ? 'Error reading relay log event: slave SQL thread was killed' : '' },
+                { Variable_name: 'Master_Host', Value: 'db-primary.internal' },
+                { Variable_name: 'Master_Log_File', Value: 'mysql-bin.000142' },
+                { Variable_name: 'Read_Master_Log_Pos', Value: '14928291' },
+                { Variable_name: 'Relay_Log_File', Value: isDbDegraded ? 'relay-bin.000089' : 'relay-bin.000091' },
+              ]
+              return (
+                <div className="p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <span className="text-[#8b949e] uppercase tracking-widest">Replica Status</span>
+                    {isDbDegraded
+                      ? <span className="px-1.5 py-0.5 rounded bg-[#f85149]/20 text-[#f85149] text-[9px] font-bold">LAGGING {lag}s</span>
+                      : <span className="px-1.5 py-0.5 rounded bg-[#3fb950]/20 text-[#3fb950] text-[9px] font-bold">IN SYNC</span>
+                    }
+                  </div>
+                  <div className="bg-[#161b22] border border-[#30363d] rounded divide-y divide-[#21262d]">
+                    {rows.map(row => (
+                      <div key={row.Variable_name} className="flex items-center px-3 py-1.5 gap-4 hover:bg-[#21262d] transition-colors">
+                        <span className="text-[#8b949e] text-[10px] w-[200px] flex-shrink-0">{row.Variable_name}</span>
+                        <span className={`font-mono text-[10px] ${
+                          row.Variable_name === 'Slave_IO_Running' || row.Variable_name === 'Slave_SQL_Running'
+                            ? row.Value === 'Yes' ? 'text-[#3fb950]' : 'text-[#f85149]'
+                            : row.Variable_name === 'Seconds_Behind_Master' && lag > 0
+                              ? 'text-[#f85149]'
+                              : row.Variable_name === 'Last_SQL_Error' && row.Value
+                                ? 'text-[#f85149]'
+                                : 'text-[#e6edf3]'
+                        }`}>
+                          {row.Value || <span className="text-[#484f58] italic">(empty)</span>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </div>
       </main>
