@@ -39,6 +39,31 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
   )
 }
 
+// Real-time sparkline driven by metrics_history ring buffer
+function MiniSparkline({ history, dataKey, color, width = 80, height = 28 }: {
+  history: Array<{ ts: number; data: Record<string, number> }> | undefined
+  dataKey: string
+  color: string
+  width?: number
+  height?: number
+}) {
+  if (!history || history.length < 2) return null
+  const values = history.map(h => h.data[dataKey] ?? 0)
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min || 1
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * width
+    const y = height - ((v - min) / range) * (height - 4) - 2
+    return `${x},${y}`
+  }).join(' ')
+  return (
+    <svg width={width} height={height} className="flex-shrink-0 opacity-80">
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )
+}
+
 function sampleHistory(base: number, count = 12) {
   return Array.from({ length: count }, (_, i) =>
     Math.max(0, Math.min(100, base + (Math.sin(i * 0.8) * 12) + (Math.random() * 8 - 4)))
@@ -177,6 +202,7 @@ export default function GrafanaDashboard({ systemState }: Props) {
                     <th className="text-left px-3 py-1.5 text-[#6b7280] font-normal">Pods</th>
                     <th className="text-left px-3 py-1.5 text-[#6b7280] font-normal">Status</th>
                     <th className="text-left px-3 py-1.5 text-[#6b7280] font-normal">Restarts</th>
+                    <th className="text-left px-3 py-1.5 text-[#6b7280] font-normal">Err Rate</th>
                     <th className="text-left px-3 py-1.5 text-[#6b7280] font-normal">CPU</th>
                     <th className="text-left px-3 py-1.5 text-[#6b7280] font-normal">Memory</th>
                   </tr>
@@ -195,6 +221,9 @@ export default function GrafanaDashboard({ systemState }: Props) {
                         <td className="px-3 py-2">{pods}</td>
                         <td className="px-3 py-2 font-bold" style={{ color: statusColor }}>{statusLabel}</td>
                         <td className="px-3 py-2" style={{ color: restarts > 5 ? '#f85149' : restarts > 0 ? '#ff7c21' : '#9fa8be' }}>{restarts}</td>
+                        <td className="px-3 py-2">
+                          <MiniSparkline history={systemState?.metrics_history} dataKey={`${svc.name}.error_rate`} color="#f85149" width={72} height={20} />
+                        </td>
                         <td className="px-3 py-2 w-28"><Bar pct={cpu} /></td>
                         <td className="px-3 py-2 w-28"><Bar pct={mem} /></td>
                       </tr>
@@ -261,17 +290,20 @@ export default function GrafanaDashboard({ systemState }: Props) {
                   {/* KPI tiles */}
                   <div className="grid grid-cols-5 gap-2">
                     {[
-                      { label: 'Hit Rate',       value: `${hitRate}%`,         color: hitColor,   sub: hitRate < 30 ? 'CRITICAL' : hitRate < 70 ? 'LOW' : 'GOOD' },
-                      { label: 'Read Latency',   value: isDown ? '—' : `${readLatency}ms`,  color: readColor,  sub: readLatency > 20 ? 'HIGH' : 'OK' },
-                      { label: 'Write Latency',  value: isDown ? '—' : `${writeLatency}ms`, color: readColor,  sub: writeLatency > 20 ? 'HIGH' : 'OK' },
-                      { label: 'Ops / sec',      value: isDown ? '0' : opsPerSec.toLocaleString(), color: opsColor, sub: isDown ? 'DOWN' : isDeg ? 'DEGRADED' : 'NOMINAL' },
-                      { label: 'Eviction Rate',  value: isDown ? '0' : `${evictionRate}/s`, color: evictColor, sub: evictionRate > 5 ? 'HIGH' : 'LOW' },
+                      { label: 'Hit Rate',       value: `${hitRate}%`,         color: hitColor,   sub: hitRate < 30 ? 'CRITICAL' : hitRate < 70 ? 'LOW' : 'GOOD',   sparkKey: `${cache.name}.hit_rate`,         sparkColor: '#3fb950' },
+                      { label: 'Read Latency',   value: isDown ? '—' : `${readLatency}ms`,  color: readColor,  sub: readLatency > 20 ? 'HIGH' : 'OK',   sparkKey: null, sparkColor: '#d29922' },
+                      { label: 'Write Latency',  value: isDown ? '—' : `${writeLatency}ms`, color: readColor,  sub: writeLatency > 20 ? 'HIGH' : 'OK',  sparkKey: null, sparkColor: '#d29922' },
+                      { label: 'Ops / sec',      value: isDown ? '0' : opsPerSec.toLocaleString(), color: opsColor, sub: isDown ? 'DOWN' : isDeg ? 'DEGRADED' : 'NOMINAL', sparkKey: null, sparkColor: '#58a6ff' },
+                      { label: 'Eviction Rate',  value: isDown ? '0' : `${evictionRate}/s`, color: evictColor, sub: evictionRate > 5 ? 'HIGH' : 'LOW', sparkKey: null, sparkColor: '#a371f7' },
                     ].map(t => {
                       const tileBg = t.color === '#f85149' ? '#2a0808' : t.color === '#ff7c21' ? '#2a1400' : t.color === '#3fb950' ? '#0a1f10' : '#111217'
                       return (
                         <div key={t.label} className="border rounded p-2.5" style={{ background: tileBg, borderColor: t.color + '33' }}>
                           <div className="text-[9px] uppercase tracking-widest mb-1" style={{ color: t.color + '99' }}>{t.label}</div>
-                          <div className="text-base font-bold tabular-nums leading-none mb-1" style={{ color: t.color }}>{t.value}</div>
+                          <div className="flex items-center gap-1">
+                            <div className="text-base font-bold tabular-nums leading-none mb-1" style={{ color: t.color }}>{t.value}</div>
+                            {t.sparkKey && <MiniSparkline history={systemState?.metrics_history} dataKey={t.sparkKey} color={t.sparkColor} width={48} height={22} />}
+                          </div>
                           <div className="text-[9px]" style={{ color: t.color + 'bb' }}>{t.sub}</div>
                         </div>
                       )
@@ -282,13 +314,17 @@ export default function GrafanaDashboard({ systemState }: Props) {
                   <div className="grid grid-cols-3 gap-3">
                     <div className="bg-[#111217] border border-[#2c3235] rounded p-3">
                       <div className="text-[#555] text-[10px] mb-1.5">Cache Hit Rate (%)</div>
-                      <Sparkline values={hitHist} color={hitColor} />
+                      {systemState?.metrics_history && systemState.metrics_history.length >= 2
+                        ? <MiniSparkline history={systemState.metrics_history} dataKey={`${cache.name}.hit_rate`} color={hitColor} width={80} height={24} />
+                        : <Sparkline values={hitHist} color={hitColor} />}
                       <div className="text-[9px] mt-1 text-[#555]">Now: <span style={{ color: hitColor }}>{hitRate}%</span></div>
                     </div>
                     <div className="bg-[#111217] border border-[#2c3235] rounded p-3">
-                      <div className="text-[#555] text-[10px] mb-1.5">Read Latency (ms)</div>
-                      <Sparkline values={readHist} color={readColor} />
-                      <div className="text-[9px] mt-1 text-[#555]">Now: <span style={{ color: readColor }}>{isDown ? '—' : `${readLatency}ms`}</span></div>
+                      <div className="text-[#555] text-[10px] mb-1.5">Memory Used (MB)</div>
+                      {systemState?.metrics_history && systemState.metrics_history.length >= 2
+                        ? <MiniSparkline history={systemState.metrics_history} dataKey={`${cache.name}.memory_used_mb`} color="#a371f7" width={80} height={24} />
+                        : <Sparkline values={readHist} color={readColor} />}
+                      <div className="text-[9px] mt-1 text-[#555]">Now: <span style={{ color: '#a371f7' }}>{cache.memory_used_mb}/{cache.memory_total_mb} MB</span></div>
                     </div>
                     <div className="bg-[#111217] border border-[#2c3235] rounded p-3">
                       <div className="text-[#555] text-[10px] mb-1.5">Operations / sec</div>
@@ -305,7 +341,10 @@ export default function GrafanaDashboard({ systemState }: Props) {
                     </div>
                     <div className="bg-[#1a1d2b] border border-[#2c3235] rounded p-3">
                       <div className="text-[9px] text-[#6b7280] mb-1">Connected Clients</div>
-                      <div className="text-lg font-bold tabular-nums" style={{ color: connectedClients === 0 ? '#f85149' : '#e6edf3' }}>{connectedClients}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-lg font-bold tabular-nums" style={{ color: connectedClients === 0 ? '#f85149' : '#e6edf3' }}>{connectedClients}</div>
+                        <MiniSparkline history={systemState?.metrics_history} dataKey={`${cache.name}.hit_rate`} color="#3fb950" width={60} height={20} />
+                      </div>
                     </div>
                   </div>
                 </div>

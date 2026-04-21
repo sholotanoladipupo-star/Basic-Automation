@@ -67,6 +67,7 @@ export interface SystemState {
     external_deps: ExternalDepState[]
   }
   metrics_snapshot: Record<string, number>
+  metrics_history?: Array<{ ts: number; data: Record<string, number> }>
 }
 
 export interface SessionEvent {
@@ -124,6 +125,7 @@ export interface ScenarioTemplate {
   available_dashboards: Dashboard[]
   passing_score: number
   time_limit_minutes: number
+  tier?: 'bronze' | 'silver' | 'gold' | 'elite'
 }
 
 export interface MetricPoint {
@@ -144,6 +146,13 @@ export interface Scorecard {
   }
   timeline_highlights: { ts: string; event: string; quality: 'poor' | 'okay' | 'good' | 'excellent' }[]
   postmortem: string
+  sre_metrics?: {
+    mttd_seconds: number
+    mtti_seconds: number
+    mttr_seconds: number
+    blast_radius_score: number
+    comms_score: number
+  }
 }
 
 export type ClientMessage =
@@ -171,6 +180,7 @@ export type ServerMessage =
   | { type: 'scorecard'; payload: Scorecard }
   | { type: 'thinking'; payload: { message: string } }
   | { type: 'error'; payload: { message: string } }
+  | { type: 'slack_inject'; payload: { channel: string; sender: string; message: string } }
 
 export interface SessionState {
   session_id: string
@@ -187,4 +197,8 @@ export interface SessionState {
   recovery_ticks: number
   last_command_at: Date
   idle_degradations: number  // how many idle degradation steps have been applied
+  stakeholder_t5_sent?: boolean
+  stakeholder_t12_sent?: boolean
+  stakeholder_t18_sent?: boolean
+  secondary_fault_injected?: boolean
 }

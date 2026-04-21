@@ -67,6 +67,7 @@ export interface SystemState {
     external_deps: ExternalDepState[]
   }
   metrics_snapshot: Record<string, number>
+  metrics_history?: Array<{ ts: number; data: Record<string, number> }>
 }
 
 export interface MetricPoint {
@@ -87,6 +88,13 @@ export interface Scorecard {
   }
   timeline_highlights: { ts: string; event: string; quality: 'poor' | 'okay' | 'good' | 'excellent' }[]
   postmortem: string
+  sre_metrics?: {
+    mttd_seconds: number
+    mtti_seconds: number
+    mttr_seconds: number
+    blast_radius_score: number
+    comms_score: number
+  }
 }
 
 export type ClientMessage =
@@ -112,6 +120,7 @@ export type ServerMessage =
   | { type: 'new_alert'; payload: Alert }
   | { type: 'session_ended'; payload: { reason: 'time_limit' | 'resolved' | 'manual'; duration_minutes: number } }
   | { type: 'scorecard'; payload: Scorecard }
+  | { type: 'slack_inject'; payload: { channel: string; sender: string; message: string } }
   | { type: 'thinking'; payload: { message: string } }
   | { type: 'error'; payload: { message: string } }
 

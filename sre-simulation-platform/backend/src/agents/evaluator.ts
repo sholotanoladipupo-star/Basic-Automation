@@ -143,6 +143,47 @@ function scoreLocally(
   const hasCorrectRemediation = remediation.length > 0
   const totalCommands = commands.length
 
+  // ── SRE METRICS ───────────────────────────────────────────────────────────
+  const sessionStartMs = new Date('2024-01-15T14:00:00Z').getTime()
+
+  const firstDiagnostic = events.find(e => {
+    if (e.type === 'dashboard_viewed') return true
+    if (e.type === 'command_run') {
+      const cmd = String((e.payload as Record<string, unknown>).cmd ?? '').toLowerCase()
+      return cmd.includes('kubectl') || cmd.includes('redis') || cmd.includes('psql') || cmd.includes('curl') || cmd.includes('describe')
+    }
+    return false
+  })
+  const mttdSeconds = firstDiagnostic
+    ? Math.max(0, (new Date(firstDiagnostic.sim_ts).getTime() - sessionStartMs) / 1000)
+    : durationMinutes * 60
+
+  const firstRemediation = ofType('remediation_attempted')[0]
+  const mttiSeconds = (firstDiagnostic && firstRemediation)
+    ? Math.max(0, (new Date(firstRemediation.sim_ts).getTime() - new Date(firstDiagnostic.sim_ts).getTime()) / 1000)
+    : durationMinutes * 60
+
+  const mttrSeconds = durationMinutes * 60
+
+  const logServicesSet = new Set(ofType('logs_queried').map(e => String((e.payload as Record<string, unknown>).service ?? '')))
+  const blastRadiusScore = Math.min(100, logServicesSet.size * 20 + (dashboards.length >= 2 ? 30 : dashboards.length * 15))
+
+  const commsScore = clamp(
+    (severityEvent ? 25 : 0) +
+    Math.min(slacks.length * 10, 30) +
+    (escalations.length > 0 ? 20 : 0) +
+    (ackEvent ? 15 : 0) +
+    (resolved ? 10 : 0)
+  )
+
+  const sreMetrics = {
+    mttd_seconds: Math.round(mttdSeconds),
+    mtti_seconds: Math.round(mttiSeconds),
+    mttr_seconds: Math.round(mttrSeconds),
+    blast_radius_score: blastRadiusScore,
+    comms_score: commsScore
+  }
+
   function simMinutes(event: SessionEvent | undefined): number {
     if (!event) return 999
     const base = new Date('2024-01-15T14:00:00Z').getTime()
@@ -283,7 +324,8 @@ function scoreLocally(
       observability: { score: observability, notes: buildObservabilityNotes(dashboards.length, logs.length, logServices) }
     },
     timeline_highlights: highlights,
-    postmortem: buildPostmortem({ candidateName, durationMinutes, resolved, overall, redisCommandCount, kubectlCount, totalCommands, slackCount: slacks.length, dashboardCount: dashboards.length, logCount: logs.length, runbookCount: runbooks.length, hasCorrectRemediation, severityMinutes, scenario })
+    postmortem: buildPostmortem({ candidateName, durationMinutes, resolved, overall, redisCommandCount, kubectlCount, totalCommands, slackCount: slacks.length, dashboardCount: dashboards.length, logCount: logs.length, runbookCount: runbooks.length, hasCorrectRemediation, severityMinutes, scenario, mttdSeconds, mttiSeconds }),
+    sre_metrics: sreMetrics
   }
 }
 
@@ -343,6 +385,7 @@ interface PostmortemArgs {
   redisCommandCount: number; kubectlCount: number; totalCommands: number
   slackCount: number; dashboardCount: number; logCount: number; runbookCount: number
   hasCorrectRemediation: boolean; severityMinutes: number; scenario: ScenarioTemplate
+  mttdSeconds: number; mttiSeconds: number
 }
 
 function buildPostmortem(a: PostmortemArgs): string {
@@ -377,6 +420,11 @@ function buildPostmortem(a: PostmortemArgs): string {
   if (!a.resolved) imp.push('Practice the redis→db cascade pattern: identify OOM via events, restart statefulset, monitor recovery.')
   if (imp.length === 0) imp.push('Continue with chaos scenarios to build speed under pressure.')
   imp.forEach(p => lines.push(`• ${p}`))
+  lines.push(``)
+  lines.push(`SRE Performance Metrics:`)
+  lines.push(`• MTTD: ${Math.floor(a.mttdSeconds / 60)}m ${Math.round(a.mttdSeconds % 60)}s`)
+  lines.push(`• MTTI: ${Math.floor(a.mttiSeconds / 60)}m ${Math.round(a.mttiSeconds % 60)}s`)
+  lines.push(`• MTTR: ${a.durationMinutes}m`)
   lines.push(``)
   lines.push(`Key lesson: Cache failures are silent amplifiers. Redis going down doesn't immediately error — it silently routes all cache reads to the database, exhausting connections in under 30 seconds. Always check cache status when you see unexpected DB latency or connection count spikes.`)
   return lines.join('\n')

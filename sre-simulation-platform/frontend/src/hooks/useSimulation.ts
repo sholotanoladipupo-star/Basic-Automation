@@ -244,6 +244,17 @@ export function useSimulation(): [SimulationState, SimulationActions] {
           if (timerRef.current) clearInterval(timerRef.current)
           return { ...s, sessionEnded: msg.payload, terminalLines: addLine(s.terminalLines, 'system', `=== SESSION ENDED: ${msg.payload.reason.toUpperCase()} | Duration: ${msg.payload.duration_minutes} min ===`), terminalBusy: false }
         }
+        case 'slack_inject': {
+          const injected: SlackMessage = {
+            id: uuidv4(),
+            channel: msg.payload.channel,
+            message: msg.payload.message,
+            sender: msg.payload.sender,
+            ts: new Date().toISOString(),
+            isSystem: true
+          }
+          return { ...s, slackMessages: [...s.slackMessages, injected] }
+        }
         case 'scorecard':
           // Show full debrief overlay with the scorecard
           return { ...s, scorecard: msg.payload, screen: 'simulation' }

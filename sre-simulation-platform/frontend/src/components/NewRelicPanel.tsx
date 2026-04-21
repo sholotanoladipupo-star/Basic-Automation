@@ -12,6 +12,31 @@ const NR_NAV = [
   { id: 'infra', label: 'Infrastructure' },
 ]
 
+// Real-time sparkline driven by metrics_history ring buffer
+function MiniSparkline({ history, dataKey, color, width = 80, height = 28 }: {
+  history: Array<{ ts: number; data: Record<string, number> }> | undefined
+  dataKey: string
+  color: string
+  width?: number
+  height?: number
+}) {
+  if (!history || history.length < 2) return null
+  const values = history.map(h => h.data[dataKey] ?? 0)
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min || 1
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * width
+    const y = height - ((v - min) / range) * (height - 4) - 2
+    return `${x},${y}`
+  }).join(' ')
+  return (
+    <svg width={width} height={height} className="flex-shrink-0 opacity-80">
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )
+}
+
 // Tiny SVG sparkline
 function Spark({ values, color, h = 28 }: { values: number[]; color: string; h?: number }) {
   const max = Math.max(...values, 1)
@@ -856,6 +881,7 @@ export default function NewRelicPanel({ systemState }: Props) {
                     const leftPct = (span.start / totalDur) * 100
                     const widthPct = Math.max((span.duration / totalDur) * 100, 1)
                     const color = span.status === 'error' ? '#f85149' : span.status === 'slow' ? '#d29922' : '#00b4a0'
+                    const isPayment = span.service === 'payment-service'
                     return (
                       <div key={i} className="flex items-center gap-3 text-[9px]">
                         <div className="w-44 flex-shrink-0 text-[#9aa0a6] truncate font-mono">{span.name}</div>
@@ -870,6 +896,18 @@ export default function NewRelicPanel({ systemState }: Props) {
                         <div className="w-12 text-right flex-shrink-0" style={{ color }}>
                           {span.status === 'slow' ? 'SLOW' : span.status === 'error' ? 'ERR' : 'OK'}
                         </div>
+                        {isPayment && (
+                          <div className="flex items-center gap-1 flex-shrink-0" title="Error Rate Trend — payment-service">
+                            <span className="text-[#555] text-[8px]">err%</span>
+                            <MiniSparkline
+                              history={systemState?.metrics_history}
+                              dataKey="payment-service.error_rate"
+                              color="#f85149"
+                              width={64}
+                              height={20}
+                            />
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -979,8 +1017,17 @@ export default function NewRelicPanel({ systemState }: Props) {
                     <div className="grid grid-cols-2 gap-3 text-[10px]">
                       <div>
                         <div className="text-[#555] text-[9px] mb-0.5">1h burn rate</div>
-                        <div className={`font-bold text-lg tabular-nums ${slo.burnRate > 10 ? 'text-[#f85149]' : slo.burnRate > 2 ? 'text-[#d29922]' : 'text-[#00b4a0]'}`}>
-                          {slo.burnRate}x
+                        <div className="flex items-center gap-2">
+                          <div className={`font-bold text-lg tabular-nums ${slo.burnRate > 10 ? 'text-[#f85149]' : slo.burnRate > 2 ? 'text-[#d29922]' : 'text-[#00b4a0]'}`}>
+                            {slo.burnRate}x
+                          </div>
+                          <MiniSparkline
+                            history={systemState?.metrics_history}
+                            dataKey={`${slo.service}.error_rate`}
+                            color={slo.burnRate > 10 ? '#f85149' : slo.burnRate > 2 ? '#d29922' : '#00b4a0'}
+                            width={80}
+                            height={24}
+                          />
                         </div>
                         <div className="text-[#555] text-[9px]">{slo.burnRate > 1 ? 'consuming budget faster than target' : 'within target'}</div>
                       </div>

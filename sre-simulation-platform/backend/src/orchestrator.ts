@@ -325,6 +325,85 @@ async function tickSession(ws: SREWebSocket, sessionId: string): Promise<void> {
     }
   }
 
+  // Adaptive scenario: after Redis recovery starts, introduce secondary fault at T+8min
+  if (session.recovery_ticks >= 2 && minutesElapsed >= 8 && !session.secondary_fault_injected) {
+    session.secondary_fault_injected = true
+    const adaptiveState = JSON.parse(JSON.stringify(session.system_state)) as SystemState
+    // Degrade payment-service with a separate config issue
+    const paymentSvc = adaptiveState.services['payment-service']
+    if (paymentSvc && paymentSvc.status === 'healthy') {
+      paymentSvc.status = 'degraded'
+      paymentSvc.error_rate = 0.15
+      paymentSvc.p99_latency_ms = 890
+      const adaptiveAlert = {
+        id: uuidv4(),
+        service: 'payment-service',
+        severity: 'sev2' as const,
+        message: `payment-service: elevated error rate 15% — connection pool exhaustion detected (secondary cascade)`,
+        fired_at: new Date().toISOString(),
+        acknowledged: false
+      }
+      paymentSvc.current_alerts.push(adaptiveAlert)
+      session.system_state = adaptiveState
+      sendMessage(ws, { type: 'new_alert', payload: adaptiveAlert })
+      sendMessage(ws, { type: 'state_update', payload: adaptiveState })
+      stateChanged = false // prevent double state_update below
+    }
+  }
+
+  // Stakeholder bot injections — time-based Slack messages
+  const realMinutesElapsed = (Date.now() - session.started_at.getTime()) / 60000
+
+  if (realMinutesElapsed >= 5 && realMinutesElapsed < 5.5 && !session.stakeholder_t5_sent) {
+    session.stakeholder_t5_sent = true
+    sendMessage(ws, {
+      type: 'slack_inject',
+      payload: {
+        channel: '#incidents',
+        sender: 'Sarah (PM)',
+        message: `Hey, customers are filing tickets about checkout failures. Do we have an ETA on resolution? Leadership is asking.`
+      }
+    })
+  }
+
+  if (realMinutesElapsed >= 12 && realMinutesElapsed < 12.5 && !session.stakeholder_t12_sent) {
+    session.stakeholder_t12_sent = true
+    sendMessage(ws, {
+      type: 'slack_inject',
+      payload: {
+        channel: '#war-room',
+        sender: 'Mike Chen (VP Eng)',
+        message: `I'm now on this incident. What's the current status and what's the blast radius? Are payments affected?`
+      }
+    })
+  }
+
+  if (realMinutesElapsed >= 18 && realMinutesElapsed < 18.5 && !session.stakeholder_t18_sent) {
+    session.stakeholder_t18_sent = true
+    const escalated = session.event_log.some(e => e.type === 'escalation_triggered')
+    if (escalated) {
+      sendMessage(ws, {
+        type: 'slack_inject',
+        payload: {
+          channel: '#incidents',
+          sender: 'Alex (Redis on-call)',
+          message: `I wrote the Redis config. Check the maxmemory-policy — it may be set to noeviction which causes OOM. The fix is kubectl rollout restart statefulset/redis-primary -n cache. I've seen this before.`
+        }
+      })
+    }
+  }
+
+  // Append ring buffer entry
+  if (!session.system_state.metrics_history) session.system_state.metrics_history = []
+  session.system_state.metrics_history.push({
+    ts: Date.now(),
+    data: { ...session.system_state.metrics_snapshot }
+  })
+  if (session.system_state.metrics_history.length > 30) {
+    session.system_state.metrics_history.shift()
+  }
+  stateChanged = true // ensure state_update is always sent
+
   if (stateChanged) {
     await saveSnapshot(sessionId, session.system_state)
     sendMessage(ws, { type: 'state_update', payload: session.system_state })
@@ -405,6 +484,43 @@ async function handleRunCommand(ws: SREWebSocket, payload: { cmd: string }): Pro
   session.last_command_at = new Date()
   await logEvent(session, 'command_run', { cmd: payload.cmd })
   sendMessage(ws, { type: 'thinking', payload: { message: 'Simulator processing command...' } })
+
+  // Consequence Engine — mutate system state based on real commands
+  const cmdLower = payload.cmd.toLowerCase().trim()
+  let stateChanged = false
+  const ns = JSON.parse(JSON.stringify(session.system_state)) as SystemState
+
+  if (/^kill\s+(query\s+)?\d+/i.test(payload.cmd) || /pg_terminate_backend/i.test(payload.cmd)) {
+    const db = ns.infrastructure.databases[0]
+    if (db && db.connection_count > 20) {
+      db.connection_count = Math.max(20, db.connection_count - (15 + Math.floor(Math.random() * 10)))
+      db.query_latency_ms = Math.max(12, db.query_latency_ms - 30)
+      if (db.connection_count < 80 && db.status === 'degraded') db.status = 'healthy'
+      stateChanged = true
+    }
+  }
+
+  if (/kubectl rollout restart/i.test(payload.cmd) && session.recovery_ticks === 0) {
+    session.recovery_ticks = 1
+    stateChanged = true
+  }
+
+  if (/redis-cli.*(flushdb|flushall)/i.test(payload.cmd)) {
+    const cache = ns.infrastructure.caches[0]
+    if (cache) {
+      cache.hit_rate = 0
+      cache.memory_used_mb = 50
+      const db = ns.infrastructure.databases[0]
+      if (db) db.connection_count = Math.min(db.max_connections, db.connection_count + 80)
+      stateChanged = true
+    }
+  }
+
+  if (stateChanged) {
+    session.system_state = ns
+    await saveSnapshot(session.session_id, ns)
+    sendMessage(ws, { type: 'state_update', payload: ns })
+  }
 
   // Check for resolution attempt — use scenario-specific checker
   const scenId = session.scenario.id

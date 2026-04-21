@@ -55,10 +55,26 @@ interface SessionResult {
 
 interface ResultStats { total: number; avg_score: number | null; p50_score: number | null; pass_count: number; fail_count: number }
 
+interface LiveSessionData {
+  session: { candidate_name: string; scenario_name: string; status: string; started_at: string; ended_at: string | null }
+  elapsed_seconds: number
+  latest_state: Record<string, unknown> | null
+  captured_at: string | null
+  recent_events: Array<{ event_type: string; payload: Record<string, unknown>; ts: string }>
+}
+
 interface SchemaColumn { name: string; type: string }
 interface SchemaTable  { columns: SchemaColumn[]; sample_rows: Record<string, unknown>[] }
 type SqlSchema = Record<string, SchemaTable>
 interface QueryResult { columns: string[]; rows: Record<string, unknown>[]; error?: string; row_count?: number }
+
+function scenarioTier(scenarioId: string): { label: string; color: string } {
+  if (['cache-db-cascade'].includes(scenarioId)) return { label: 'Bronze', color: '#cd7f32' }
+  if (['db-slow-queries', 'pod-crashloop', 'config-key-missing'].includes(scenarioId)) return { label: 'Silver', color: '#c0c0c0' }
+  if (['kafka-consumer-lag', 'db-replica-ip-change', 'missing-table', 'pod-oom-killed'].includes(scenarioId)) return { label: 'Gold', color: '#d4af37' }
+  if (['network-policy-block', 'spanner-high-utilization'].includes(scenarioId)) return { label: 'Elite', color: '#a371f7' }
+  return { label: 'Bronze', color: '#cd7f32' }
+}
 
 interface AdminProps { onBack: () => void }
 type Tab = 'assign' | 'results' | 'sql' | 'cognitive' | 'monitoring' | 'postmortem' | 'automation'
@@ -110,6 +126,11 @@ export default function Admin({ onBack }: AdminProps) {
 
   // Question preview modal
   const [previewQuestion, setPreviewQuestion] = useState<{ type: string; data: unknown } | null>(null)
+
+  // Live co-view
+  const [liveSessionId, setLiveSessionId] = useState<string | null>(null)
+  const [liveData, setLiveData] = useState<LiveSessionData | null>(null)
+  const [livePolling, setLivePolling] = useState(false)
 
   // Pause/resume active sessions
   const [pausingSessions, setPausingSessions] = useState<Set<string>>(new Set())
@@ -213,6 +234,26 @@ export default function Admin({ onBack }: AdminProps) {
 
   useEffect(() => { if (authed && tab === 'sql') loadSqlSchema() }, [authed, tab])
   useEffect(() => { if (authed && tab === 'results') loadResults() }, [authed, tab])
+
+  useEffect(() => {
+    if (!liveSessionId) { setLiveData(null); return }
+    setLivePolling(true)
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/admin/sessions/${liveSessionId}/live`, {
+          headers: { 'x-admin-key': adminKey }
+        })
+        if (!cancelled && r.ok) {
+          const d = await r.json() as LiveSessionData
+          setLiveData(d)
+        }
+      } catch { /* ignore */ }
+      if (!cancelled) setTimeout(poll, 3000)
+    }
+    void poll()
+    return () => { cancelled = true; setLivePolling(false) }
+  }, [liveSessionId, adminKey])
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function fmt(iso: string) { return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) }
@@ -634,7 +675,17 @@ export default function Admin({ onBack }: AdminProps) {
 
                     {moduleType === 'incident' && (
                       <div><label className={labelCls}>Scenario</label>
-                        <div className="space-y-2">{SCENARIOS.map(s => <label key={s.id} className={`flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors ${scenarioId === s.id ? 'border-[#3fb950] bg-[#0d1117]' : 'border-[#30363d] hover:border-[#484f58]'}`}><input type="radio" name="scenario" value={s.id} checked={scenarioId === s.id} onChange={() => setScenarioId(s.id)} className="accent-[#3fb950]" /><span className="text-[#e6edf3] flex-1">{s.name}</span><span className="text-[#8b949e]">{s.timeLimit}min</span></label>)}</div>
+                        <div className="space-y-2">{SCENARIOS.map(s => {
+                          const tier = scenarioTier(s.id)
+                          return (
+                            <label key={s.id} className={`flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors ${scenarioId === s.id ? 'border-[#3fb950] bg-[#0d1117]' : 'border-[#30363d] hover:border-[#484f58]'}`}>
+                              <input type="radio" name="scenario" value={s.id} checked={scenarioId === s.id} onChange={() => setScenarioId(s.id)} className="accent-[#3fb950]" />
+                              <span className="text-[#e6edf3] flex-1">{s.name}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded border font-bold" style={{ color: tier.color, borderColor: tier.color + '60' }}>{tier.label}</span>
+                              <span className="text-[#8b949e]">{s.timeLimit}min</span>
+                            </label>
+                          )
+                        })}</div>
                       </div>
                     )}
 
@@ -760,7 +811,15 @@ export default function Admin({ onBack }: AdminProps) {
                               {a.is_practice && <span className="text-[10px] px-1.5 py-0.5 rounded border border-[#f46800]/50 text-[#f46800]">PRACTICE</span>}
                             </div>
                           </td>
-                          <td className="px-4 py-2.5"><span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${moduleBadgeClass(a.module_type ?? 'incident')}`}>{moduleLabel(a.module_type ?? 'incident')}</span></td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${moduleBadgeClass(a.module_type ?? 'incident')}`}>{moduleLabel(a.module_type ?? 'incident')}</span>
+                              {(a.module_type === 'incident' || !a.module_type) && a.scenario_id && (() => {
+                                const tier = scenarioTier(a.scenario_id)
+                                return <span className="text-[9px] px-1 py-0.5 rounded border font-bold" style={{ color: tier.color, borderColor: tier.color + '60' }}>{tier.label}</span>
+                              })()}
+                            </div>
+                          </td>
                           <td className="px-4 py-2.5 text-[#484f58]">{fmt(a.created_at)}</td>
                           <td className="px-4 py-2.5">
                             <div className="flex flex-col gap-0.5">
@@ -880,7 +939,20 @@ export default function Admin({ onBack }: AdminProps) {
                               </td>
                               <td className="px-4 py-2.5 text-[#484f58]">{r.duration_minutes != null ? `${r.duration_minutes} min` : '—'}</td>
                               <td className="px-4 py-2.5 text-[#484f58]">{r.started_at ? fmt(r.started_at) : '—'}</td>
-                              <td className="px-4 py-2.5 text-right text-[#484f58] text-[10px]">{expandedRow === r.id ? '▾' : '▸'}</td>
+                              <td className="px-4 py-2.5 text-right flex items-center gap-2 justify-end">
+                                <button
+                                  onClick={e => { e.stopPropagation(); setLiveSessionId(s => s === r.id ? null : r.id) }}
+                                  className={`px-2 py-1 rounded text-[10px] font-mono border transition-colors ${
+                                    liveSessionId === r.id
+                                      ? 'bg-[#0f2a1a] border-[#3fb950]/60 text-[#3fb950]'
+                                      : 'bg-[#161b22] border-[#30363d] text-[#8b949e] hover:text-[#3fb950]'
+                                  }`}
+                                  title="Live co-view"
+                                >
+                                  {liveSessionId === r.id ? '● Live' : '👁 Go Live'}
+                                </button>
+                                <span className="text-[#484f58] text-[10px]">{expandedRow === r.id ? '▾' : '▸'}</span>
+                              </td>
                             </tr>
                             {expandedRow === r.id && (
                               <tr key={`${r.id}-exp`} className="border-b border-[#30363d] bg-[#0d1117]">
@@ -1032,6 +1104,70 @@ export default function Admin({ onBack }: AdminProps) {
                     </table>
                   )}
                 </div>
+
+                {/* Live Co-View Panel */}
+                {liveData && (
+                  <div className="mt-4 border border-[#3fb950]/40 rounded-lg bg-[#0d1117] p-4 font-mono text-xs">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-[#3fb950] animate-pulse inline-block"/>
+                        <span className="text-[#3fb950] font-bold">LIVE CO-VIEW</span>
+                        <span className="text-[#8b949e]">— {liveData.session.candidate_name}</span>
+                        <span className="text-[#484f58]">({liveData.session.scenario_name})</span>
+                      </div>
+                      <button onClick={() => setLiveSessionId(null)} className="text-[#484f58] hover:text-[#f85149]">✕ Close</button>
+                    </div>
+
+                    {/* Elapsed time */}
+                    <div className="text-[#8b949e] mb-3">
+                      Elapsed: <span className="text-[#e6edf3]">{Math.floor(liveData.elapsed_seconds / 60)}m {liveData.elapsed_seconds % 60}s</span>
+                      {' — '}Status: <span className={liveData.session.status === 'active' ? 'text-[#3fb950]' : 'text-[#d29922]'}>{liveData.session.status}</span>
+                    </div>
+
+                    {/* System state mini-map */}
+                    {liveData.latest_state && (
+                      <div className="mb-3">
+                        <div className="text-[#8b949e] mb-2">System State (last snapshot: {liveData.captured_at ? new Date(liveData.captured_at).toLocaleTimeString() : 'n/a'})</div>
+                        <div className="grid grid-cols-3 gap-1">
+                          {Object.entries((liveData.latest_state as { services?: Record<string, { status: string; error_rate: number }> }).services ?? {}).map(([name, svc]) => (
+                            <div key={name} className={`px-2 py-1 rounded text-[10px] border ${
+                              svc.status === 'down' ? 'border-[#f85149]/50 bg-[#1a0a0a] text-[#f85149]' :
+                              svc.status === 'degraded' ? 'border-[#d29922]/50 bg-[#1a1000] text-[#d29922]' :
+                              'border-[#30363d] bg-[#161b22] text-[#3fb950]'
+                            }`}>
+                              {name.replace('-service','').replace('-gateway','GW')} {svc.status === 'down' ? '✗' : svc.status === 'degraded' ? '⚠' : '✓'}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recent event log */}
+                    <div>
+                      <div className="text-[#8b949e] mb-1">Recent Events</div>
+                      <div className="space-y-0.5 max-h-36 overflow-y-auto">
+                        {liveData.recent_events.map((ev, i) => (
+                          <div key={i} className="flex gap-2 text-[#8b949e]">
+                            <span className="text-[#484f58] flex-shrink-0">{new Date(ev.ts).toLocaleTimeString()}</span>
+                            <span className={
+                              ev.event_type === 'command_run' ? 'text-[#58a6ff]' :
+                              ev.event_type === 'remediation_attempted' ? 'text-[#3fb950]' :
+                              ev.event_type === 'slack_sent' ? 'text-[#d29922]' :
+                              ev.event_type === 'severity_declared' ? 'text-[#f85149]' :
+                              'text-[#8b949e]'
+                            }>{ev.event_type}</span>
+                            {ev.event_type === 'command_run' && ev.payload.cmd != null && (
+                              <span className="text-[#e6edf3] truncate max-w-[200px]">{String(ev.payload.cmd)}</span>
+                            )}
+                          </div>
+                        ))}
+                        {liveData.recent_events.length === 0 && <div className="text-[#484f58]">No events yet</div>}
+                      </div>
+                    </div>
+
+                    {livePolling && <div className="mt-2 text-[10px] text-[#484f58]">↻ Refreshing every 3s…</div>}
+                  </div>
+                )}
               </div>
             )}
 

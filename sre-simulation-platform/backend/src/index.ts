@@ -343,6 +343,46 @@ app.post('/sessions/:id/events', async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
+// Live session state for assessor co-view
+app.get('/admin/sessions/:id/live', requireAdmin, async (req, res) => {
+  try {
+    const sessionId = req.params.id
+    // Get latest state snapshot
+    const snapResult = await pool.query(
+      `SELECT state, captured_at FROM state_snapshots WHERE session_id = $1 ORDER BY captured_at DESC LIMIT 1`,
+      [sessionId]
+    )
+    // Get last 25 event log entries
+    const eventsResult = await pool.query(
+      `SELECT event_type, payload, ts FROM event_logs WHERE session_id = $1 ORDER BY ts DESC LIMIT 25`,
+      [sessionId]
+    )
+    // Get session status
+    const sessionResult = await pool.query(
+      `SELECT candidate_name, scenario_name, status, started_at, ended_at FROM sessions WHERE id = $1`,
+      [sessionId]
+    )
+    if (!sessionResult.rows[0]) {
+      res.status(404).json({ error: 'Session not found' })
+      return
+    }
+    const session = sessionResult.rows[0] as { candidate_name: string; scenario_name: string; status: string; started_at: string; ended_at: string | null }
+    const elapsed = session.started_at
+      ? Math.floor((Date.now() - new Date(session.started_at).getTime()) / 1000)
+      : 0
+    res.json({
+      session,
+      elapsed_seconds: elapsed,
+      latest_state: snapResult.rows[0]?.state ?? null,
+      captured_at: snapResult.rows[0]?.captured_at ?? null,
+      recent_events: eventsResult.rows.reverse() // chronological order
+    })
+  } catch (err) {
+    console.error('Live session error:', err)
+    res.status(500).json({ error: 'Failed to fetch live session' })
+  }
+})
+
 // ── Admin: pause / resume session ────────────────────────────────────────────
 app.patch('/admin/sessions/:id/pause', requireAdmin, async (req, res) => {
   const { paused } = req.body as { paused?: boolean }
