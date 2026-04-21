@@ -14,7 +14,6 @@ import WarRoom from '../components/WarRoom'
 import DBConsole from '../components/DBConsole'
 import ConfluentPanel from '../components/ConfluentPanel'
 import RedisPanel from '../components/RedisPanel'
-import IncidentDebrief from '../components/IncidentDebrief'
 
 interface SimulationProps {
   state: SimulationState
@@ -616,42 +615,31 @@ export default function Simulation({ state, actions }: SimulationProps) {
         }}
       />
 
-      {/* Session-ended: waiting for scorecard */}
-      {state.sessionEnded && !state.scorecard && (
-        <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-40">
-          <div className={`border rounded-xl p-10 text-center font-mono max-w-sm w-full mx-4 ${
-            state.sessionEnded.reason === 'resolved'
-              ? 'bg-[#0f2a1a] border-[#3fb950]/60'
-              : 'bg-[#2a1e00] border-[#d29922]/60'
-          }`}>
-            <div className="text-5xl mb-4">
-              {state.sessionEnded.reason === 'resolved' ? '🎉' : '⏱'}
+      {/* Session ended — results are held by the assessor, not shown to candidate */}
+      {state.sessionEnded && (
+        <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-40">
+          <div className="border border-[#30363d] rounded-xl p-10 text-center font-mono max-w-md w-full mx-4 bg-[#0d1117]">
+            <div className="text-5xl mb-5">
+              {state.sessionEnded.reason === 'resolved' ? '✅' : '⏱'}
             </div>
-            <div className={`text-lg font-bold mb-1 ${
-              state.sessionEnded.reason === 'resolved' ? 'text-[#3fb950]' : 'text-[#d29922]'
-            }`}>
-              {state.sessionEnded.reason === 'resolved' ? 'Incident Resolved!' : 'Time Limit Reached'}
+            <div className="text-lg font-bold mb-2 text-[#e6edf3]">
+              {state.sessionEnded.reason === 'resolved' ? 'Simulation Complete' : 'Time Limit Reached'}
             </div>
-            <div className="text-[#484f58] text-xs mb-6">Duration: {state.sessionEnded.duration_minutes} min</div>
-            <div className="flex items-center justify-center gap-2 text-[#8b949e] text-xs">
-              <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-              </svg>
-              Claude is reviewing your performance…
+            <div className="text-[#8b949e] text-sm mb-1">
+              Duration: <span className="text-[#e6edf3] font-semibold">{state.sessionEnded.duration_minutes} min</span>
             </div>
+            <div className="mt-6 border-t border-[#30363d] pt-6 text-[#8b949e] text-xs leading-relaxed">
+              Your session has been recorded and submitted for review.<br />
+              Results will be shared with you by your assessor.
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-6 px-6 py-2 rounded bg-[#21262d] border border-[#30363d] text-[#8b949e] text-xs hover:bg-[#30363d] hover:text-[#e6edf3] transition-colors"
+            >
+              Exit
+            </button>
           </div>
         </div>
-      )}
-
-      {/* Full debrief — shown when scorecard arrives */}
-      {state.scorecard && state.sessionEnded && (
-        <IncidentDebrief
-          scorecard={state.scorecard}
-          sessionEnded={state.sessionEnded}
-          scenarioName={sessionInfo?.scenario_name ?? 'Incident Simulation'}
-          onClose={() => window.location.reload()}
-        />
       )}
     </div>
   )
