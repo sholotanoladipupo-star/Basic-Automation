@@ -343,10 +343,13 @@ app.post('/sessions/:id/events', async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }) }
 })
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 // Live session state for assessor co-view
 app.get('/admin/sessions/:id/live', requireAdmin, async (req, res) => {
   try {
     const sessionId = req.params.id
+    if (!UUID_RE.test(sessionId)) { res.status(400).json({ error: 'Invalid session ID' }); return }
     // Get latest state snapshot
     const snapResult = await pool.query(
       `SELECT state, captured_at FROM state_snapshots WHERE session_id = $1 ORDER BY captured_at DESC LIMIT 1`,

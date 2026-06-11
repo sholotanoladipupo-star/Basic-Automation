@@ -144,7 +144,10 @@ function scoreLocally(
   const totalCommands = commands.length
 
   // ── SRE METRICS ───────────────────────────────────────────────────────────
-  const sessionStartMs = new Date('2024-01-15T14:00:00Z').getTime()
+  // Use first event's ts as session wall-clock start (works for all scenarios)
+  const sessionStartMs = events.length > 0
+    ? new Date(events[0].ts).getTime()
+    : Date.now() - durationMinutes * 60000
 
   const firstDiagnostic = events.find(e => {
     if (e.type === 'dashboard_viewed') return true
@@ -155,18 +158,25 @@ function scoreLocally(
     return false
   })
   const mttdSeconds = firstDiagnostic
-    ? Math.max(0, (new Date(firstDiagnostic.sim_ts).getTime() - sessionStartMs) / 1000)
+    ? Math.max(0, (new Date(firstDiagnostic.ts).getTime() - sessionStartMs) / 1000)
     : durationMinutes * 60
 
   const firstRemediation = ofType('remediation_attempted')[0]
   const mttiSeconds = (firstDiagnostic && firstRemediation)
-    ? Math.max(0, (new Date(firstRemediation.sim_ts).getTime() - new Date(firstDiagnostic.sim_ts).getTime()) / 1000)
+    ? Math.max(0, (new Date(firstRemediation.ts).getTime() - new Date(firstDiagnostic.ts).getTime()) / 1000)
     : durationMinutes * 60
 
   const mttrSeconds = durationMinutes * 60
 
   const logServicesSet = new Set(ofType('logs_queried').map(e => String((e.payload as Record<string, unknown>).service ?? '')))
-  const blastRadiusScore = Math.min(100, logServicesSet.size * 20 + (dashboards.length >= 2 ? 30 : dashboards.length * 15))
+  const expectedBlast = new Set(scenario.initial_system_state.active_incidents.flatMap(i => i.blast_radius))
+  const relevantLogCount = [...logServicesSet].filter(s => expectedBlast.size === 0 || expectedBlast.has(s)).length
+  const blastRadiusScore = Math.min(100,
+    (expectedBlast.size > 0
+      ? Math.round((relevantLogCount / Math.max(expectedBlast.size, 1)) * 60)
+      : relevantLogCount * 15
+    ) + (dashboards.length >= 2 ? 40 : dashboards.length * 20)
+  )
 
   const commsScore = clamp(
     (severityEvent ? 25 : 0) +

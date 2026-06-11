@@ -345,16 +345,17 @@ async function tickSession(ws: SREWebSocket, sessionId: string): Promise<void> {
       }
       paymentSvc.current_alerts.push(adaptiveAlert)
       session.system_state = adaptiveState
+      await saveSnapshot(sessionId, adaptiveState)
       sendMessage(ws, { type: 'new_alert', payload: adaptiveAlert })
       sendMessage(ws, { type: 'state_update', payload: adaptiveState })
-      stateChanged = false // prevent double state_update below
+      stateChanged = false // state already saved and sent above
     }
   }
 
   // Stakeholder bot injections — time-based Slack messages
   const realMinutesElapsed = (Date.now() - session.started_at.getTime()) / 60000
 
-  if (realMinutesElapsed >= 5 && realMinutesElapsed < 5.5 && !session.stakeholder_t5_sent) {
+  if (realMinutesElapsed >= 5 && !session.stakeholder_t5_sent) {
     session.stakeholder_t5_sent = true
     sendMessage(ws, {
       type: 'slack_inject',
@@ -366,7 +367,7 @@ async function tickSession(ws: SREWebSocket, sessionId: string): Promise<void> {
     })
   }
 
-  if (realMinutesElapsed >= 12 && realMinutesElapsed < 12.5 && !session.stakeholder_t12_sent) {
+  if (realMinutesElapsed >= 12 && !session.stakeholder_t12_sent) {
     session.stakeholder_t12_sent = true
     sendMessage(ws, {
       type: 'slack_inject',
@@ -378,7 +379,7 @@ async function tickSession(ws: SREWebSocket, sessionId: string): Promise<void> {
     })
   }
 
-  if (realMinutesElapsed >= 18 && realMinutesElapsed < 18.5 && !session.stakeholder_t18_sent) {
+  if (realMinutesElapsed >= 18 && !session.stakeholder_t18_sent) {
     session.stakeholder_t18_sent = true
     const escalated = session.event_log.some(e => e.type === 'escalation_triggered')
     if (escalated) {
@@ -486,7 +487,6 @@ async function handleRunCommand(ws: SREWebSocket, payload: { cmd: string }): Pro
   sendMessage(ws, { type: 'thinking', payload: { message: 'Simulator processing command...' } })
 
   // Consequence Engine — mutate system state based on real commands
-  const cmdLower = payload.cmd.toLowerCase().trim()
   let stateChanged = false
   const ns = JSON.parse(JSON.stringify(session.system_state)) as SystemState
 
@@ -502,6 +502,15 @@ async function handleRunCommand(ws: SREWebSocket, payload: { cmd: string }): Pro
 
   if (/kubectl rollout restart/i.test(payload.cmd) && session.recovery_ticks === 0) {
     session.recovery_ticks = 1
+    // Show immediate visual feedback: targeted service moves to degraded (mid-restart)
+    const restartMatch = payload.cmd.match(/deployment\/(\S+)|statefulset\/(\S+)/)
+    if (restartMatch) {
+      const svcName = (restartMatch[1] ?? restartMatch[2] ?? '').replace(/-[0-9]+$/, '')
+      const matchedSvc = Object.keys(ns.services).find(k => k.includes(svcName))
+      if (matchedSvc && ns.services[matchedSvc]) {
+        ns.services[matchedSvc].status = 'degraded'
+      }
+    }
     stateChanged = true
   }
 
