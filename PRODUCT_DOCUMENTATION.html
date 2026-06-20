@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Product Documentation — Lagos Luxe</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --navy: #0D1B2A;
+      --gold: #C9A84C;
+      --gold-pale: rgba(201,168,76,0.1);
+      --white: #FFFFFF;
+      --gray: #F7F8FA;
+      --border: #E4E6EB;
+      --text: #1A1A2E;
+      --muted: #6B7280;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--gray);
+      color: var(--text);
+      line-height: 1.7;
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* SIDEBAR */
+    .sidebar {
+      width: 260px;
+      flex-shrink: 0;
+      background: var(--navy);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 2rem 0;
+    }
+
+    .sidebar-logo {
+      padding: 0 1.5rem 1.5rem;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      margin-bottom: 1rem;
+    }
+    .sidebar-logo .brand {
+      font-size: 1rem;
+      font-weight: 900;
+      color: var(--gold);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      display: block;
+    }
+    .sidebar-logo .doc-type {
+      font-size: 0.72rem;
+      color: rgba(255,255,255,0.35);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-top: 0.2rem;
+      display: block;
+    }
+
+    .sidebar-section-title {
+      padding: 0.4rem 1.5rem;
+      font-size: 0.65rem;
+      font-weight: 800;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.3);
+      margin-top: 0.5rem;
+    }
+
+    .sidebar a {
+      display: block;
+      padding: 0.45rem 1.5rem;
+      color: rgba(255,255,255,0.6);
+      text-decoration: none;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+      border-left: 3px solid transparent;
+    }
+    .sidebar a:hover { color: var(--gold); background: rgba(201,168,76,0.07); border-left-color: var(--gold); }
+
+    .sidebar-back {
+      display: block;
+      margin: 0 1.5rem 1.5rem;
+      padding: 0.6rem 1rem;
+      background: rgba(201,168,76,0.12);
+      border: 1px solid rgba(201,168,76,0.3);
+      border-radius: 6px;
+      color: var(--gold);
+      text-decoration: none;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-align: center;
+      transition: all 0.2s;
+    }
+    .sidebar-back:hover { background: rgba(201,168,76,0.22); }
+
+    /* MAIN */
+    .main {
+      flex: 1;
+      max-width: calc(100% - 260px);
+      padding: 3rem 4rem;
+    }
+
+    /* PAGE HEADER */
+    .page-header {
+      background: linear-gradient(135deg, var(--navy) 0%, #1A3352 100%);
+      border-radius: 12px;
+      padding: 2.5rem 3rem;
+      margin-bottom: 3rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .page-header::before {
+      content: '';
+      position: absolute;
+      top: -40px; right: -40px;
+      width: 220px; height: 220px;
+      background: radial-gradient(circle, rgba(201,168,76,0.15) 0%, transparent 70%);
+      border-radius: 50%;
+    }
+    .page-header .doc-tag {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--gold);
+      display: block;
+      margin-bottom: 0.6rem;
+    }
+    .page-header h1 {
+      font-size: 2rem;
+      font-weight: 900;
+      color: var(--white);
+      margin-bottom: 0.6rem;
+    }
+    .page-header p {
+      color: rgba(255,255,255,0.55);
+      font-size: 0.92rem;
+      max-width: 560px;
+    }
+    .doc-meta {
+      display: flex;
+      gap: 1.2rem;
+      margin-top: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .meta-badge {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.7);
+      padding: 0.3rem 0.8rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .meta-badge em { color: var(--gold); font-style: normal; }
+
+    /* CONTENT SECTION */
+    .content-section {
+      background: var(--white);
+      border-radius: 10px;
+      padding: 2rem 2.5rem;
+      margin-bottom: 2rem;
+      border: 1px solid var(--border);
+    }
+
+    .section-anchor { display: block; position: relative; top: -80px; visibility: hidden; }
+
+    h2.section-heading {
+      font-size: 1.3rem;
+      font-weight: 800;
+      color: var(--navy);
+      margin-bottom: 1.2rem;
+      padding-bottom: 0.8rem;
+      border-bottom: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    h2.section-heading .heading-icon {
+      width: 32px;
+      height: 32px;
+      background: var(--navy);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9rem;
+      flex-shrink: 0;
+    }
+
+    h3.sub-heading {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--navy);
+      margin: 1.5rem 0 0.6rem;
+    }
+
+    p { font-size: 0.9rem; color: #374151; margin-bottom: 0.8rem; }
+
+    /* TABLES */
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.85rem; }
+    thead tr { background: var(--navy); color: var(--white); }
+    thead th { padding: 0.75rem 1rem; text-align: left; font-size: 0.75rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background 0.15s; }
+    tbody tr:hover { background: var(--gray); }
+    td { padding: 0.7rem 1rem; color: #374151; vertical-align: top; }
+    td strong { color: var(--navy); }
+
+    /* INFO BOXES */
+    .info-box {
+      padding: 1rem 1.2rem;
+      border-radius: 8px;
+      margin: 1rem 0;
+      font-size: 0.87rem;
+      display: flex;
+      gap: 0.8rem;
+    }
+    .info-box .icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 0.05rem; }
+    .info-box.tip { background: #ECFDF5; border: 1px solid #A7F3D0; color: #065F46; }
+    .info-box.note { background: #EFF6FF; border: 1px solid #BFDBFE; color: #1E40AF; }
+
+    /* FEATURE LIST */
+    .feature-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.8rem;
+      margin: 1rem 0;
+    }
+    .feature-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.7rem;
+      padding: 0.9rem;
+      background: var(--gray);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .feature-item .feat-icon { font-size: 1.4rem; flex-shrink: 0; }
+    .feature-item .feat-title { font-size: 0.85rem; font-weight: 700; color: var(--navy); display: block; }
+    .feature-item .feat-desc { font-size: 0.78rem; color: var(--muted); }
+
+    /* PRODUCT CATALOG CARDS */
+    .catalog-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.2rem;
+      margin-top: 1rem;
+    }
+    .catalog-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .catalog-card-header {
+      padding: 1.2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .catalog-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.8rem;
+      flex-shrink: 0;
+    }
+    .catalog-card-info {}
+    .catalog-card-name { font-size: 0.95rem; font-weight: 800; color: var(--navy); display: block; }
+    .catalog-card-cat { font-size: 0.72rem; font-weight: 600; color: var(--gold); text-transform: uppercase; letter-spacing: 1px; display: block; }
+    .catalog-card-body {
+      padding: 0 1.2rem 1.2rem;
+      border-top: 1px solid var(--border);
+    }
+    .catalog-card-body table { margin: 0; }
+    .catalog-card-body td { padding: 0.4rem 0.6rem; font-size: 0.82rem; }
+    .catalog-card-body td:first-child { color: var(--muted); font-weight: 600; width: 35%; font-family: inherit; }
+    .catalog-card-body td:last-child { color: var(--navy); font-weight: 700; }
+
+    /* BADGE CHIPS */
+    .chip { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 20px; font-size: 0.72rem; font-weight: 700; }
+    .chip-sale { background: #FEE2E2; color: #DC2626; }
+    .chip-new { background: #D1FAE5; color: #065F46; }
+    .chip-premium { background: rgba(201,168,76,0.15); color: #92650A; border: 1px solid rgba(201,168,76,0.3); }
+
+    /* USER JOURNEY STEPS */
+    .steps { list-style: none; counter-reset: step; }
+    .steps li {
+      counter-increment: step;
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.2rem;
+      align-items: flex-start;
+    }
+    .steps li::before {
+      content: counter(step);
+      background: var(--navy);
+      color: var(--gold);
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 900;
+      flex-shrink: 0;
+      margin-top: 0.1rem;
+    }
+    .steps li .step-title { font-weight: 700; color: var(--navy); font-size: 0.9rem; }
+    .steps li .step-desc { font-size: 0.83rem; color: var(--muted); margin-top: 0.2rem; }
+
+    /* CONTACT CARDS */
+    .contact-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1rem; }
+    .contact-card {
+      padding: 1.2rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      text-align: center;
+      background: var(--gray);
+    }
+    .contact-card .cc-icon { font-size: 1.8rem; display: block; margin-bottom: 0.5rem; }
+    .contact-card .cc-label { font-size: 0.7rem; font-weight: 700; color: var(--gold); letter-spacing: 1.5px; text-transform: uppercase; display: block; margin-bottom: 0.3rem; }
+    .contact-card .cc-value { font-size: 0.85rem; font-weight: 600; color: var(--navy); display: block; }
+
+    /* ROADMAP */
+    .roadmap-phase {
+      border-left: 3px solid var(--border);
+      padding-left: 1.5rem;
+      margin-bottom: 1.5rem;
+      position: relative;
+    }
+    .roadmap-phase::before {
+      content: '';
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--border);
+      position: absolute;
+      left: -7.5px;
+      top: 0.3rem;
+    }
+    .roadmap-phase.done::before { background: #10B981; }
+    .roadmap-phase.current::before { background: var(--gold); }
+    .roadmap-phase.future::before { background: #93C5FD; }
+
+    .phase-label { font-size: 0.7rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 0.4rem; }
+    .phase-label.done { color: #10B981; }
+    .phase-label.current { color: var(--gold); }
+    .phase-label.future { color: #3B82F6; }
+    .phase-title { font-size: 0.95rem; font-weight: 700; color: var(--navy); margin-bottom: 0.4rem; }
+    .phase-items { font-size: 0.83rem; color: var(--muted); }
+    .phase-items li { margin: 0.2rem 0 0.2rem 1rem; }
+  </style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <span class="brand">Lagos Luxe</span>
+    <span class="doc-type">Product Documentation</span>
+  </div>
+
+  <a href="index.html" class="sidebar-back">← Back to Website</a>
+
+  <div>
+    <div class="sidebar-section-title">Product</div>
+    <a href="#overview">Brand Overview</a>
+    <a href="#features">Website Features</a>
+    <a href="#sections">Page Sections</a>
+  </div>
+
+  <div>
+    <div class="sidebar-section-title">User Guide</div>
+    <a href="#user-journey">User Journey</a>
+    <a href="#cart-guide">Using the Cart</a>
+    <a href="#navigation">Navigation</a>
+  </div>
+
+  <div>
+    <div class="sidebar-section-title">Catalog</div>
+    <a href="#catalog">Product Catalog</a>
+    <a href="#pricing">Pricing Guide</a>
+    <a href="#categories">Categories</a>
+  </div>
+
+  <div>
+    <div class="sidebar-section-title">Business</div>
+    <a href="#brand-info">Brand Information</a>
+    <a href="#contact">Contact & Location</a>
+    <a href="#roadmap">Product Roadmap</a>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+
+  <!-- PAGE HEADER -->
+  <div class="page-header">
+    <span class="doc-tag">Product Documentation</span>
+    <h1>Lagos Luxe — Product & User Reference Guide</h1>
+    <p>Everything you need to know about the Lagos Luxe e-commerce website — its features, product catalog, user experience, brand information, and future direction.</p>
+    <div class="doc-meta">
+      <span class="meta-badge">Version <em>1.0.0</em></span>
+      <span class="meta-badge">Brand <em>Lagos Luxe</em></span>
+      <span class="meta-badge">Location <em>Victoria Island, Lagos</em></span>
+      <span class="meta-badge">Currency <em>Nigerian Naira (₦)</em></span>
+    </div>
+  </div>
+
+  <!-- 1. BRAND OVERVIEW -->
+  <div class="content-section">
+    <span class="section-anchor" id="overview"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">👑</span>
+      1. Brand Overview
+    </h2>
+
+    <table>
+      <thead><tr><th>Attribute</th><th>Details</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Brand Name</strong></td><td>Lagos Luxe</td></tr>
+        <tr><td><strong>Brand Tagline</strong></td><td>"Wear Your Story"</td></tr>
+        <tr><td><strong>Founded</strong></td><td>2019</td></tr>
+        <tr><td><strong>Location</strong></td><td>24 Ozumba Mbadiwe Avenue, Victoria Island, Lagos, Nigeria</td></tr>
+        <tr><td><strong>Brand Positioning</strong></td><td>Premium Afro-contemporary Nigerian fashion</td></tr>
+        <tr><td><strong>Target Audience</strong></td><td>Style-conscious Nigerians aged 20–45; diaspora; fashion-forward Africans globally</td></tr>
+        <tr><td><strong>Product Range</strong></td><td>Men's wear, Women's wear, Accessories, Premium Line</td></tr>
+        <tr><td><strong>Price Range</strong></td><td>₦8,500 – ₦95,000+</td></tr>
+        <tr><td><strong>Currency</strong></td><td>Nigerian Naira (₦)</td></tr>
+        <tr><td><strong>Website Type</strong></td><td>E-commerce storefront (HTML presentation prototype)</td></tr>
+      </tbody>
+    </table>
+
+    <h3 class="sub-heading">Brand Values</h3>
+    <div class="feature-list">
+      <div class="feature-item">
+        <span class="feat-icon">🌍</span>
+        <div>
+          <span class="feat-title">Afro-Contemporary Identity</span>
+          <span class="feat-desc">Designs rooted in Nigerian culture, elevated for modern global style.</span>
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feat-icon">✂️</span>
+        <div>
+          <span class="feat-title">Precision Craftsmanship</span>
+          <span class="feat-desc">Every piece tailored by local master craftspeople using premium materials.</span>
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feat-icon">🌱</span>
+        <div>
+          <span class="feat-title">Ethical Sourcing</span>
+          <span class="feat-desc">All fabrics ethically sourced. Supporting the Pan-African supply chain.</span>
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feat-icon">🎨</span>
+        <div>
+          <span class="feat-title">Bold Aesthetics</span>
+          <span class="feat-desc">Unapologetically bold. Vibrant prints, clean lines, statement silhouettes.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. WEBSITE FEATURES -->
+  <div class="content-section">
+    <span class="section-anchor" id="features"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">✨</span>
+      2. Website Features
+    </h2>
+    <p>The Lagos Luxe website is a fully functional front-end prototype demonstrating a complete e-commerce user experience.</p>
+
+    <div class="feature-list">
+      <div class="feature-item">
+        <span class="feat-icon">🛒</span>
+        <div>
+          <span class="feat-title">Live Shopping Cart</span>
+          <span class="feat-desc">Add/remove items, adjust quantities, see real-time totals in Naira. Cart slides in from the right.</span>
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feat-icon">📦</span>
+        <div>
+          <span class="feat-title">Product Catalog</span>
+          <span class="feat-desc">8 curated products across 4 categories with prices, descriptions, and visual product cards.</span>
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feat-icon">❤️</span>
+        <div>
+          <span class="feat-title">Wishlist Toggle</span>
+          <span class="feat-desc">Click the heart icon on any product card to add/remove from a personal wishlist.</span>
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feat-icon">🔔</span>
+        <div>
+          <span class="feat-title">Toast Notifications</span>
+          <span class="feat-desc">Real-time feedback notifications appear at the bottom of the screen for all user actions.</span>
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feat-icon">📱</span>
+        <div>
+          <span class="feat-title">Responsive Design</span>
+          <span class="feat-desc">Works on all screen sizes: desktop, tablet, and mobile. Grid collapses gracefully.</span>
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feat-icon">📧</span>
+        <div>
+          <span class="feat-title">Newsletter Signup</span>
+          <span class="feat-desc">Email capture form with validation and success toast notification.</span>
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feat-icon">📍</span>
+        <div>
+          <span class="feat-title">Location & Contact</span>
+          <span class="feat-desc">Physical store address, phone, email, and opening hours all clearly displayed.</span>
+        </div>
+      </div>
+      <div class="feature-item">
+        <span class="feat-icon">🏷️</span>
+        <div>
+          <span class="feat-title">Sale & New Badges</span>
+          <span class="feat-desc">Products automatically display Sale, New, or Premium badges. Crossed-out original prices shown for sale items.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. PAGE SECTIONS -->
+  <div class="content-section">
+    <span class="section-anchor" id="sections"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">📄</span>
+      3. Page Sections
+    </h2>
+    <p>The website is a single scrollable page divided into the following sections, in order from top to bottom:</p>
+
+    <table>
+      <thead><tr><th>#</th><th>Section Name</th><th>Purpose</th><th>Key Content</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Announcement Bar</td><td>Promotions</td><td>Free delivery threshold, discount code (LUXE10)</td></tr>
+        <tr><td>2</td><td>Navigation Bar</td><td>Site navigation</td><td>Logo, page links, cart button with live item count</td></tr>
+        <tr><td>3</td><td>Hero Section</td><td>First impression</td><td>Brand headline, tagline, CTA buttons, 3 key stats</td></tr>
+        <tr><td>4</td><td>Categories Grid</td><td>Product discovery</td><td>4 category cards: Men's, Women's, Accessories, Premium</td></tr>
+        <tr><td>5</td><td>Best Sellers</td><td>Product catalog</td><td>8 product cards with prices, descriptions, add-to-cart</td></tr>
+        <tr><td>6</td><td>Promo Banner</td><td>Sales promotion</td><td>Mid-season sale announcement, CTA to scroll to products</td></tr>
+        <tr><td>7</td><td>About Section</td><td>Brand storytelling</td><td>Brand story, 6 brand promises, shop CTA</td></tr>
+        <tr><td>8</td><td>Newsletter</td><td>Lead capture</td><td>Email subscription form with validation</td></tr>
+        <tr><td>9</td><td>Location Section</td><td>Physical presence</td><td>Address, phone, email, store opening hours</td></tr>
+        <tr><td>10</td><td>Footer</td><td>Site links & legal</td><td>Brand description, social links, 3 link columns, copyright</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 4. USER JOURNEY -->
+  <div class="content-section">
+    <span class="section-anchor" id="user-journey"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🗺️</span>
+      4. User Journey — Typical Shopping Flow
+    </h2>
+    <p>The following is the expected flow for a user browsing and purchasing from Lagos Luxe:</p>
+
+    <ol class="steps">
+      <li>
+        <div>
+          <div class="step-title">Landing on the Website</div>
+          <div class="step-desc">The user sees the announcement bar (free delivery offer), then the sticky navigation. The hero section immediately communicates the brand: "Dress to Command Attention" with CTAs to Shop Now or learn more.</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <div class="step-title">Browsing Categories</div>
+          <div class="step-desc">User scrolls to the Categories section and sees 4 category cards (Men's, Women's, Accessories, Premium). Clicking any category scrolls to the product grid for browsing.</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <div class="step-title">Exploring Products</div>
+          <div class="step-desc">User browses the 8-product Best Sellers grid. Each card shows: category label, product name, short description, price (and original price for sale items), wishlist button, and badge (New/Sale/Premium).</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <div class="step-title">Adding to Wishlist</div>
+          <div class="step-desc">User clicks the 🤍 heart icon on any product. It toggles to ❤️ and a toast notification confirms the action. The wishlist is session-only (in-memory).</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <div class="step-title">Adding Items to Cart</div>
+          <div class="step-desc">User clicks "+ Add" on a product card. The button briefly shows "✓ Added" in green. The cart sidebar slides open from the right automatically. The cart badge in the navbar increments and briefly animates.</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <div class="step-title">Managing the Cart</div>
+          <div class="step-desc">In the cart sidebar, user can: increase/decrease quantities using + / − buttons, remove items with the ✕ button, and see the running total in Naira at the bottom.</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <div class="step-title">Checkout</div>
+          <div class="step-desc">User clicks "Proceed to Checkout →". The cart closes, a toast notification confirms the order was placed with the total amount, and the cart resets to empty. (Checkout is simulated — no actual payment in this prototype.)</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <div class="step-title">Newsletter Sign-up</div>
+          <div class="step-desc">User enters email in the newsletter section and clicks Subscribe. Email is validated by the browser. On success, a toast confirms the subscription and the form clears.</div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <div class="step-title">Finding the Store</div>
+          <div class="step-desc">User scrolls to the Location section to find the physical address (Victoria Island, Lagos), phone number, email, and opening hours.</div>
+        </div>
+      </li>
+    </ol>
+  </div>
+
+  <!-- 5. CART GUIDE -->
+  <div class="content-section">
+    <span class="section-anchor" id="cart-guide"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🛒</span>
+      5. Cart — User Guide
+    </h2>
+
+    <table>
+      <thead><tr><th>Action</th><th>How to Do It</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Open cart</strong></td><td>Click "🛒 Cart" button in the top navigation bar</td><td>Cart sidebar slides in from the right</td></tr>
+        <tr><td><strong>Close cart</strong></td><td>Click the ✕ button in cart header, or click the dark overlay behind the cart</td><td>Cart sidebar slides back out</td></tr>
+        <tr><td><strong>Add item</strong></td><td>Click "+ Add" on any product card</td><td>Item added to cart; cart opens automatically</td></tr>
+        <tr><td><strong>Add same item again</strong></td><td>Click "+ Add" on a product already in cart</td><td>Quantity increments by 1 (no duplicate entries)</td></tr>
+        <tr><td><strong>Increase quantity</strong></td><td>Click "+" button next to an item in the cart</td><td>Quantity increases by 1; total updates</td></tr>
+        <tr><td><strong>Decrease quantity</strong></td><td>Click "−" button next to an item in the cart</td><td>Quantity decreases by 1; removes item at 0</td></tr>
+        <tr><td><strong>Remove item</strong></td><td>Click "✕" next to an item</td><td>Item removed from cart immediately</td></tr>
+        <tr><td><strong>View total</strong></td><td>Look at the bottom of the cart sidebar</td><td>Running total shown in Naira (₦)</td></tr>
+        <tr><td><strong>Checkout</strong></td><td>Click "Proceed to Checkout →" button</td><td>Order confirmed via toast; cart resets</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box note">
+      <span class="icon">ℹ️</span>
+      <div><strong>Note:</strong> Cart data is held in memory only. Refreshing the page will clear the cart. This is a prototype — no payment gateway or order system is connected.</div>
+    </div>
+  </div>
+
+  <!-- 6. NAVIGATION -->
+  <div class="content-section">
+    <span class="section-anchor" id="navigation"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🧭</span>
+      6. Navigation Guide
+    </h2>
+    <p>The navigation bar is sticky — it stays at the top of the screen as you scroll. All links use smooth scroll to jump to the relevant section.</p>
+
+    <table>
+      <thead><tr><th>Nav Link</th><th>Destination</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Shop</strong></td><td>#shop</td><td>Scrolls to the 8-product Best Sellers grid</td></tr>
+        <tr><td><strong>Categories</strong></td><td>#categories</td><td>Scrolls to the 4-category card grid</td></tr>
+        <tr><td><strong>About</strong></td><td>#about</td><td>Scrolls to the brand story section</td></tr>
+        <tr><td><strong>Find Us</strong></td><td>#location</td><td>Scrolls to the address & store hours section</td></tr>
+        <tr><td><strong>Contact</strong></td><td>#contact</td><td>Scrolls to the footer contact information</td></tr>
+        <tr><td><strong>Lagos Luxe (Logo)</strong></td><td>#</td><td>Returns to the top of the page</td></tr>
+        <tr><td><strong>🛒 Cart</strong></td><td>Sidebar</td><td>Opens the cart sidebar (not a page link)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 7. PRODUCT CATALOG -->
+  <div class="content-section">
+    <span class="section-anchor" id="catalog"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🏷️</span>
+      7. Full Product Catalog
+    </h2>
+    <p>The current website features 8 products in the Best Sellers collection, spanning all 4 categories.</p>
+
+    <div class="catalog-grid">
+
+      <!-- Product 1 -->
+      <div class="catalog-card">
+        <div class="catalog-card-header">
+          <div class="catalog-icon" style="background: linear-gradient(145deg, #667eea, #764ba2);">👔</div>
+          <div class="catalog-card-info">
+            <span class="catalog-card-name">Classic Oxford Shirt</span>
+            <span class="catalog-card-cat">Men's Shirts</span>
+          </div>
+        </div>
+        <div class="catalog-card-body">
+          <table>
+            <tbody>
+              <tr><td>Price</td><td>₦12,500</td></tr>
+              <tr><td>Badge</td><td>—</td></tr>
+              <tr><td>Description</td><td>Crisp, breathable Egyptian cotton. A wardrobe essential.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Product 2 -->
+      <div class="catalog-card">
+        <div class="catalog-card-header">
+          <div class="catalog-icon" style="background: linear-gradient(145deg, #f6a623, #f6d365);">🧥</div>
+          <div class="catalog-card-info">
+            <span class="catalog-card-name">Urban Ankara Blazer</span>
+            <span class="catalog-card-cat">Men's Outerwear</span>
+          </div>
+        </div>
+        <div class="catalog-card-body">
+          <table>
+            <tbody>
+              <tr><td>Price</td><td>₦38,500 <span style="color:#999;text-decoration:line-through;font-size:0.78rem;"> ₦48,000</span></td></tr>
+              <tr><td>Badge</td><td><span class="chip chip-sale">Sale</span></td></tr>
+              <tr><td>Description</td><td>Bold Ankara print meets sharp tailoring. Statement piece.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Product 3 -->
+      <div class="catalog-card">
+        <div class="catalog-card-header">
+          <div class="catalog-icon" style="background: linear-gradient(145deg, #c68642, #d4a574);">👖</div>
+          <div class="catalog-card-info">
+            <span class="catalog-card-name">Slim Fit Chinos</span>
+            <span class="catalog-card-cat">Men's Bottoms</span>
+          </div>
+        </div>
+        <div class="catalog-card-body">
+          <table>
+            <tbody>
+              <tr><td>Price</td><td>₦22,000</td></tr>
+              <tr><td>Badge</td><td>—</td></tr>
+              <tr><td>Description</td><td>Premium stretch cotton. From boardroom to bar.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Product 4 -->
+      <div class="catalog-card">
+        <div class="catalog-card-header">
+          <div class="catalog-icon" style="background: linear-gradient(145deg, #f7971e, #ffd200);">👕</div>
+          <div class="catalog-card-info">
+            <span class="catalog-card-name">Dashiki Print Hoodie</span>
+            <span class="catalog-card-cat">Unisex</span>
+          </div>
+        </div>
+        <div class="catalog-card-body">
+          <table>
+            <tbody>
+              <tr><td>Price</td><td>₦35,000</td></tr>
+              <tr><td>Badge</td><td>—</td></tr>
+              <tr><td>Description</td><td>Afro-inspired print on heavyweight fleece. Cosy and cultural.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Product 5 -->
+      <div class="catalog-card">
+        <div class="catalog-card-header">
+          <div class="catalog-icon" style="background: linear-gradient(145deg, #4facfe, #00c6fb);">👗</div>
+          <div class="catalog-card-info">
+            <span class="catalog-card-name">Lagos Linen Co-ord Set</span>
+            <span class="catalog-card-cat">Women's Sets</span>
+          </div>
+        </div>
+        <div class="catalog-card-body">
+          <table>
+            <tbody>
+              <tr><td>Price</td><td>₦65,000</td></tr>
+              <tr><td>Badge</td><td><span class="chip chip-new">New</span></td></tr>
+              <tr><td>Description</td><td>100% linen. Flowy, effortless, and unmistakably luxe.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Product 6 -->
+      <div class="catalog-card">
+        <div class="catalog-card-header">
+          <div class="catalog-icon" style="background: linear-gradient(145deg, #56ab2f, #78c441);">🪖</div>
+          <div class="catalog-card-info">
+            <span class="catalog-card-name">Utility Cargo Trousers</span>
+            <span class="catalog-card-cat">Men's Bottoms</span>
+          </div>
+        </div>
+        <div class="catalog-card-body">
+          <table>
+            <tbody>
+              <tr><td>Price</td><td>₦18,500</td></tr>
+              <tr><td>Badge</td><td>—</td></tr>
+              <tr><td>Description</td><td>Functional meets fashionable. Multiple pockets, zero compromise.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Product 7 -->
+      <div class="catalog-card">
+        <div class="catalog-card-header">
+          <div class="catalog-icon" style="background: linear-gradient(145deg, #a18cd1, #fbc2eb);">👘</div>
+          <div class="catalog-card-info">
+            <span class="catalog-card-name">Kaftan Maxi Dress</span>
+            <span class="catalog-card-cat">Women's Dresses</span>
+          </div>
+        </div>
+        <div class="catalog-card-body">
+          <table>
+            <tbody>
+              <tr><td>Price</td><td>₦42,000</td></tr>
+              <tr><td>Badge</td><td><span class="chip chip-new">New</span></td></tr>
+              <tr><td>Description</td><td>Hand-printed kaftan in vibrant Adire dye. Royally elegant.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Product 8 -->
+      <div class="catalog-card">
+        <div class="catalog-card-header">
+          <div class="catalog-icon" style="background: linear-gradient(145deg, #2c3e50, #4a4a4a);">🧣</div>
+          <div class="catalog-card-info">
+            <span class="catalog-card-name">Leather Bomber Jacket</span>
+            <span class="catalog-card-cat">Unisex Premium</span>
+          </div>
+        </div>
+        <div class="catalog-card-body">
+          <table>
+            <tbody>
+              <tr><td>Price</td><td>₦78,000</td></tr>
+              <tr><td>Badge</td><td><span class="chip chip-premium">Premium</span></td></tr>
+              <tr><td>Description</td><td>Full-grain genuine leather. Aged to perfection. Built to last.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 8. PRICING GUIDE -->
+  <div class="content-section">
+    <span class="section-anchor" id="pricing"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">💰</span>
+      8. Pricing Guide
+    </h2>
+
+    <table>
+      <thead><tr><th>Tier</th><th>Price Range</th><th>Products</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Entry</strong></td><td>₦8,500 – ₦20,000</td><td>Classic Oxford Shirt (₦12,500), Utility Cargo Trousers (₦18,500)</td></tr>
+        <tr><td><strong>Mid-Range</strong></td><td>₦20,001 – ₦40,000</td><td>Slim Fit Chinos (₦22,000), Dashiki Print Hoodie (₦35,000), Urban Ankara Blazer (₦38,500 sale)</td></tr>
+        <tr><td><strong>Premium</strong></td><td>₦40,001 – ₦70,000</td><td>Kaftan Maxi Dress (₦42,000), Lagos Linen Co-ord Set (₦65,000)</td></tr>
+        <tr><td><strong>Luxury</strong></td><td>₦70,001+</td><td>Leather Bomber Jacket (₦78,000)</td></tr>
+      </tbody>
+    </table>
+
+    <h3 class="sub-heading">Active Promotions</h3>
+    <table>
+      <thead><tr><th>Promotion</th><th>Details</th><th>How to Use</th></tr></thead>
+      <tbody>
+        <tr><td><strong>First Order Discount</strong></td><td>10% off any first order</td><td>Use code: <strong>LUXE10</strong> at checkout</td></tr>
+        <tr><td><strong>Free Delivery</strong></td><td>Free nationwide delivery</td><td>Spend ₦50,000 or more in one order</td></tr>
+        <tr><td><strong>Mid-Season Sale</strong></td><td>Up to 30% off selected items</td><td>Sale badge shown on discounted products</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 9. CATEGORIES -->
+  <div class="content-section">
+    <span class="section-anchor" id="categories"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🗂️</span>
+      9. Product Categories
+    </h2>
+
+    <table>
+      <thead><tr><th>Category</th><th>Icon</th><th>Item Count</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Men's Wear</strong></td><td>👔</td><td>124 Pieces</td><td>Shirts, blazers, trousers, traditional wear for men</td></tr>
+        <tr><td><strong>Women's Wear</strong></td><td>👗</td><td>218 Pieces</td><td>Dresses, sets, blouses, skirts, traditional wear for women</td></tr>
+        <tr><td><strong>Accessories</strong></td><td>🧣</td><td>96 Pieces</td><td>Bags, belts, scarves, hats, jewellery and more</td></tr>
+        <tr><td><strong>Premium Line</strong></td><td>👑</td><td>42 Pieces</td><td>Exclusive luxury pieces; limited edition runs; handcrafted items</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 10. BRAND INFO -->
+  <div class="content-section">
+    <span class="section-anchor" id="brand-info"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🏢</span>
+      10. Brand Information
+    </h2>
+
+    <table>
+      <thead><tr><th>Attribute</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Customers</strong></td><td>12,000+</td></tr>
+        <tr><td><strong>Styles Available</strong></td><td>500+</td></tr>
+        <tr><td><strong>Average Rating</strong></td><td>4.9 ★ / 5.0</td></tr>
+        <tr><td><strong>Delivery Coverage</strong></td><td>Nationwide (all 36 states + FCT)</td></tr>
+        <tr><td><strong>Returns Policy</strong></td><td>14-day hassle-free returns</td></tr>
+        <tr><td><strong>Social Media</strong></td><td>Instagram, Twitter/X, Facebook, TikTok</td></tr>
+        <tr><td><strong>Partnership</strong></td><td>Affiliates and press inquiries welcome</td></tr>
+      </tbody>
+    </table>
+
+    <h3 class="sub-heading">Footer Link Map</h3>
+    <table>
+      <thead><tr><th>Column</th><th>Links</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Shop</strong></td><td>New Arrivals, Men's Wear, Women's Wear, Accessories, Premium Line, Sale</td></tr>
+        <tr><td><strong>Help</strong></td><td>FAQs, Size Guide, Delivery Info, Returns Policy, Track Order, Contact Us</td></tr>
+        <tr><td><strong>Company</strong></td><td>About Us, Careers, Press, Sustainability, Affiliates, Privacy Policy</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 11. CONTACT -->
+  <div class="content-section">
+    <span class="section-anchor" id="contact"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">📞</span>
+      11. Contact & Location
+    </h2>
+
+    <div class="contact-grid">
+      <div class="contact-card">
+        <span class="cc-icon">📍</span>
+        <span class="cc-label">Address</span>
+        <span class="cc-value">24 Ozumba Mbadiwe Avenue<br>Victoria Island, Lagos</span>
+      </div>
+      <div class="contact-card">
+        <span class="cc-icon">📞</span>
+        <span class="cc-label">Phone</span>
+        <span class="cc-value">+234 901 234 5678</span>
+      </div>
+      <div class="contact-card">
+        <span class="cc-icon">✉️</span>
+        <span class="cc-label">Email</span>
+        <span class="cc-value">hello@lagosluxe.ng</span>
+      </div>
+    </div>
+
+    <h3 class="sub-heading">Store Opening Hours</h3>
+    <table>
+      <thead><tr><th>Day</th><th>Opening Time</th><th>Closing Time</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Monday – Friday</strong></td><td>9:00 AM</td><td>7:00 PM</td></tr>
+        <tr><td><strong>Saturday</strong></td><td>10:00 AM</td><td>6:00 PM</td></tr>
+        <tr><td><strong>Sunday</strong></td><td>12:00 PM</td><td>4:00 PM</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 12. ROADMAP -->
+  <div class="content-section">
+    <span class="section-anchor" id="roadmap"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🗓️</span>
+      12. Product Roadmap
+    </h2>
+    <p>The current website is a Version 1.0 prototype. Below is the proposed evolution path from prototype to a fully hosted production platform.</p>
+
+    <div class="roadmap-phase done">
+      <div class="phase-label done">✓ Completed — v1.0</div>
+      <div class="phase-title">HTML Prototype</div>
+      <ul class="phase-items">
+        <li>Full product catalog (8 items)</li>
+        <li>Live shopping cart with Naira pricing</li>
+        <li>Wishlist, toast notifications, responsive design</li>
+        <li>Brand story, newsletter, location section</li>
+        <li>Technical + product documentation</li>
+      </ul>
+    </div>
+
+    <div class="roadmap-phase current">
+      <div class="phase-label current">→ Next — v1.1</div>
+      <div class="phase-title">Enhanced Prototype</div>
+      <ul class="phase-items">
+        <li>Real product photography</li>
+        <li>Category filtering on product grid</li>
+        <li>Product search functionality</li>
+        <li>Cart persisted in localStorage</li>
+        <li>Mobile nav hamburger menu</li>
+      </ul>
+    </div>
+
+    <div class="roadmap-phase future">
+      <div class="phase-label future">↗ Future — v2.0</div>
+      <div class="phase-title">Live Production Site</div>
+      <ul class="phase-items">
+        <li>Hosted on a real domain (e.g., lagosluxe.ng)</li>
+        <li>Paystack or Flutterwave payment integration</li>
+        <li>User accounts and order history</li>
+        <li>Backend API + database (products, orders, users)</li>
+        <li>CMS for product management</li>
+        <li>SMS/email order notifications</li>
+        <li>Delivery tracking integration</li>
+      </ul>
+    </div>
+
+    <div class="info-box tip">
+      <span class="icon">💡</span>
+      <div>This prototype successfully demonstrates the <strong>full front-end user experience</strong> and brand identity in a single HTML file — proving that a complete, polished product can be built and delivered rapidly without complex infrastructure.</div>
+    </div>
+  </div>
+
+</main>
+</body>
+</html>

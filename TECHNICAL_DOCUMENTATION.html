@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Technical Documentation — Lagos Luxe Website</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --navy: #0D1B2A;
+      --gold: #C9A84C;
+      --white: #FFFFFF;
+      --gray: #F7F8FA;
+      --border: #E4E6EB;
+      --text: #1A1A2E;
+      --muted: #6B7280;
+      --code-bg: #1E293B;
+      --code-text: #E2E8F0;
+      --green: #10B981;
+      --blue: #3B82F6;
+      --purple: #8B5CF6;
+      --orange: #F59E0B;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--gray);
+      color: var(--text);
+      line-height: 1.7;
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* SIDEBAR NAV */
+    .sidebar {
+      width: 260px;
+      flex-shrink: 0;
+      background: var(--navy);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 2rem 0;
+    }
+
+    .sidebar-logo {
+      padding: 0 1.5rem 1.5rem;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      margin-bottom: 1rem;
+    }
+    .sidebar-logo .brand {
+      font-size: 1rem;
+      font-weight: 900;
+      color: var(--gold);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      display: block;
+    }
+    .sidebar-logo .doc-type {
+      font-size: 0.72rem;
+      color: rgba(255,255,255,0.35);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-top: 0.2rem;
+      display: block;
+    }
+
+    .sidebar-section {
+      padding: 0.5rem 0;
+    }
+    .sidebar-section-title {
+      padding: 0.4rem 1.5rem;
+      font-size: 0.65rem;
+      font-weight: 800;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.3);
+      margin-top: 0.5rem;
+    }
+    .sidebar a {
+      display: block;
+      padding: 0.45rem 1.5rem;
+      color: rgba(255,255,255,0.6);
+      text-decoration: none;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+      border-left: 3px solid transparent;
+    }
+    .sidebar a:hover {
+      color: var(--gold);
+      background: rgba(201,168,76,0.07);
+      border-left-color: var(--gold);
+    }
+
+    .sidebar-back {
+      display: block;
+      margin: 0 1.5rem 1.5rem;
+      padding: 0.6rem 1rem;
+      background: rgba(201,168,76,0.12);
+      border: 1px solid rgba(201,168,76,0.3);
+      border-radius: 6px;
+      color: var(--gold);
+      text-decoration: none;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-align: center;
+      transition: all 0.2s;
+    }
+    .sidebar-back:hover { background: rgba(201,168,76,0.22); }
+
+    /* MAIN CONTENT */
+    .main {
+      flex: 1;
+      max-width: calc(100% - 260px);
+      padding: 3rem 4rem;
+    }
+
+    /* PAGE HEADER */
+    .page-header {
+      background: linear-gradient(135deg, var(--navy) 0%, #1A3352 100%);
+      border-radius: 12px;
+      padding: 2.5rem 3rem;
+      margin-bottom: 3rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .page-header::before {
+      content: '';
+      position: absolute;
+      top: -40px;
+      right: -40px;
+      width: 200px;
+      height: 200px;
+      background: radial-gradient(circle, rgba(201,168,76,0.15) 0%, transparent 70%);
+      border-radius: 50%;
+    }
+    .page-header .doc-tag {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--gold);
+      display: block;
+      margin-bottom: 0.6rem;
+    }
+    .page-header h1 {
+      font-size: 2rem;
+      font-weight: 900;
+      color: var(--white);
+      margin-bottom: 0.6rem;
+    }
+    .page-header p {
+      color: rgba(255,255,255,0.55);
+      font-size: 0.92rem;
+      max-width: 560px;
+    }
+    .doc-meta {
+      display: flex;
+      gap: 1.5rem;
+      margin-top: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .meta-badge {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.7);
+      padding: 0.3rem 0.8rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .meta-badge em { color: var(--gold); font-style: normal; }
+
+    /* CONTENT BLOCKS */
+    .content-section {
+      background: var(--white);
+      border-radius: 10px;
+      padding: 2rem 2.5rem;
+      margin-bottom: 2rem;
+      border: 1px solid var(--border);
+    }
+
+    .section-anchor {
+      display: block;
+      position: relative;
+      top: -80px;
+      visibility: hidden;
+    }
+
+    h2.section-heading {
+      font-size: 1.3rem;
+      font-weight: 800;
+      color: var(--navy);
+      margin-bottom: 1.2rem;
+      padding-bottom: 0.8rem;
+      border-bottom: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    h2.section-heading .heading-icon {
+      width: 32px;
+      height: 32px;
+      background: var(--navy);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9rem;
+      flex-shrink: 0;
+    }
+
+    h3.sub-heading {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--navy);
+      margin: 1.5rem 0 0.6rem;
+    }
+
+    p { font-size: 0.9rem; color: #374151; margin-bottom: 0.8rem; }
+
+    /* CODE BLOCKS */
+    pre {
+      background: var(--code-bg);
+      color: var(--code-text);
+      border-radius: 8px;
+      padding: 1.2rem 1.5rem;
+      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      font-size: 0.82rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+      border: 1px solid rgba(255,255,255,0.05);
+      line-height: 1.7;
+    }
+    code {
+      background: #EEF2FF;
+      color: #4F46E5;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    pre code { background: none; color: inherit; padding: 0; font-weight: 400; border-radius: 0; }
+
+    /* KEY-VALUE TABLE */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.85rem;
+    }
+    thead tr { background: var(--navy); color: var(--white); }
+    thead th {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background 0.15s; }
+    tbody tr:hover { background: var(--gray); }
+    td { padding: 0.7rem 1rem; color: #374151; vertical-align: top; }
+    td:first-child { font-weight: 600; color: var(--navy); font-family: monospace; font-size: 0.82rem; }
+
+    /* FILE TREE */
+    .file-tree {
+      background: var(--code-bg);
+      border-radius: 8px;
+      padding: 1.2rem 1.5rem;
+      font-family: monospace;
+      font-size: 0.83rem;
+      color: var(--code-text);
+      line-height: 2;
+    }
+    .tree-dir { color: #60A5FA; font-weight: 700; }
+    .tree-file-html { color: #F87171; }
+    .tree-file-note { color: rgba(255,255,255,0.35); font-style: italic; }
+
+    /* FEATURE CHIPS */
+    .chip-row { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 0.8rem 0; }
+    .chip {
+      padding: 0.3rem 0.9rem;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .chip-blue { background: #DBEAFE; color: #1D4ED8; }
+    .chip-green { background: #D1FAE5; color: #065F46; }
+    .chip-purple { background: #EDE9FE; color: #5B21B6; }
+    .chip-gold { background: rgba(201,168,76,0.15); color: #92650A; border: 1px solid rgba(201,168,76,0.3); }
+
+    /* INFO BOXES */
+    .info-box {
+      padding: 1rem 1.2rem;
+      border-radius: 8px;
+      margin: 1rem 0;
+      font-size: 0.87rem;
+      display: flex;
+      gap: 0.8rem;
+      align-items: flex-start;
+    }
+    .info-box .icon { font-size: 1.1rem; margin-top: 0.05rem; flex-shrink: 0; }
+    .info-box.tip { background: #ECFDF5; border: 1px solid #A7F3D0; color: #065F46; }
+    .info-box.note { background: #EFF6FF; border: 1px solid #BFDBFE; color: #1E40AF; }
+    .info-box.warn { background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E; }
+
+    /* FUNCTION CARDS */
+    .fn-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      overflow: hidden;
+    }
+    .fn-card-header {
+      background: var(--gray);
+      padding: 0.7rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .fn-name { font-family: monospace; font-weight: 700; color: var(--purple); font-size: 0.9rem; }
+    .fn-type { font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.6rem; border-radius: 20px; }
+    .fn-type.state { background: #EDE9FE; color: #5B21B6; }
+    .fn-type.ui { background: #DBEAFE; color: #1D4ED8; }
+    .fn-type.event { background: #D1FAE5; color: #065F46; }
+    .fn-card-body { padding: 0.8rem 1rem; font-size: 0.85rem; color: #374151; }
+
+    /* BROWSER COMPAT */
+    .compat-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.8rem; margin-top: 1rem; }
+    .compat-item {
+      text-align: center;
+      padding: 1rem 0.5rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .compat-item .browser-icon { font-size: 1.8rem; display: block; margin-bottom: 0.4rem; }
+    .compat-item .browser-name { font-size: 0.75rem; font-weight: 700; color: var(--navy); display: block; }
+    .compat-item .compat-status {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #10B981;
+      display: block;
+      margin-top: 0.3rem;
+    }
+  </style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <span class="brand">Lagos Luxe</span>
+    <span class="doc-type">Technical Documentation</span>
+  </div>
+
+  <a href="index.html" class="sidebar-back">← Back to Website</a>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Overview</div>
+    <a href="#overview">Project Overview</a>
+    <a href="#file-structure">File Structure</a>
+    <a href="#tech-stack">Technologies Used</a>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Architecture</div>
+    <a href="#html-structure">HTML Structure</a>
+    <a href="#css-architecture">CSS Architecture</a>
+    <a href="#css-variables">CSS Custom Properties</a>
+    <a href="#js-architecture">JavaScript Architecture</a>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Features</div>
+    <a href="#cart-system">Cart System</a>
+    <a href="#product-rendering">Product Rendering</a>
+    <a href="#ui-components">UI Components</a>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">Reference</div>
+    <a href="#browser-compat">Browser Compatibility</a>
+    <a href="#performance">Performance Notes</a>
+    <a href="#how-to-run">How to Run</a>
+    <a href="#extending">Extending the Project</a>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+
+  <!-- PAGE HEADER -->
+  <div class="page-header">
+    <span class="doc-tag">Technical Documentation</span>
+    <h1>Lagos Luxe — Website Technical Reference</h1>
+    <p>Complete technical documentation covering architecture, code structure, component design, and implementation details for the Lagos Luxe e-commerce fashion website.</p>
+    <div class="doc-meta">
+      <span class="meta-badge">Version <em>1.0.0</em></span>
+      <span class="meta-badge">Date <em>June 2025</em></span>
+      <span class="meta-badge">Type <em>Single-File HTML App</em></span>
+      <span class="meta-badge">Author <em>Lagos Luxe Dev Team</em></span>
+    </div>
+  </div>
+
+  <!-- 1. PROJECT OVERVIEW -->
+  <div class="content-section">
+    <span class="section-anchor" id="overview"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">📋</span>
+      1. Project Overview
+    </h2>
+    <p>
+      The Lagos Luxe website is a single-file, self-contained front-end web application built entirely with <strong>HTML, CSS, and vanilla JavaScript</strong>. It is designed as a fully functional, presentation-ready e-commerce storefront for a premium Nigerian clothing brand — requiring <strong>zero build tools, zero frameworks, and zero installation</strong>.
+    </p>
+    <p>
+      The site can be opened directly in any modern web browser by double-clicking the <code>index.html</code> file. No server, no npm, no dependencies.
+    </p>
+
+    <div class="info-box tip">
+      <span class="icon">💡</span>
+      <div><strong>Design Philosophy:</strong> Every feature was implemented using native browser capabilities. The cart, product rendering, and UI interactions are all vanilla JavaScript — demonstrating the power of the platform without adding framework complexity.</div>
+    </div>
+
+    <h3 class="sub-heading">Core Capabilities</h3>
+    <div class="chip-row">
+      <span class="chip chip-blue">Product Catalog</span>
+      <span class="chip chip-blue">Shopping Cart</span>
+      <span class="chip chip-blue">Wishlist Toggle</span>
+      <span class="chip chip-green">Responsive Design</span>
+      <span class="chip chip-green">CSS Animations</span>
+      <span class="chip chip-green">Toast Notifications</span>
+      <span class="chip chip-purple">Dynamic Rendering</span>
+      <span class="chip chip-purple">Cart Sidebar</span>
+      <span class="chip chip-gold">No Dependencies</span>
+      <span class="chip chip-gold">Offline Ready</span>
+    </div>
+  </div>
+
+  <!-- 2. FILE STRUCTURE -->
+  <div class="content-section">
+    <span class="section-anchor" id="file-structure"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">📁</span>
+      2. File Structure
+    </h2>
+    <p>The project is intentionally minimal — all deliverables are self-contained HTML files.</p>
+
+    <div class="file-tree">
+      <span class="tree-dir">FIRST CLOTHING WEBSITE/</span><br>
+      &nbsp;&nbsp;├── <span class="tree-file-html">index.html</span>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tree-file-note">← Main storefront (HTML + CSS + JS)</span><br>
+      &nbsp;&nbsp;├── <span class="tree-file-html">TECHNICAL_DOCUMENTATION.html</span>
+      &nbsp;&nbsp;<span class="tree-file-note">← This file</span><br>
+      &nbsp;&nbsp;└── <span class="tree-file-html">PRODUCT_DOCUMENTATION.html</span>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="tree-file-note">← Product/user documentation</span>
+    </div>
+
+    <div class="info-box note">
+      <span class="icon">ℹ️</span>
+      <div>No assets folder, no CSS files, no JS files. All styles and scripts are embedded directly inside <code>index.html</code> using <code>&lt;style&gt;</code> and <code>&lt;script&gt;</code> tags. This makes the file fully portable.</div>
+    </div>
+  </div>
+
+  <!-- 3. TECH STACK -->
+  <div class="content-section">
+    <span class="section-anchor" id="tech-stack"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">⚙️</span>
+      3. Technologies Used
+    </h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Technology</th>
+          <th>Version / Standard</th>
+          <th>Purpose</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>HTML5</td>
+          <td>Living Standard</td>
+          <td>Page structure and semantic markup</td>
+          <td>Semantic elements: nav, section, footer, aside</td>
+        </tr>
+        <tr>
+          <td>CSS3</td>
+          <td>CSS Level 4</td>
+          <td>All styling, layout, animations</td>
+          <td>Custom Properties, Flexbox, Grid, Transitions</td>
+        </tr>
+        <tr>
+          <td>JavaScript</td>
+          <td>ES2020 (Vanilla)</td>
+          <td>Cart logic, DOM manipulation, product rendering</td>
+          <td>No frameworks. Pure DOM API.</td>
+        </tr>
+        <tr>
+          <td>Google Fonts</td>
+          <td>Inter (v4)</td>
+          <td>Typography</td>
+          <td>Loaded via CDN. Falls back to system-ui.</td>
+        </tr>
+        <tr>
+          <td>CSS Custom Properties</td>
+          <td>—</td>
+          <td>Centralized design tokens (colors, spacing)</td>
+          <td>Defined on :root selector</td>
+        </tr>
+        <tr>
+          <td>CSS Grid</td>
+          <td>—</td>
+          <td>Product grid, category grid, footer layout</td>
+          <td>4-column to 2-column responsive collapse</td>
+        </tr>
+        <tr>
+          <td>CSS Flexbox</td>
+          <td>—</td>
+          <td>Navbar, cart items, buttons, hero stats</td>
+          <td>Used for single-axis alignment</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 4. HTML STRUCTURE -->
+  <div class="content-section">
+    <span class="section-anchor" id="html-structure"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🏗️</span>
+      4. HTML Structure
+    </h2>
+    <p>The document is divided into logically named sections. Each major section corresponds to a visible page component.</p>
+
+    <table>
+      <thead>
+        <tr><th>Section / Element</th><th>ID / Class</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>.announcement-bar</td><td>—</td><td>Top strip: promo message and discount code</td></tr>
+        <tr><td>nav.navbar</td><td>—</td><td>Sticky navigation: logo, links, cart trigger</td></tr>
+        <tr><td>div.overlay</td><td>#overlay</td><td>Full-screen dimmer behind cart sidebar</td></tr>
+        <tr><td>div.cart-sidebar</td><td>#cartSidebar</td><td>Slide-in cart panel (right side)</td></tr>
+        <tr><td>section.hero</td><td>#home</td><td>Full-screen hero with headline and CTAs</td></tr>
+        <tr><td>section.categories</td><td>#categories</td><td>4-column category cards grid</td></tr>
+        <tr><td>section</td><td>#shop</td><td>8-product grid (dynamically rendered)</td></tr>
+        <tr><td>div.promo-banner</td><td>—</td><td>Mid-page sale promotional banner</td></tr>
+        <tr><td>section.about-section</td><td>#about</td><td>Brand story with visual and feature list</td></tr>
+        <tr><td>section.newsletter</td><td>—</td><td>Email subscription form</td></tr>
+        <tr><td>section</td><td>#location</td><td>Store address and opening hours</td></tr>
+        <tr><td>footer</td><td>#contact</td><td>Full footer: brand, links, bottom bar</td></tr>
+        <tr><td>div.toast</td><td>#toast</td><td>Fixed notification overlay for user feedback</td></tr>
+      </tbody>
+    </table>
+
+    <h3 class="sub-heading">Document Outline</h3>
+    <pre><code>&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+  &lt;head&gt;
+    &lt;meta charset="UTF-8" /&gt;
+    &lt;meta name="viewport" ... /&gt;
+    &lt;title&gt;Lagos Luxe — Premium Nigerian Fashion&lt;/title&gt;
+    &lt;link href="Google Fonts" /&gt;    ← External: Typography
+    &lt;style&gt; ... &lt;/style&gt;           ← Embedded: All CSS (~500 lines)
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;!-- Announcement Bar --&gt;
+    &lt;!-- Navbar + Cart Sidebar --&gt;
+    &lt;!-- Hero --&gt;
+    &lt;!-- Categories --&gt;
+    &lt;!-- Products (dynamically populated) --&gt;
+    &lt;!-- Promo Banner --&gt;
+    &lt;!-- About --&gt;
+    &lt;!-- Newsletter --&gt;
+    &lt;!-- Location --&gt;
+    &lt;!-- Footer --&gt;
+    &lt;!-- Toast Notification --&gt;
+    &lt;script&gt; ... &lt;/script&gt;         ← Embedded: All JS (~130 lines)
+  &lt;/body&gt;
+&lt;/html&gt;</code></pre>
+  </div>
+
+  <!-- 5. CSS ARCHITECTURE -->
+  <div class="content-section">
+    <span class="section-anchor" id="css-architecture"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🎨</span>
+      5. CSS Architecture
+    </h2>
+    <p>The CSS follows a flat, component-based naming convention (not BEM). Styles are grouped by component in the same order they appear in the HTML, making it easy to locate and modify specific styles.</p>
+
+    <h3 class="sub-heading">CSS Organization Order</h3>
+    <pre><code>/* ===== RESET & VARIABLES ===== */
+/* ===== ANNOUNCEMENT BAR ===== */
+/* ===== NAVIGATION ===== */
+/* ===== CART SIDEBAR ===== */
+/* ===== HERO ===== */
+/* ===== SECTIONS (shared) ===== */
+/* ===== CATEGORIES ===== */
+/* ===== PRODUCTS ===== */
+/* ===== ABOUT ===== */
+/* ===== PROMO BANNER ===== */
+/* ===== NEWSLETTER ===== */
+/* ===== LOCATION ===== */
+/* ===== FOOTER ===== */
+/* ===== TOAST ===== */
+/* ===== RESPONSIVE ===== */</code></pre>
+
+    <h3 class="sub-heading">Layout Strategy</h3>
+    <table>
+      <thead><tr><th>Component</th><th>Layout Method</th><th>Columns</th></tr></thead>
+      <tbody>
+        <tr><td>Navbar</td><td>Flexbox</td><td>space-between (3 groups)</td></tr>
+        <tr><td>Hero</td><td>Flexbox</td><td>Single column, aligned center-left</td></tr>
+        <tr><td>Category Grid</td><td>CSS Grid</td><td>4 → 2 → 1 (responsive)</td></tr>
+        <tr><td>Products Grid</td><td>CSS Grid</td><td>4 → 2 → 1 (responsive)</td></tr>
+        <tr><td>About Section</td><td>Flexbox</td><td>2 items: visual + content</td></tr>
+        <tr><td>Location Section</td><td>CSS Grid</td><td>2 → 1 (responsive)</td></tr>
+        <tr><td>Footer</td><td>CSS Grid</td><td>4 → 2 → 1 (responsive)</td></tr>
+        <tr><td>Cart Sidebar</td><td>Flexbox (column)</td><td>Fixed-width, full-height slide panel</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 6. CSS VARIABLES -->
+  <div class="content-section">
+    <span class="section-anchor" id="css-variables"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🎯</span>
+      6. CSS Custom Properties (Design Tokens)
+    </h2>
+    <p>All colors and key visual values are defined as CSS custom properties on the <code>:root</code> selector. This makes global theme changes trivial — modify one value, update everywhere.</p>
+
+    <pre><code>:root {
+  --navy:       #0D1B2A;     /* Primary dark — navbar, headings, buttons */
+  --navy-light: #1A3352;     /* Hero gradient mid-stop */
+  --gold:       #C9A84C;     /* Brand accent — logo, badges, highlights */
+  --gold-light: #E8C96A;     /* Gold hover/active state */
+  --gold-pale:  rgba(201,168,76,0.12); /* Subtle gold tint for backgrounds */
+  --white:      #FFFFFF;     /* General backgrounds */
+  --gray:       #F4F5F7;     /* Section backgrounds (alternating) */
+  --border:     #E4E4E4;     /* Card borders, table lines, dividers */
+  --text:       #1A1A1A;     /* Body text */
+  --muted:      #777777;     /* Secondary/helper text */
+}</code></pre>
+
+    <div class="info-box tip">
+      <span class="icon">💡</span>
+      <div>To retheme the entire website (e.g., switch from gold to emerald), update <code>--gold</code> and <code>--gold-light</code> in the <code>:root</code> block. All 50+ uses update automatically.</div>
+    </div>
+  </div>
+
+  <!-- 7. JS ARCHITECTURE -->
+  <div class="content-section">
+    <span class="section-anchor" id="js-architecture"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">⚡</span>
+      7. JavaScript Architecture
+    </h2>
+    <p>
+      All JavaScript runs in a single <code>&lt;script&gt;</code> tag at the bottom of <code>&lt;body&gt;</code>. The code is organized into three logical layers:
+    </p>
+
+    <pre><code>/* ===== LAYER 1: STATIC DATA ===== */
+const products = [ ... ];     // Array of 8 product objects
+
+/* ===== LAYER 2: RENDER ENGINE ===== */
+function renderProducts() {}   // Builds product HTML from data array
+
+/* ===== LAYER 3: CART STATE & LOGIC ===== */
+let cart = [];                 // Mutable cart state array
+
+function addToCart(id)    {}   // Adds/increments item in cart
+function removeFromCart(id){}  // Filters item from cart array
+function changeQty(id, d) {}   // Increments/decrements quantity
+function updateCartUI()   {}   // Re-renders cart DOM from state
+
+/* ===== LAYER 4: UI CONTROLLERS ===== */
+function openCart()       {}   // Shows cart sidebar + overlay
+function closeCart()      {}   // Hides cart sidebar + overlay
+function handleCheckout() {}   // Simulates checkout completion
+function handleWishlist() {}   // Toggles wishlist icon state
+function handleNewsletter(){}  // Handles form submission
+function showToast(msg)   {}   // Displays floating notification
+
+/* ===== INIT ===== */
+renderProducts();               // Called once on page load</code></pre>
+  </div>
+
+  <!-- 8. CART SYSTEM -->
+  <div class="content-section">
+    <span class="section-anchor" id="cart-system"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🛒</span>
+      8. Cart System — Deep Dive
+    </h2>
+    <p>The cart is a client-side, in-memory state management system. Cart data persists only for the current browser session (not localStorage).</p>
+
+    <h3 class="sub-heading">Cart Data Structure</h3>
+    <pre><code>// Each cart item is a product object + qty field
+let cart = [
+  {
+    id: 1,
+    name: 'Classic Oxford Shirt',
+    category: "Men's Shirts",
+    price: 12500,
+    qty: 2            // ← qty added on top of product fields
+  },
+  // ...
+];</code></pre>
+
+    <h3 class="sub-heading">Cart Functions</h3>
+
+    <div class="fn-card">
+      <div class="fn-card-header">
+        <span class="fn-name">addToCart(id)</span>
+        <span class="fn-type state">State Mutation</span>
+      </div>
+      <div class="fn-card-body">
+        Looks up product by id from the <code>products</code> array. If item already in cart, increments <code>qty</code>. Otherwise, spreads product into a new cart item with <code>qty: 1</code>. Calls <code>updateCartUI()</code> and <code>openCart()</code>. Also triggers button feedback (green "✓ Added" state) and badge bump animation.
+      </div>
+    </div>
+
+    <div class="fn-card">
+      <div class="fn-card-header">
+        <span class="fn-name">changeQty(id, delta)</span>
+        <span class="fn-type state">State Mutation</span>
+      </div>
+      <div class="fn-card-body">
+        Finds item in cart and applies <code>delta</code> (+1 or -1) to its <code>qty</code>. If qty reaches 0 or below, calls <code>removeFromCart()</code> instead of keeping zero-qty items. Calls <code>updateCartUI()</code>.
+      </div>
+    </div>
+
+    <div class="fn-card">
+      <div class="fn-card-header">
+        <span class="fn-name">updateCartUI()</span>
+        <span class="fn-type ui">DOM Update</span>
+      </div>
+      <div class="fn-card-body">
+        The central UI synchronization function. Recalculates total price and item count. Updates the cart badge number in the navbar. Conditionally renders either the empty-cart state or a list of cart items. Shows/hides the cart footer with total and checkout button.
+      </div>
+    </div>
+
+    <div class="fn-card">
+      <div class="fn-card-header">
+        <span class="fn-name">openCart() / closeCart()</span>
+        <span class="fn-type ui">DOM Update</span>
+      </div>
+      <div class="fn-card-body">
+        Toggles the <code>.open</code> CSS class on <code>#cartSidebar</code> and <code>#overlay</code>. CSS transitions handle the slide-in animation (<code>right: -420px → 0</code>). Also toggles <code>document.body.style.overflow</code> to prevent background scroll when cart is open.
+      </div>
+    </div>
+
+    <h3 class="sub-heading">Cart Flow Diagram</h3>
+    <pre><code>User clicks "Add" button
+        ↓
+  addToCart(productId)
+        ↓
+  Find product in products[]
+        ↓
+  Item in cart? ──YES──→ item.qty++
+        │                    ↓
+       NO             updateCartUI()
+        ↓                    ↓
+  Push {…product, qty:1}  openCart()
+  to cart[]
+        ↓
+  updateCartUI()
+        ↓
+  openCart() + button feedback + badge bump</code></pre>
+  </div>
+
+  <!-- 9. PRODUCT RENDERING -->
+  <div class="content-section">
+    <span class="section-anchor" id="product-rendering"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🎴</span>
+      9. Product Rendering Engine
+    </h2>
+    <p>
+      Products are defined as a JavaScript array of objects. The <code>renderProducts()</code> function maps this array to HTML template strings and injects them into <code>#productsGrid</code> via <code>.innerHTML</code>.
+    </p>
+
+    <h3 class="sub-heading">Product Object Schema</h3>
+    <pre><code>// Each product in the products[] array:
+{
+  id:        Number,    // Unique identifier (used as DOM key)
+  name:      String,    // Display name
+  category:  String,    // Category label shown above product name
+  desc:      String,    // Short description text
+  price:     Number,    // Current price in Naira (no ₦ symbol in data)
+  oldPrice:  Number|null, // Original price (shown crossed out if set)
+  badge:     String|null, // "sale" | "new" | "premium" | null
+  gradient:  String,    // CSS gradient string for product image background
+  icon:      String,    // Emoji used as product visual
+}</code></pre>
+
+    <h3 class="sub-heading">HTML Generation Pattern</h3>
+    <pre><code>function renderProducts() {
+  const grid = document.getElementById('productsGrid');
+
+  // Array.map() → template literals → .join('') → .innerHTML
+  grid.innerHTML = products.map(p => `
+    &lt;div class="product-card"&gt;
+      &lt;div class="product-img-wrap" style="background: ${p.gradient};"&gt;
+        ${p.badge ? `&lt;span class="badge-${p.badge}"&gt;...&lt;/span&gt;` : ''}
+        &lt;!-- wishlist button, icon emoji --&gt;
+      &lt;/div&gt;
+      &lt;div class="product-info"&gt;
+        &lt;!-- category, name, desc, price, add button --&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  `).join('');
+}</code></pre>
+
+    <div class="info-box note">
+      <span class="icon">ℹ️</span>
+      <div><strong>Adding new products:</strong> Simply add a new object to the <code>products[]</code> array. The grid will automatically include it on next page load. No other changes required.</div>
+    </div>
+  </div>
+
+  <!-- 10. UI COMPONENTS -->
+  <div class="content-section">
+    <span class="section-anchor" id="ui-components"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🧩</span>
+      10. UI Components Reference
+    </h2>
+    <table>
+      <thead>
+        <tr><th>Component</th><th>Implementation</th><th>Key CSS</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Sticky Navbar</td><td>HTML <code>&lt;nav&gt;</code> with <code>position: sticky; top: 0;</code></td><td><code>z-index: 900</code></td></tr>
+        <tr><td>Cart Sidebar</td><td><code>position: fixed; right: -420px;</code> → transition to <code>right: 0</code></td><td><code>z-index: 1001</code></td></tr>
+        <tr><td>Cart Overlay</td><td><code>position: fixed; inset: 0;</code> with opacity transition</td><td><code>z-index: 1000</code></td></tr>
+        <tr><td>Hero Glows</td><td>CSS <code>::before</code> / <code>::after</code> pseudo-elements with radial gradients</td><td><code>pointer-events: none</code></td></tr>
+        <tr><td>Product Cards</td><td>Flexbox column with hover lift effect</td><td><code>translateY(-5px)</code></td></tr>
+        <tr><td>Toast Notification</td><td><code>position: fixed; bottom: 2rem;</code> opacity + translateY animation</td><td><code>z-index: 9999</code></td></tr>
+        <tr><td>Category Cards</td><td>CSS Grid 4-col with unique inline gradients per card</td><td><code>nth-child</code> selectors</td></tr>
+        <tr><td>Smooth Scroll</td><td><code>html { scroll-behavior: smooth; }</code> + anchor links</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 11. BROWSER COMPAT -->
+  <div class="content-section">
+    <span class="section-anchor" id="browser-compat"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🌐</span>
+      11. Browser Compatibility
+    </h2>
+    <p>All features used are widely supported in modern browsers. No polyfills required.</p>
+
+    <div class="compat-grid">
+      <div class="compat-item">
+        <span class="browser-icon">🟡</span>
+        <span class="browser-name">Chrome 90+</span>
+        <span class="compat-status">✓ Full Support</span>
+      </div>
+      <div class="compat-item">
+        <span class="browser-icon">🟠</span>
+        <span class="browser-name">Firefox 88+</span>
+        <span class="compat-status">✓ Full Support</span>
+      </div>
+      <div class="compat-item">
+        <span class="browser-icon">🔵</span>
+        <span class="browser-name">Safari 14+</span>
+        <span class="compat-status">✓ Full Support</span>
+      </div>
+      <div class="compat-item">
+        <span class="browser-icon">🔷</span>
+        <span class="browser-name">Edge 90+</span>
+        <span class="compat-status">✓ Full Support</span>
+      </div>
+      <div class="compat-item">
+        <span class="browser-icon">📱</span>
+        <span class="browser-name">Mobile</span>
+        <span class="compat-status">✓ Responsive</span>
+      </div>
+    </div>
+
+    <h3 class="sub-heading">Feature Browser Requirements</h3>
+    <table>
+      <thead><tr><th>Feature</th><th>API / Property</th><th>Min. Chrome</th></tr></thead>
+      <tbody>
+        <tr><td>CSS Custom Properties</td><td><code>var(--x)</code></td><td>49+</td></tr>
+        <tr><td>CSS Grid</td><td><code>display: grid</code></td><td>57+</td></tr>
+        <tr><td>CSS Flexbox</td><td><code>display: flex</code></td><td>29+</td></tr>
+        <tr><td>Template Literals</td><td><code>``</code> syntax</td><td>41+</td></tr>
+        <tr><td>Spread Operator</td><td><code>{...obj}</code></td><td>60+</td></tr>
+        <tr><td>Smooth Scroll</td><td><code>scroll-behavior: smooth</code></td><td>61+</td></tr>
+        <tr><td>CSS Transitions</td><td><code>transition</code></td><td>26+</td></tr>
+        <tr><td>Sticky Positioning</td><td><code>position: sticky</code></td><td>56+</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 12. PERFORMANCE -->
+  <div class="content-section">
+    <span class="section-anchor" id="performance"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🚀</span>
+      12. Performance Notes
+    </h2>
+
+    <table>
+      <thead><tr><th>Metric</th><th>Characteristic</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Initial Load</td><td>Single HTTP request</td><td>All HTML, CSS, JS in one file</td></tr>
+        <tr><td>Google Fonts</td><td>1 external CDN request</td><td>Cached after first load; optional</td></tr>
+        <tr><td>Product Images</td><td>Zero image requests</td><td>CSS gradients + emoji = no bandwidth</td></tr>
+        <tr><td>JavaScript</td><td>~130 lines, synchronous</td><td>No async, no dynamic imports</td></tr>
+        <tr><td>CSS</td><td>~500 lines, embedded</td><td>No FOUC, no render-blocking</td></tr>
+        <tr><td>DOM Re-renders</td><td>Full innerHTML replacement</td><td>Only on cart update (fast)</td></tr>
+        <tr><td>Animations</td><td>CSS-only</td><td>GPU-composited transforms (smooth 60fps)</td></tr>
+      </tbody>
+    </table>
+
+    <div class="info-box warn">
+      <span class="icon">⚠️</span>
+      <div><strong>Note on innerHTML:</strong> The cart and product rendering use <code>innerHTML</code> with template literals. This is fine for a prototype/demo but in a production app, consider sanitizing any user-provided content before rendering to prevent XSS.</div>
+    </div>
+  </div>
+
+  <!-- 13. HOW TO RUN -->
+  <div class="content-section">
+    <span class="section-anchor" id="how-to-run"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">▶️</span>
+      13. How to Run
+    </h2>
+
+    <h3 class="sub-heading">Option A — Direct File Open (Simplest)</h3>
+    <pre><code># macOS / Linux
+open "FIRST CLOTHING WEBSITE/index.html"
+
+# Windows
+start "" "FIRST CLOTHING WEBSITE\index.html"
+
+# Or: Right-click index.html → Open With → Your Browser</code></pre>
+
+    <h3 class="sub-heading">Option B — Local Development Server</h3>
+    <pre><code># Using Python (built-in on macOS/Linux)
+cd "FIRST CLOTHING WEBSITE"
+python3 -m http.server 8080
+# Then open: http://localhost:8080
+
+# Using Node.js (npx)
+npx serve "FIRST CLOTHING WEBSITE"
+# Then open the URL printed in terminal
+
+# Using VS Code
+# Install "Live Server" extension → Right-click index.html → "Open with Live Server"</code></pre>
+
+    <div class="info-box tip">
+      <span class="icon">💡</span>
+      <div>For a <strong>quick presentation demo</strong>, Option A (direct file open) is all you need. The website is fully functional without any server.</div>
+    </div>
+  </div>
+
+  <!-- 14. EXTENDING -->
+  <div class="content-section">
+    <span class="section-anchor" id="extending"></span>
+    <h2 class="section-heading">
+      <span class="heading-icon">🔧</span>
+      14. Extending the Project
+    </h2>
+
+    <h3 class="sub-heading">Adding a New Product</h3>
+    <pre><code>// In index.html, find the products[] array and add:
+{
+  id: 9,                         // Unique id (increment from last)
+  name: 'Agbada Formal Set',
+  category: "Men's Traditional",
+  desc: 'Full three-piece agbada in damask fabric.',
+  price: 95000,
+  oldPrice: 120000,              // null if no sale
+  badge: 'premium',              // 'sale' | 'new' | 'premium' | null
+  gradient: 'linear-gradient(145deg, #6a3093, #a044ff)',
+  icon: '🎩'
+}</code></pre>
+
+    <h3 class="sub-heading">Changing the Brand Colors</h3>
+    <pre><code>/* In the &lt;style&gt; block, update :root */
+:root {
+  --navy: #1B2838;    /* Change from dark navy to something else */
+  --gold: #FF6B35;    /* Change from gold to any accent color */
+}</code></pre>
+
+    <h3 class="sub-heading">Adding LocalStorage Persistence to Cart</h3>
+    <pre><code>// After updateCartUI(), add:
+localStorage.setItem('lagosLuxeCart', JSON.stringify(cart));
+
+// On page load (before renderProducts()), add:
+const saved = localStorage.getItem('lagosLuxeCart');
+if (saved) { cart = JSON.parse(saved); updateCartUI(); }</code></pre>
+
+    <h3 class="sub-heading">Future Enhancement Roadmap</h3>
+    <table>
+      <thead><tr><th>Feature</th><th>Effort</th><th>Technology</th></tr></thead>
+      <tbody>
+        <tr><td>Cart Persistence</td><td>Low</td><td>localStorage API</td></tr>
+        <tr><td>Product Filtering by Category</td><td>Low</td><td>JS Array.filter()</td></tr>
+        <tr><td>Product Search</td><td>Low</td><td>JS Array.filter() on name</td></tr>
+        <tr><td>Real Product Images</td><td>Low</td><td>Replace gradient + emoji with &lt;img&gt;</td></tr>
+        <tr><td>Payment Integration</td><td>Medium</td><td>Paystack or Flutterwave JS SDK</td></tr>
+        <tr><td>Backend / Database</td><td>High</td><td>Node.js + MongoDB or Supabase</td></tr>
+        <tr><td>User Authentication</td><td>High</td><td>Firebase Auth or Supabase Auth</td></tr>
+        <tr><td>CMS for Products</td><td>High</td><td>Sanity, Contentful, or Strapi</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</main>
+</body>
+</html>
