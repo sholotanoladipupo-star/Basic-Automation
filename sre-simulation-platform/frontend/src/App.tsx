@@ -1,0 +1,81 @@
+import { useState, useEffect } from 'react'
+import { useSimulation } from './hooks/useSimulation'
+import Home from './pages/Home'
+import Simulation from './pages/Simulation'
+import SessionHistory from './pages/SessionHistory'
+import Admin from './pages/Admin'
+import CandidatePortal from './pages/CandidatePortal'
+import SQLSimulation from './pages/SQLSimulation'
+import MonitoringSimulation from './pages/MonitoringSimulation'
+import CognitiveSimulation from './pages/CognitiveSimulation'
+import PostmortemSimulation from './pages/PostmortemSimulation'
+import AutomationSimulation from './pages/AutomationSimulation'
+import PreAssessmentBriefing from './components/PreAssessmentBriefing'
+
+type AppScreen = 'home' | 'history' | 'admin' | 'portal'
+
+export default function App() {
+  const [state, actions] = useSimulation()
+  const [appScreen, setAppScreen] = useState<AppScreen>('home')
+  const [briefingDone, setBriefingDone] = useState(false)
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    return (localStorage.getItem('sre-theme') as 'dark' | 'light') ?? 'dark'
+  })
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('light-mode', theme === 'light')
+    localStorage.setItem('sre-theme', theme)
+  }, [theme])
+
+  function toggleTheme() {
+    setTheme(t => (t === 'dark' ? 'light' : 'dark'))
+  }
+
+  // Simulation screens take over when active
+  if (state.screen === 'submitted' || state.screen === 'scorecard') {
+    return (
+      <div className="min-h-screen bg-[#0d1117] flex flex-col items-center justify-center font-mono px-4">
+        <div className="text-[#3fb950] text-5xl mb-6">✓</div>
+        <h1 className="text-2xl font-bold text-[#e6edf3] mb-3 tracking-tight">Exercise Submitted</h1>
+        <p className="text-[#8b949e] text-sm text-center max-w-sm mb-2">
+          Your session has been recorded. Your assessor will review your results.
+        </p>
+        {state.sessionEnded?.reason === 'time_limit' && (
+          <p className="text-[#d29922] text-xs font-bold mb-6">⏱ Time limit reached — your answers were auto-submitted.</p>
+        )}
+        <div className="mt-8 text-[#484f58] text-xs">
+          You may now close this window.
+        </div>
+      </div>
+    )
+  }
+  if (state.screen === 'simulation') {
+    if (!briefingDone) {
+      return <PreAssessmentBriefing sessionInfo={state.sessionInfo!} onReady={() => setBriefingDone(true)} />
+    }
+    const moduleType = state.sessionInfo?.module_type ?? 'incident'
+    if (moduleType === 'sql') return <SQLSimulation sessionInfo={state.sessionInfo!} />
+    if (moduleType === 'monitoring') return <MonitoringSimulation sessionInfo={state.sessionInfo!} />
+    if (moduleType === 'cognitive') return <CognitiveSimulation sessionInfo={state.sessionInfo!} />
+    if (moduleType === 'postmortem') return <PostmortemSimulation sessionInfo={state.sessionInfo!} />
+    if (moduleType === 'automation') return <AutomationSimulation sessionInfo={state.sessionInfo!} />
+    return <Simulation state={state} actions={actions} />
+  }
+
+  if (appScreen === 'history') return <SessionHistory onBack={() => setAppScreen('home')} />
+  if (appScreen === 'admin') return <Admin onBack={() => setAppScreen('home')} />
+  if (appScreen === 'portal') return <CandidatePortal onBack={() => setAppScreen('home')} />
+
+  return (
+    <Home
+      onStart={actions.connect}
+      connecting={state.connecting}
+      connectionError={state.connectionError}
+      onViewHistory={() => setAppScreen('history')}
+      onAdmin={() => setAppScreen('admin')}
+      onPortal={() => setAppScreen('portal')}
+      theme={theme}
+      onToggleTheme={toggleTheme}
+    />
+  )
+}
